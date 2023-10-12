@@ -1,0 +1,32 @@
+version: "3.5"
+services:
+  listig:
+    image: hengeb/${SERVICENAME}
+    restart: unless-stopped
+    container_name: ${SERVICENAME}
+    volumes:
+      - "./app:/usr/src/app/"
+      - "./config.yml:/usr/src/app/config.yml"
+    environment:
+      - LDAP_BIND_PASSWORD
+    depends_on:
+      - redis
+    networks:
+      - ${SERVICENAME}
+      - ldap
+
+  redis:
+    image: redis:alpine
+    container_name: ${SERVICENAME}-redis
+    restart: unless-stopped
+    volumes:
+      - "${VOLUMES_DIR}/redis:/data"
+    networks:
+      - ${SERVICENAME}
+
+networks:
+  ldap:
+    name: ldap
+    external: true
+  listig:
+    name: ${SERVICENAME}

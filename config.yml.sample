@@ -1,0 +1,34 @@
+# save as confiy.yml
+ldap:
+  host: ldap
+  bind-dn: cn=admin,dc=example,dc=com # required
+  bind-password: $LDAP_BIND_PASSWORD # required
+  dn: ou=groups,dc=example,dc=com # required
+  filter: "(objectClass=mailGroup)"
+  userFilter: "(objectClass=inetOrgPerson)"
+  # defaults:
+  # host: localhost
+  # port: 389
+  # filter: "(objectClass=*)"
+  # userFilter: "(objectClass=*)"
+mail:
+  host: imap.example.com
+  # defaults:
+  # type: imap
+  # host: "{domain}"
+  # folder: "INBOX"
+  # user: "{mail}"
+  # secure: "ssl"
+  # imap-host: "{host}"
+  # imap-user: "{user}"
+  # imap-secure: "{secure}"
+  # imap-port: 993 or 143
+  # smtp-host: "{host}"
+  # smtp-port: 465
+  # smtp-user: "{user}"
+  # smtp-secure: "{secure}"
+redis:
+  host: redis
+  # defaults:
+  # host: localhost
+  # port: 6379
