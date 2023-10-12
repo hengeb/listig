@@ -152,6 +152,10 @@ class App {
         $config = $this->parseMailConfig($list, $mailConfig);
 
         $password = $this->redis->get(strtolower($list['mail']));
+        if (!$password) {
+            echo "missing password for {$list['mail']}\n";
+            return;
+        }
 
         $inbox = new Mailbox(
             "{{$config['imap-host']}:{$config['imap-port']}/imap/{$config['imap-secure']}}{$config['folder']}",
