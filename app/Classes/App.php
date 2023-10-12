@@ -151,7 +151,7 @@ class App {
 
         $config = $this->parseMailConfig($list, $mailConfig);
 
-        $password = $this->redis->get($list['mail']);
+        $password = $this->redis->get(strtolower($list['mail']));
 
         $inbox = new Mailbox(
             "{{$config['imap-host']}:{$config['imap-port']}/imap/{$config['imap-secure']}}{$config['folder']}",

@@ -14,4 +14,4 @@ if ($argc !== 3) {
     EOT;
     exit(1);
 }
-$app->setPassword($argv[1], $argv[2]);
+$app->setPassword(strtolower($argv[1]), $argv[2]);
