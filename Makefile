@@ -1,7 +1,10 @@
 SERVICENAME=$(shell grep SERVICENAME .env | sed -e 's/^.\+=//' -e 's/^"//' -e 's/"$$//')
 
 .env:
-	$(error file .env is missing, see .env.sample)
+	$(error file .env is missing, see env.sample)
+
+config.yml:
+	$(error file config.yml is missing, see config.yml.sample)
 
 image:
 	@echo "(Re)building docker image"
@@ -12,11 +15,11 @@ rebuild:
 	docker build -t hengeb/$(SERVICENAME):latest .
 	make dev
 
-dev: .env
+dev: .env config.yml
 	@echo "Starting DEV Server"
 	docker-compose up -d --force-recreate --remove-orphans
 
-prod: image .env
+prod: image .env config.yml
 	@echo "Starting Production Server"
 	docker-compose up -d --force-recreate --remove-orphans $(SERVICENAME)
 
