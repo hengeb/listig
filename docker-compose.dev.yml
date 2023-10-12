@@ -1,0 +1,6 @@
+version: "3.5"
+services:
+  listig:
+    volumes:
+      - "./app:/usr/src/app/"
+      - "./config.yml:/usr/src/app/config.yml"

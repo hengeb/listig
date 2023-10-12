@@ -5,7 +5,6 @@ services:
     restart: unless-stopped
     container_name: ${SERVICENAME}
     volumes:
-      - "./app:/usr/src/app/"
       - "./config.yml:/usr/src/app/config.yml"
     environment:
       - LDAP_BIND_PASSWORD

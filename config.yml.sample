@@ -1,4 +1,5 @@
-# save as confiy.yml
+# edit and save as config.yml
+
 ldap:
   host: ldap
   bind-dn: cn=admin,dc=example,dc=com # required
@@ -6,11 +7,13 @@ ldap:
   dn: ou=groups,dc=example,dc=com # required
   filter: "(objectClass=mailGroup)"
   userFilter: "(objectClass=inetOrgPerson)"
+
   # defaults:
   # host: localhost
   # port: 389
   # filter: "(objectClass=*)"
   # userFilter: "(objectClass=*)"
+
 mail:
   host: imap.example.com
   # defaults:
@@ -27,6 +30,7 @@ mail:
   # smtp-port: 465
   # smtp-user: "{user}"
   # smtp-secure: "{secure}"
+
 redis:
   host: redis
   # defaults:

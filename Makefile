@@ -17,7 +17,7 @@ rebuild:
 
 dev: .env config.yml
 	@echo "Starting DEV Server"
-	docker-compose up -d --force-recreate --remove-orphans
+	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate --remove-orphans
 
 prod: image .env config.yml
 	@echo "Starting Production Server"
