@@ -168,9 +168,9 @@ class App {
 
         try {
             $mailsIds = $inbox->searchMailbox('ALL');
-        } catch(\PhpImap\Exception $ex) {
-            error_log("IMAP connection failed: " . $ex->getMessage());
-            die(1);
+        } catch(\PhpImap\Exceptions\ConnectionException $ex) {
+            echo "IMAP connection for {$list['mail']} failed: " . $ex->getMessage() . "\n";
+            return;
         }
 
         $outbox = null;
