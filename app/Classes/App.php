@@ -14,8 +14,11 @@ use PhpImap\Mailbox;
 class App {
     private array $configuration = [];
 
-    private ?RedisClient $redis = null;
-    private ?Ldap $ldapClient = null;
+    /** @var array<RedisClient> */
+    private array $redisClients = [];
+
+    /** @var array<Ldap> */
+    private array $ldapClients = [];
 
     function __construct(string $configfile)
     {
@@ -31,25 +34,66 @@ class App {
 
         $this->configuration = $configuration;
 
-        $this->initRedis();
+        // set some defaults
+
+        if (!isset($this->configuration['ldap'])) {
+            $this->configuration['ldap'] = [];
+        }
+        if (!isset($this->configuration['redis'])) {
+            $this->configuration['redis'] = [];
+        }
+        if (!isset($this->configuration['mail'])) {
+            $this->configuration['mail'] = ['type' => 'imap'];
+        }
+
+        foreach ($this->configuration as $configName => &$config) {
+            $config['config-name'] = $configName;
+            if (!isset($config['type'])) {
+                $config['type'] = $configName;
+            }
+        }
     }
 
-    private function initRedis(): void
+    private function getRedisClient(string $configName): RedisClient
     {
-        $config = [...[
-            'host' => 'localhost',
-            'port' => 6379,
-        ], ...($this->configuration['redis'] ?? [])];
-
-        $this->redis = new RedisClient($config);
+        if (!isset($this->redisClients[$configName])) {
+            $config = [...[
+                'host' => 'localhost',
+                'port' => 6379,
+            ], ... $this->configuration[$configName] ?? []];
+            $this->redisClients[$configName] = new RedisClient($config);
+        }
+        return $this->redisClients[$configName];
     }
 
     public function run(): void
     {
-        $lists = $this->getListsFromLdap($this->configuration['ldap']);
+        $listConfigurations = array_filter($this->configuration, fn($c) => $c['type'] === 'lists') ?: [[]];
+        foreach ($listConfigurations as $configName => $config) {
+            $config = [...[
+                'list-provider' => 'ldap',
+                'rewrite-subject' => "[{list-name}] {subject}",
+                'rewrite-sender-name' => "{sender-name}",
+                'mail-configuration' => 'mail',
+            ], ... $config];
 
-        foreach ($lists as $list) {
-            $this->processList($list, $this->configuration['mail'] ?? []);
+            if (empty($this->configuration[$config['list-provider']])) {
+                throw new \UnexpectedValueException($configName . ': list-provider setting is invalid');
+            }
+            $listProviderConfig = $this->configuration[$config['list-provider']];
+
+            switch ($listProviderConfig['type']) {
+                case 'ldap':
+                    $lists = $this->getListsFromLdap($listProviderConfig);
+                    break;
+                default:
+                    throw new \UnexpectedValueException('not implemented');
+                    break;
+            }
+
+            foreach ($lists as $list) {
+                $this->processList([... $config, ... $list]);
+            }
         }
     }
 
@@ -61,7 +105,19 @@ class App {
             'port' => 389,
             'filter' => '(objectClass=*)',
             'userFilter' => '(objectClass=*)',
+            'password-provider' => 'redis',
         ], ...$ldapConfig];
+
+        if (empty($this->configuration[$config['password-provider']])) {
+            throw new \UnexpectedValueException($configName . ': password-provider setting is invalid');
+        }
+        $passwordProviderConfig = $this->configuration[$config['password-provider']];
+
+        if ($passwordProviderConfig['type'] !== 'redis') {
+            throw new \UnexpectedValueException('not implemented');
+        }
+
+        $redis = $this->getRedisClient($config['password-provider']);
 
         $this->ldap = Ldap::create('ext_ldap', [
             'host' => $config['host'],
@@ -75,10 +131,19 @@ class App {
         $listsEntries = $this->ldap->query($ldapConfig['dn'], $ldapConfig['filter'])->execute();
         foreach ($listsEntries as $listEntry) {
             $listName = $listEntry->getAttribute('cn')[0];
+            $listAddress = $listEntry->getAttribute('mail')[0];
+
+            $listPassword = $redis->get(strtolower($listAddress));
+            if (!$listPassword) {
+                echo "missing password for {$listAddress}\n";
+                continue;
+            }
+
             $lists[$listName] = [
-                'name' => $listName,
-                'mail' => $mail = $listEntry->getAttribute('mail')[0],
-                'domain' => preg_replace('/^.*@/', '', $mail),
+                'list-name' => $listName,
+                'list-address' => $listAddress,
+                'list-password' => $listPassword,
+                'domain' => preg_replace('/^.*@/', '', $listAddress),
                 'owners' => array_map(
                     fn($ownerDn) => $this->ldap->query($ownerDn, $ldapConfig['userFilter'])->execute()[0]->getAttribute('mail')[0],
                     $listEntry->getAttribute('owner')
@@ -102,24 +167,30 @@ class App {
         return $lists;
     }
 
-    private function parseMailConfig(array $list, array $mailConfig): array
+    private function getMailConfig(array $list): array
     {
+        if (empty($this->configuration[$list['mail-configuration']])) {
+            throw new \UnexpectedValueException($list['list-name'] . ': mail-configuration is invalid');
+        }
         // set defaults
         $config = [...[
             'type' => 'imap',
             'host' => '{domain}',
             'folder' => 'INBOX',
-            'user' => '{mail}',
+            'user' => '{list-address}',
+            'password' => '{list-password}',
             'secure' => 'ssl',
             'imap-host' => '{host}',
             'imap-user' => '{user}',
+            'imap-password' => '{password}',
             'imap-secure' => '{secure}',
             'imap-port' => null,
             'smtp-host' => '{host}',
             'smtp-port' => null,
             'smtp-user' => '{user}',
+            'smtp-password' => '{password}',
             'smtp-secure' => '{secure}',
-        ], ...$mailConfig];
+        ], ...$this->configuration[$list['mail-configuration']]];
 
         $config = $this->replaceConfigVariables($config, $list);
 
@@ -141,15 +212,13 @@ class App {
         return $config;
     }
 
-    private function replaceConfigVariables(array $config, array ...$contexts): array
+    private function replaceConfigVariables(mixed $config, array ...$contexts): mixed
     {
-        $contexts[] = $this->configuration;
-
-        foreach ($config as &$setting) {
-            if (!is_string($setting)) {
-                continue;
+        if (!is_array($config)) {
+            if (!is_string($config)) {
+                return $config;
             }
-            $setting = preg_replace_callback('/\{([a-z_-]+)\}/', function($m) use ($config, $contexts) {
+            return preg_replace_callback('/\{([a-z_-]+)\}/', function($m) use ($contexts) {
                 if (!empty($config[$m[1]]) && !is_array($config[$m[1]])) {
                     return $config[$m[1]];
                 }
@@ -159,30 +228,30 @@ class App {
                     }
                 }
                 return $m[0];
-            }, $setting);
+            }, $config);
+        }
+
+        $contexts[] = $this->configuration;
+
+        foreach ($config as &$setting) {
+            $setting = $this->replaceConfigVariables($setting, $config, ... $contexts);
         }
 
         return $config;
     }
 
-    private function processList(array $list, array $mailConfig): void
+    private function processList(array $list): void
     {
         if (!$list['members']) {
             return;
         }
 
-        $config = $this->parseMailConfig($list, $mailConfig);
-
-        $password = $this->redis->get(strtolower($list['mail']));
-        if (!$password) {
-            echo "missing password for {$list['mail']}\n";
-            return;
-        }
+        $mailConfig = $this->getMailConfig($list);
 
         $inbox = new Mailbox(
-            "{{$config['imap-host']}:{$config['imap-port']}/imap/{$config['imap-secure']}}{$config['folder']}",
-            $config['imap-user'],
-            $password
+            "{{$mailConfig['imap-host']}:{$mailConfig['imap-port']}/imap/{$mailConfig['imap-secure']}}{$mailConfig['folder']}",
+            $mailConfig['imap-user'],
+            $mailConfig['imap-password']
         );
 
          // expunge deleted mails upon mailbox close
@@ -191,7 +260,7 @@ class App {
         try {
             $mailsIds = $inbox->searchMailbox('ALL');
         } catch(\PhpImap\Exceptions\ConnectionException $ex) {
-            echo "IMAP connection for {$list['mail']} failed: " . $ex->getMessage() . "\n";
+            echo "IMAP connection for {$list['list-address']} failed: " . $ex->getMessage() . "\n";
             return;
         }
 
@@ -201,30 +270,28 @@ class App {
 
         $outbox = new PHPMailer();
         $outbox->isSMTP();
-        $outbox->Host = $config['smtp-host'];
-        $outbox->Port = $config['smtp-port'];
+        $outbox->Host = $mailConfig['smtp-host'];
+        $outbox->Port = $mailConfig['smtp-port'];
         $outbox->SMTPAuth = true;
-        $outbox->SMTPSecure = $config['smtp-secure'];
+        $outbox->SMTPSecure = $mailConfig['smtp-secure'];
         $outbox->CharSet = "UTF-8";
         $outbox->AllowEmpty = true;
 
-        $outbox->Username = $config['smtp-user'];
-        $outbox->Password = $password;
+        $outbox->Username = $mailConfig['smtp-user'];
+        $outbox->Password = $mailConfig['smtp-password'];
 
         foreach ($mailsIds as $mailId) {
             $mail = $inbox->getMail($mailId);
-            $reportToOwners = false;
 
-            $outbox->setFrom($list['mail'], $mail->senderName);
-            $outbox->Subject = $mail->subject;
+            $subject = $this->replaceConfigVariables($list['rewrite-subject'], ['subject' => $mail->subject], $list);
+            $senderName = $this->replaceConfigVariables($list['rewrite-sender-name'], ['sender-name' => $mail->senderName], $list);
+
+            $outbox->setFrom($list['list-address'], $senderName);
+            $outbox->Subject = $subject;
             $outbox->MessageID = $mail->messageId;
             $outbox->MessageDate = $mail->headers->date;
 
             $customHeaders = $this->getCustomHeaders($mail, $inbox, $list);
-
-            if (in_array(['Auto-Submitted', 'auto-replied'], $customHeaders, true)) {
-                $reportToOwners = true;
-            }
 
             if (!in_array('Reply-To', array_column($customHeaders, 0))) {
                 $outbox->addReplyTo($mail->senderAddress, $mail->senderName);
@@ -233,7 +300,9 @@ class App {
             $this->copyBody($mail, $outbox);
             $this->copyAttachments($mail, $outbox);
 
+            $reportToOwners = in_array(['Auto-Submitted', 'auto-replied'], $customHeaders, true);
             $recipientAddresses = $reportToOwners ? $list['owners'] : $list['members'];
+
             $isSent = false;
             foreach ($recipientAddresses as $recipientAddress) {
                 $outbox->clearAddresses();
@@ -347,9 +416,9 @@ class App {
             $customHeaders[] = ['X-Original-Sender', $mail->senderAddress];
         }
         if (!in_array('List-Id', array_column($customHeaders, 0))) {
-            $customHeaders[] = ['List-Id', '<' . $list['mail'] . '>'];
-            $customHeaders[] = ['List-Post', '<mailto:' . $list['mail'] . '>'];
-            $customHeaders[] = ['Sender', '<' . $list['mail'] . '>'];
+            $customHeaders[] = ['List-Id', '<' . $list['list-address'] . '>'];
+            $customHeaders[] = ['List-Post', '<mailto:' . $list['list-address'] . '>'];
+            $customHeaders[] = ['Sender', '<' . $list['list-address'] . '>'];
             // TODO unsubscribe...
         }
 
@@ -420,8 +489,9 @@ class App {
         }
     }
 
-    public function setPassword($mail, $password): void
+    public function setPassword($mail, $password, $redisConfigName = 'redis'): void
     {
-        $this->redis->set($mail, $password);
+        $redis = $this->getRedisClient($redisConfigName);
+        $redis->set($mail, $password);
     }
 }
