@@ -280,6 +280,7 @@ class App {
                 'MIME-Version',
                 'Date',
                 'X-Received',
+                'Received',
                 'Received-Spf',
                 'Return-Path',
                 'Delivered-To',
@@ -301,7 +302,6 @@ class App {
             }
 
             if (!in_array($headerName, [
-                'Received',
                 'Cc',
                 'X-No-Archive',
                 'Mailing-List',
