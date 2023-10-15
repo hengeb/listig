@@ -17,13 +17,15 @@ class App {
     private ?RedisClient $redis = null;
     private ?Ldap $ldapClient = null;
 
-    function __construct($configfile)
+    function __construct(string $configfile)
     {
         $configuration = Yaml::parse(file_get_contents($configfile));
 
         // replace environment variables
         array_walk_recursive($configuration, function(&$value) {
-            if (!is_string($value)) return;
+            if (!is_string($value)) {
+                return;
+            }
             $value = preg_replace_callback('/\{\$([A-Z_]+)\}|\$([A-Z_]+)/', fn($m) => getenv($m[1] ?: $m[2]) ?: $m[0], $value);
         });
 
@@ -51,7 +53,7 @@ class App {
         }
     }
 
-    private function getListsFromLdap($ldapConfig): array
+    private function getListsFromLdap(array $ldapConfig): array
     {
         // apply defaults
         $config = [...[
@@ -85,7 +87,9 @@ class App {
             ];
 
             foreach ($listEntry->getAttribute('member') as $memberDn) {
-                if ($memberDn === $ldapConfig['bind-dn']) continue;
+                if ($memberDn === $ldapConfig['bind-dn']) {
+                    continue;
+                }
                 try {
                     $userEntry = $this->ldap->query($memberDn, $ldapConfig['userFilter'])->execute()[0];
                 } catch (\Exception $e) {
@@ -117,27 +121,19 @@ class App {
             'smtp-secure' => '{secure}',
         ], ...$mailConfig];
 
-        // replace variables
-        foreach ($config as &$setting) {
-            if (!is_string($setting)) continue;
-            $setting = preg_replace_callback('/\{([a-z_-]+)\}/', function($m) use (&$list, &$config) {
-                // priority of contexts: mail provider settings > list settings > global settings
-                if (!empty($config[$m[1]])) return $config[$m[1]];
-                if (!empty($list[$m[1]])) return $list[$m[1]];
-                if (!empty($this->configuration[$m[1]])) return $this->configuration[$m[1]];
-                return $m[0];
-            }, $setting);
+        $config = $this->replaceConfigVariables($config, $list);
+
+        if ($config['type'] !== 'imap'
+            || !in_array($config['imap-secure'], ['ssl', 'tls'], true)
+            || !in_array($config['smtp-secure'], ['ssl'], true)
+        ) {
+            throw new \UnexpectedValueException('not implemented');
         }
 
-        if ($config['type'] !== 'imap') throw new \UnexpectedValueException('not implemented');
-
-        if (!in_array($config['imap-secure'], ['ssl', 'tls'], true)) throw new \UnexpectedValueException('not implemented');
         $config['imap-port'] = $config['imap-port'] ?: match($config['imap-secure']) {
             'ssl' => 993,
             'tls' => 143,
         };
-
-        if ($config['smtp-secure'] !== 'ssl') throw new \UnexpectedValueException('not implemented');
         $config['smtp-port'] = $config['smtp-port'] ?: match($config['smtp-secure']) {
             'ssl' => 465,
         };
@@ -145,9 +141,35 @@ class App {
         return $config;
     }
 
+    private function replaceConfigVariables(array $config, array ...$contexts): array
+    {
+        $contexts[] = $this->configuration;
+
+        foreach ($config as &$setting) {
+            if (!is_string($setting)) {
+                continue;
+            }
+            $setting = preg_replace_callback('/\{([a-z_-]+)\}/', function($m) use ($config, $contexts) {
+                if (!empty($config[$m[1]]) && !is_array($config[$m[1]])) {
+                    return $config[$m[1]];
+                }
+                foreach ($contexts as &$context) {
+                    if (!empty($context[$m[1]]) && !is_array($context[$m[1]])) {
+                        return $context[$m[1]];
+                    }
+                }
+                return $m[0];
+            }, $setting);
+        }
+
+        return $config;
+    }
+
     private function processList(array $list, array $mailConfig): void
     {
-        if (!$list['members']) return;
+        if (!$list['members']) {
+            return;
+        }
 
         $config = $this->parseMailConfig($list, $mailConfig);
 
@@ -173,23 +195,25 @@ class App {
             return;
         }
 
-        $outbox = null;
+        if (!$mailsIds) {
+            return;
+        }
+
+        $outbox = new PHPMailer();
+        $outbox->isSMTP();
+        $outbox->Host = $config['smtp-host'];
+        $outbox->Port = $config['smtp-port'];
+        $outbox->SMTPAuth = true;
+        $outbox->SMTPSecure = $config['smtp-secure'];
+        $outbox->CharSet = "UTF-8";
+        $outbox->AllowEmpty = true;
+
+        $outbox->Username = $config['smtp-user'];
+        $outbox->Password = $password;
 
         foreach ($mailsIds as $mailId) {
             $mail = $inbox->getMail($mailId);
             $reportToOwners = false;
-
-            $outbox = new PHPMailer();
-            $outbox->isSMTP();
-            $outbox->Host = $config['smtp-host'];
-            $outbox->Port = $config['smtp-port'];
-            $outbox->SMTPAuth = true;
-            $outbox->SMTPSecure = $config['smtp-secure'];
-            $outbox->CharSet = "UTF-8";
-            $outbox->AllowEmpty = true;
-
-            $outbox->Username = $config['smtp-user'];
-            $outbox->Password = $password;
 
             $outbox->setFrom($list['mail'], $mail->senderName);
             $outbox->Subject = $mail->subject;
@@ -210,6 +234,7 @@ class App {
             $this->copyAttachments($mail, $outbox);
 
             $recipientAddresses = $reportToOwners ? $list['owners'] : $list['members'];
+            $isSent = false;
             foreach ($recipientAddresses as $recipientAddress) {
                 $outbox->clearAddresses();
                 $outbox->addAddress($recipientAddress, $recipientAddress);
@@ -221,11 +246,15 @@ class App {
                 $outbox->addCustomHeader('X-Forwarded-For', $recipientAddress);
 
                 if ($outbox->send()) {
-                    $inbox->deleteMail($mailId);
+                    $isSent = true;
                 } else {
                     echo $outbox->ErrorInfo . "\n";
-                    exit;
                 }
+            }
+
+            // message could be sent at least to one recipient
+            if ($isSent) {
+                $inbox->deleteMail($mailId);
             }
         }
     }
@@ -242,13 +271,39 @@ class App {
                 $headerName = 'X-Original-To';
             }
 
+            // ignore headers that are handled elsewhere or shall not be copied
             if (in_array($headerName, [
-                'List-Id',
-                'List-Help',
-                'List-Unsubscribe',
+                'Subject',
+                'From',
+                'Message-ID',
+                'Content-Type',
+                'MIME-Version',
+                'Date',
+                'X-Received',
+                'Received-Spf',
+                'Return-Path',
+                'Delivered-To',
+                'Authentication-Results',
+                'Dkim-Signature',
+                'Content-Transfer-Encoding',
+                'X-Gm-Message-State',
+                'X-Ppp-Message-Id',
+                'X-Ppp-Vhost',
+                'X-Originating-Ip',
+                'X-Recommended-Action',
+                'X-Filter-Id',
+            ], true)
+            || str_starts_with($headerName, 'X-Spam')
+            || str_starts_with($headerName, 'X-Google-')
+            || str_starts_with($headerName, 'Arc-')
+            ) {
+                continue;
+            }
+
+            if (!in_array($headerName, [
+                'Received',
+                'Cc',
                 'X-No-Archive',
-                'List-Post',
-                'List-Subscribe',
                 'Mailing-List',
                 'Sender',
                 'X-Course-Id',
@@ -263,7 +318,6 @@ class App {
                 'Auto-Submitted',
                 'X-Forwarded-Message-Id',
                 'References',
-                'Cc',
                 'Comments',
                 'Keywords',
                 'Disposition-Notification-To',
@@ -276,48 +330,14 @@ class App {
                 'X-Original-Sender',
                 'X-Original-To',
                 'X-Report-Abuse-To',
-            ], true)) {
-                $customHeaders[] = [$headerName, $headerValue];
-            } elseif (!in_array($headerName, [
-                // ignore headers that are handled elsewhere or shall not be copied
-                'Subject',
-                'From',
-                'Message-ID',
-                'Content-Type',
-                'MIME-Version',
-                'Date',
-                'Received',
-                'X-Received',
-                'Return-Path',
-                'Delivered-To',
-                'X-Spam-Level',
-                'X-Spamd-Bar',
-                'X-Spam-Checker-Version',
-                'X-Spam-Status',
-                'X-Spam',
-                'Authentication-Results',
-                'Dkim-Signature',
-                'Content-Transfer-Encoding',
-                'Arc-Message-Signature',
-                'Arc-Authentication-Results',
-                'Arc-Seal',
-                'X-Google-Dkim-Signature',
-                'X-Gm-Message-State',
-                'X-Google-Smtp-Source',
-                'X-Ppp-Message-Id',
-                'X-Ppp-Vhost',
-                'X-Originating-Ip',
-                'X-Spampanel-Domain',
-                'X-Spampanel-Username',
-                'X-Spampanel-Outgoing-Class',
-                'X-Spampanel-Outgoing-Evidence',
-                'X-Recommended-Action',
-                'X-Filter-Id',
-                'Received-Spf',
-            ], true)) {
+                'X-Mailer',
+            ], true)
+            && !str_starts_with($headerName, 'List-')
+            ) {
                 echo "copy unknown header: $headerName: $headerValue\n";
-                $customHeaders[] = [$headerName, $headerValue];
             }
+
+            $customHeaders[] = [$headerName, $headerValue];
         }
 
         if (!in_array('X-Original-From', array_column($customHeaders, 0))) {
@@ -338,11 +358,20 @@ class App {
 
     private function parseHeaders(string $header, \PhpImap\Mailbox $inbox): array
     {
-        $header = str_replace("\r\n", "\n", $header);
-        $header = str_replace("\n ", " ", trim($header));
-        $header = str_replace("\n\t", " ", trim($header));
-        $headers = array_map(fn($line) => explode(':', $line, 2), array_filter(explode("\n", trim($header))));
-        return array_map(fn($pair) => [$this->getCanonicalHeaderName($pair[0]), $inbox->decodeMimeStr(trim($pair[1]))], $headers);
+        $header = str_replace("\r\n", "\n", trim($header));
+        $header = str_replace("\n ", " ", $header);
+        $header = str_replace("\n\t", " ", $header);
+        $headers = array_map(
+            fn($line) => explode(':', $line, 2),
+            array_filter(explode("\n", $header))
+        );
+        return array_map(
+            fn($pair) => [
+                $this->getCanonicalHeaderName($pair[0]),
+                $inbox->decodeMimeStr(trim($pair[1]))
+            ],
+            $headers
+        );
     }
 
     private function getCanonicalHeaderName(string $headerName): string
