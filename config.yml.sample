@@ -1,5 +1,12 @@
 # edit and save as config.yml
 
+lists:
+  # defaults:
+  list-provider: ldap
+  mail-configuration: mail
+  rewrite-subject: "[{list-name}] {subject}"
+  rewrite-sender-name: "{sender-name}"
+
 ldap:
   host: ldap
   bind-dn: cn=admin,dc=example,dc=com # required
@@ -7,12 +14,13 @@ ldap:
   dn: ou=groups,dc=example,dc=com # required
   filter: "(objectClass=mailGroup)"
   userFilter: "(objectClass=inetOrgPerson)"
+  password-provider: redis
 
   # defaults:
   # host: localhost
   # port: 389
-  # filter: "(objectClass=*)"
-  # userFilter: "(objectClass=*)"
+  # filter: "(objectClass=mailGroup)"
+  # userFilter: "(objectClass=inetOrgPerson)"
 
 mail:
   host: imap.example.com
@@ -20,15 +28,18 @@ mail:
   # type: imap
   # host: "{domain}"
   # folder: "INBOX"
-  # user: "{mail}"
+  # user: "{list-address}"
+  # password: "{list-password}"
   # secure: "ssl"
   # imap-host: "{host}"
   # imap-user: "{user}"
+  # imap-password: "{password}"
   # imap-secure: "{secure}"
   # imap-port: 993 or 143
   # smtp-host: "{host}"
   # smtp-port: 465
   # smtp-user: "{user}"
+  # smtp-password: "{password}"
   # smtp-secure: "{secure}"
 
 redis:

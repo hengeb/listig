@@ -29,7 +29,7 @@ RUN set -ex \
   && ln -s /usr/bin/php82 /usr/bin/php \
   && true
 
-COPY --chown=nobody ./app .
+COPY --chown=nobody ./src .
 
 RUN set -ex \
   && chmod u+x loop.sh \

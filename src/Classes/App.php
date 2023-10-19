@@ -66,6 +66,36 @@ class App {
         return $this->redisClients[$configName];
     }
 
+    private function getLdapConfig(string $configName): array
+    {
+        return [...[
+            'config-name' => 'ldap',
+            'type' => 'ldap',
+            'host' => 'localhost',
+            'port' => 389,
+            'filter' => '(objectClass=mailGroup)',
+            'userFilter' => '(objectClass=inetOrgPerson)',
+            'password-provider' => 'redis',
+        ], ...$this->configuration[$configName] ?? []];
+    }
+
+    private function getLdapClient(array|string $config): Ldap
+    {
+        if (!is_array($config)) {
+            $config = $this->getLdapConfig($config);
+        }
+        $configName = $config['config-name'];
+        if (!isset($this->ldapClients[$configName])) {
+            $this->ldapClients[$configName] = Ldap::create('ext_ldap', [
+                'host' => $config['host'],
+                'port' => $config['port']
+            ]);
+            $this->ldapClients[$configName]->bind($config['bind-dn'], $config['bind-password']);
+
+        }
+        return $this->ldapClients[$configName];
+    }
+
     public function run(): void
     {
         $listConfigurations = array_filter($this->configuration, fn($c) => $c['type'] === 'lists') ?: [[]];
@@ -80,11 +110,10 @@ class App {
             if (empty($this->configuration[$config['list-provider']])) {
                 throw new \UnexpectedValueException($configName . ': list-provider setting is invalid');
             }
-            $listProviderConfig = $this->configuration[$config['list-provider']];
 
-            switch ($listProviderConfig['type']) {
+            switch ($this->configuration[$config['list-provider']]['type']) {
                 case 'ldap':
-                    $lists = $this->getListsFromLdap($listProviderConfig);
+                    $lists = $this->getListsFromLdap($config['list-provider']);
                     break;
                 default:
                     throw new \UnexpectedValueException('not implemented');
@@ -97,38 +126,24 @@ class App {
         }
     }
 
-    private function getListsFromLdap(array $ldapConfig): array
+    private function getListsFromLdap(string $ldapConfigName): array
     {
-        // apply defaults
-        $config = [...[
-            'host' => 'localhost',
-            'port' => 389,
-            'filter' => '(objectClass=*)',
-            'userFilter' => '(objectClass=*)',
-            'password-provider' => 'redis',
-        ], ...$ldapConfig];
+        $ldapConfig = $this->getLdapConfig($ldapConfigName);
+        $ldap = $this->getLdapClient($ldapConfig);
 
-        if (empty($this->configuration[$config['password-provider']])) {
-            throw new \UnexpectedValueException($configName . ': password-provider setting is invalid');
+        if (empty($this->configuration[$ldapConfig['password-provider']])) {
+            throw new \UnexpectedValueException($ldapConfigName . ': password-provider setting is invalid');
         }
-        $passwordProviderConfig = $this->configuration[$config['password-provider']];
+        $passwordProviderConfig = $this->configuration[$ldapConfig['password-provider']];
 
         if ($passwordProviderConfig['type'] !== 'redis') {
             throw new \UnexpectedValueException('not implemented');
         }
-
-        $redis = $this->getRedisClient($config['password-provider']);
-
-        $this->ldap = Ldap::create('ext_ldap', [
-            'host' => $config['host'],
-            'port' => $config['port']
-        ]);
-
-        $this->ldap->bind($config['bind-dn'], $config['bind-password']);
+        $redis = $this->getRedisClient($ldapConfig['password-provider']);
 
         $lists = [];
 
-        $listsEntries = $this->ldap->query($ldapConfig['dn'], $ldapConfig['filter'])->execute();
+        $listsEntries = $ldap->query($ldapConfig['dn'], $ldapConfig['filter'])->execute();
         foreach ($listsEntries as $listEntry) {
             $listName = $listEntry->getAttribute('cn')[0];
             $listAddress = $listEntry->getAttribute('mail')[0];
@@ -145,7 +160,7 @@ class App {
                 'list-password' => $listPassword,
                 'domain' => preg_replace('/^.*@/', '', $listAddress),
                 'owners' => array_map(
-                    fn($ownerDn) => $this->ldap->query($ownerDn, $ldapConfig['userFilter'])->execute()[0]->getAttribute('mail')[0],
+                    fn($ownerDn) => $ldap->query($ownerDn, $ldapConfig['userFilter'])->execute()[0]->getAttribute('mail')[0],
                     $listEntry->getAttribute('owner')
                 ),
                 'members' => [],
@@ -156,7 +171,7 @@ class App {
                     continue;
                 }
                 try {
-                    $userEntry = $this->ldap->query($memberDn, $ldapConfig['userFilter'])->execute()[0];
+                    $userEntry = $ldap->query($memberDn, $ldapConfig['userFilter'])->execute()[0];
                 } catch (\Exception $e) {
                     continue;
                 }
