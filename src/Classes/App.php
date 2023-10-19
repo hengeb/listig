@@ -6,8 +6,6 @@ namespace Hengeb\Listig;
 use Symfony\Component\Yaml\Yaml;
 use Predis\Client as RedisClient;
 use Symfony\Component\Ldap\Ldap;
-use Symfony\Component\Ldap\Exception\InvalidCredentialsException;
-use Symfony\Component\Ldap\Entry as LdapEntry;
 use PHPMailer\PHPMailer\PHPMailer;
 use PhpImap\Mailbox;
 
@@ -182,7 +180,7 @@ class App {
         return $lists;
     }
 
-    private function getMailConfig(array $list): array
+    private function getMailServerConfig(array $list): array
     {
         if (empty($this->configuration[$list['mail-configuration']])) {
             throw new \UnexpectedValueException($list['list-name'] . ': mail-configuration is invalid');
@@ -234,11 +232,11 @@ class App {
                 return $config;
             }
             return preg_replace_callback('/\{([a-z_-]+)\}/', function($m) use ($contexts) {
-                if (!empty($config[$m[1]]) && !is_array($config[$m[1]])) {
+                if (isset($config[$m[1]]) && !is_array($config[$m[1]])) {
                     return $config[$m[1]];
                 }
                 foreach ($contexts as &$context) {
-                    if (!empty($context[$m[1]]) && !is_array($context[$m[1]])) {
+                    if (isset($context[$m[1]]) && !is_array($context[$m[1]])) {
                         return $context[$m[1]];
                     }
                 }
@@ -261,12 +259,12 @@ class App {
             return;
         }
 
-        $mailConfig = $this->getMailConfig($list);
+        $mailServerConfig = $this->getMailServerConfig($list);
 
         $inbox = new Mailbox(
-            "{{$mailConfig['imap-host']}:{$mailConfig['imap-port']}/imap/{$mailConfig['imap-secure']}}{$mailConfig['folder']}",
-            $mailConfig['imap-user'],
-            $mailConfig['imap-password']
+            "{{$mailServerConfig['imap-host']}:{$mailServerConfig['imap-port']}/imap/{$mailServerConfig['imap-secure']}}{$mailServerConfig['folder']}",
+            $mailServerConfig['imap-user'],
+            $mailServerConfig['imap-password']
         );
 
          // expunge deleted mails upon mailbox close
@@ -285,21 +283,26 @@ class App {
 
         $outbox = new PHPMailer();
         $outbox->isSMTP();
-        $outbox->Host = $mailConfig['smtp-host'];
-        $outbox->Port = $mailConfig['smtp-port'];
+        $outbox->Host = $mailServerConfig['smtp-host'];
+        $outbox->Port = $mailServerConfig['smtp-port'];
         $outbox->SMTPAuth = true;
-        $outbox->SMTPSecure = $mailConfig['smtp-secure'];
+        $outbox->SMTPSecure = $mailServerConfig['smtp-secure'];
+        $outbox->SMTPKeepAlive = true;
         $outbox->CharSet = "UTF-8";
         $outbox->AllowEmpty = true;
 
-        $outbox->Username = $mailConfig['smtp-user'];
-        $outbox->Password = $mailConfig['smtp-password'];
+        $outbox->Username = $mailServerConfig['smtp-user'];
+        $outbox->Password = $mailServerConfig['smtp-password'];
 
         foreach ($mailsIds as $mailId) {
             $mail = $inbox->getMail($mailId);
 
-            $subject = $this->replaceConfigVariables($list['rewrite-subject'], ['subject' => $mail->subject], $list);
-            $senderName = $this->replaceConfigVariables($list['rewrite-sender-name'], ['sender-name' => $mail->senderName], $list);
+            $mailConfig = [
+                'subject' => $mail->subject,
+                'sender-name' => $mail->senderName,
+            ];
+            $subject = $this->replaceConfigVariables($list['rewrite-subject'], $mailConfig, $list);
+            $senderName = $this->replaceConfigVariables($list['rewrite-sender-name'], $mailConfig, $list);
 
             $outbox->setFrom($list['list-address'], $senderName);
             $outbox->Subject = $subject;
