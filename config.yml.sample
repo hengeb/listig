@@ -1,11 +1,14 @@
 # edit and save as config.yml
 
 lists:
+  type: list-collection
+
   # defaults:
-  list-provider: ldap
-  mail-configuration: mail
-  subject-prefix: "[{list-name}] "
-  rewrite-sender-name: "{sender-name}"
+  # list-provider: ldap
+  # mail-configuration: mail
+  # list-label: "{list-name}"
+  # subject-prefix: "[{list-label}] "
+  # rewrite-sender-name: "{sender-name}"
 
 ldap:
   host: ldap

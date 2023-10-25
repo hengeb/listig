@@ -96,13 +96,14 @@ class App {
 
     public function run(): void
     {
-        $listConfigurations = array_filter($this->configuration, fn($c) => $c['type'] === 'lists') ?: [[]];
+        $listConfigurations = array_filter($this->configuration, fn($c) => $c['type'] === 'list-collection') ?: [[]];
         foreach ($listConfigurations as $configName => $config) {
             $config = [...[
                 'list-provider' => 'ldap',
-                'subject-prefix' => "[{list-name}] ",
+                'subject-prefix' => "[{list-label}] ",
                 'rewrite-sender-name' => "{sender-name}",
                 'mail-configuration' => 'mail',
+                'list-label' => '{list-name}',
             ], ... $config];
 
             if (empty($this->configuration[$config['list-provider']])) {
@@ -163,6 +164,21 @@ class App {
                 ),
                 'members' => [],
             ];
+
+            // set list config variables from description attribute(s)
+            foreach ($listEntry->getAttribute('description') ?? [] as $description) {
+                // description attribute might be the list label or a json encoded array
+                $data = json_decode($description, true);
+                if ($data === null) {
+                    $lists[$listName]['list-label'] = $description;
+                    continue;
+                }
+                foreach ($data as $key=>$value) {
+                    if (!isset($lists[$listName][$key]) || $key === 'list-label') {
+                        $lists[$listName][$key] = $value;
+                    }
+                }
+            }
 
             foreach ($listEntry->getAttribute('member') as $memberDn) {
                 if ($memberDn === $ldapConfig['bind-dn']) {
@@ -231,22 +247,31 @@ class App {
             if (!is_string($config)) {
                 return $config;
             }
-            return preg_replace_callback('/\{([a-z_-]+)\}/', function($m) use ($contexts) {
-                if (isset($config[$m[1]]) && !is_array($config[$m[1]])) {
-                    return $config[$m[1]];
-                }
-                foreach ($contexts as &$context) {
-                    if (isset($context[$m[1]]) && !is_array($context[$m[1]])) {
-                        return $context[$m[1]];
+
+            // allow up to 3 iterations of replacements
+            for ($i = 1; $i <= 3; $i++) {
+                $config = preg_replace_callback('/\{([a-z_-]+)\}/', function($m) use ($contexts) {
+                    if (isset($config[$m[1]]) && !is_array($config[$m[1]])) {
+                        return $config[$m[1]];
                     }
+                    foreach ($contexts as &$context) {
+                        if (isset($context[$m[1]]) && !is_array($context[$m[1]])) {
+                            return $context[$m[1]];
+                        }
+                    }
+                    return $m[0];
+                }, $config, -1, $count);
+                if (!$count) {
+                    break;
                 }
-                return $m[0];
-            }, $config);
+            }
+
+            return $config;
         }
 
         $contexts[] = $this->configuration;
 
-        foreach ($config as &$setting) {
+        foreach ($config as $name=>&$setting) {
             $setting = $this->replaceConfigVariables($setting, $config, ... $contexts);
         }
 
