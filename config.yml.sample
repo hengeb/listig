@@ -4,7 +4,7 @@ lists:
   # defaults:
   list-provider: ldap
   mail-configuration: mail
-  rewrite-subject: "[{list-name}] {subject}"
+  subject-prefix: "[{list-name}] "
   rewrite-sender-name: "{sender-name}"
 
 ldap:

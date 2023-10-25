@@ -12,10 +12,10 @@ use PhpImap\Mailbox;
 class App {
     private array $configuration = [];
 
-    /** @var array<RedisClient> */
+    /** @var RedisClient[] */
     private array $redisClients = [];
 
-    /** @var array<Ldap> */
+    /** @var Ldap[] */
     private array $ldapClients = [];
 
     function __construct(string $configfile)
@@ -100,7 +100,7 @@ class App {
         foreach ($listConfigurations as $configName => $config) {
             $config = [...[
                 'list-provider' => 'ldap',
-                'rewrite-subject' => "[{list-name}] {subject}",
+                'subject-prefix' => "[{list-name}] ",
                 'rewrite-sender-name' => "{sender-name}",
                 'mail-configuration' => 'mail',
             ], ... $config];
@@ -301,7 +301,13 @@ class App {
                 'subject' => $mail->subject,
                 'sender-name' => $mail->senderName,
             ];
-            $subject = $this->replaceConfigVariables($list['rewrite-subject'], $mailConfig, $list);
+
+            $subjectPrefix = $this->replaceConfigVariables($list['subject-prefix'], $mailConfig, $list);
+            $subject = $mail->subject;
+            if (!str_contains(strtolower($subject), strtolower(($subjectPrefix)))) {
+                $subject = "$subjectPrefix $subject";
+            }
+
             $senderName = $this->replaceConfigVariables($list['rewrite-sender-name'], $mailConfig, $list);
 
             $outbox->setFrom($list['list-address'], $senderName);
