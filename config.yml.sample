@@ -12,15 +12,13 @@ ldap:
   bind-dn: cn=admin,dc=example,dc=com # required
   bind-password: $LDAP_BIND_PASSWORD # required
   dn: ou=groups,dc=example,dc=com # required
-  filter: "(objectClass=mailGroup)"
-  userFilter: "(objectClass=inetOrgPerson)"
   password-provider: redis
 
   # defaults:
   # host: localhost
   # port: 389
   # filter: "(objectClass=mailGroup)"
-  # userFilter: "(objectClass=inetOrgPerson)"
+  # user-filter: "(objectClass=inetOrgPerson)"
 
 mail:
   host: imap.example.com

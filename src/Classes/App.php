@@ -72,7 +72,7 @@ class App {
             'host' => 'localhost',
             'port' => 389,
             'filter' => '(objectClass=mailGroup)',
-            'userFilter' => '(objectClass=inetOrgPerson)',
+            'user-filter' => '(objectClass=inetOrgPerson)',
             'password-provider' => 'redis',
         ], ...$this->configuration[$configName] ?? []];
     }
@@ -158,7 +158,7 @@ class App {
                 'list-password' => $listPassword,
                 'domain' => preg_replace('/^.*@/', '', $listAddress),
                 'owners' => array_map(
-                    fn($ownerDn) => $ldap->query($ownerDn, $ldapConfig['userFilter'])->execute()[0]->getAttribute('mail')[0],
+                    fn($ownerDn) => $ldap->query($ownerDn, $ldapConfig['user-filter'])->execute()[0]->getAttribute('mail')[0],
                     $listEntry->getAttribute('owner')
                 ),
                 'members' => [],
@@ -169,7 +169,7 @@ class App {
                     continue;
                 }
                 try {
-                    $userEntry = $ldap->query($memberDn, $ldapConfig['userFilter'])->execute()[0];
+                    $userEntry = $ldap->query($memberDn, $ldapConfig['user-filter'])->execute()[0];
                 } catch (\Exception $e) {
                     continue;
                 }
