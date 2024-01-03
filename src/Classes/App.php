@@ -353,6 +353,7 @@ class App {
             $recipientAddresses = $reportToOwners ? $list['owners'] : $list['members'];
 
             $isSent = false;
+            $isSpam = false;
             foreach ($recipientAddresses as $recipientAddress) {
                 $outbox->clearAddresses();
                 $outbox->addAddress($recipientAddress, $recipientAddress);
@@ -365,13 +366,17 @@ class App {
 
                 if ($outbox->send()) {
                     $isSent = true;
+                } elseif (str_contains($outbox->ErrorInfo, 'Spam message rejected')) {
+                    echo "Spam message was rejected by the server, skipping.";
+                    $isSpam = true;
+                    break;
                 } else {
                     echo $outbox->ErrorInfo . "\n";
                 }
             }
 
-            // message could be sent at least to one recipient
-            if ($isSent) {
+            // message could be sent at least to one recipient or was identified as spam
+            if ($isSent || $isSpam) {
                 $inbox->deleteMail($mailId);
             }
         }
