@@ -306,21 +306,10 @@ class App {
             return;
         }
 
-        $outbox = new PHPMailer();
-        $outbox->isSMTP();
-        $outbox->Host = $mailServerConfig['smtp-host'];
-        $outbox->Port = $mailServerConfig['smtp-port'];
-        $outbox->SMTPAuth = true;
-        $outbox->SMTPSecure = $mailServerConfig['smtp-secure'];
-        $outbox->SMTPKeepAlive = true;
-        $outbox->CharSet = "UTF-8";
-        $outbox->AllowEmpty = true;
-
-        $outbox->Username = $mailServerConfig['smtp-user'];
-        $outbox->Password = $mailServerConfig['smtp-password'];
-
         foreach ($mailsIds as $mailId) {
             $mail = $inbox->getMail($mailId);
+
+            $outbox = $this->createNewMail($mailServerConfig);
 
             $mailConfig = [
                 'subject' => $mail->subject,
@@ -379,7 +368,27 @@ class App {
             if ($isSent || $isSpam) {
                 $inbox->deleteMail($mailId);
             }
+
+            $outbox->smtpClose();
         }
+    }
+
+    private function createNewMail(array $mailServerConfig): PHPMailer
+    {
+        $outbox = new PHPMailer();
+        $outbox->isSMTP();
+        $outbox->Host = $mailServerConfig['smtp-host'];
+        $outbox->Port = $mailServerConfig['smtp-port'];
+        $outbox->SMTPAuth = true;
+        $outbox->SMTPSecure = $mailServerConfig['smtp-secure'];
+        $outbox->SMTPKeepAlive = true;
+        $outbox->CharSet = "UTF-8";
+        $outbox->AllowEmpty = true;
+
+        $outbox->Username = $mailServerConfig['smtp-user'];
+        $outbox->Password = $mailServerConfig['smtp-password'];
+
+        return $outbox;
     }
 
     private function getCustomHeaders(\PhpImap\IncomingMail $mail, \PhpImap\Mailbox $inbox, array $list): array
