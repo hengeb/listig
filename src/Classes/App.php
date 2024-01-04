@@ -149,7 +149,7 @@ class App {
 
             $listPassword = $redis->get(strtolower($listAddress));
             if (!$listPassword) {
-                echo "missing password for {$listAddress}\n";
+                error_log("missing password for {$listAddress}");
                 continue;
             }
 
@@ -298,7 +298,7 @@ class App {
         try {
             $mailsIds = $inbox->searchMailbox('ALL');
         } catch(\PhpImap\Exceptions\ConnectionException $ex) {
-            echo "IMAP connection for {$list['list-address']} failed: " . $ex->getMessage() . "\n";
+            error_log("IMAP connection for {$list['list-address']} failed: " . $ex->getMessage());
             return;
         }
 
@@ -319,7 +319,7 @@ class App {
             $subjectPrefix = $this->replaceConfigVariables($list['subject-prefix'], $mailConfig, $list);
             $subject = $mail->subject;
             if (!str_contains(strtolower($subject), strtolower(($subjectPrefix)))) {
-                $subject = "$subjectPrefix $subject";
+                $subject = "$subjectPrefix$subject";
             }
 
             $senderName = $this->replaceConfigVariables($list['rewrite-sender-name'], $mailConfig, $list);
@@ -356,11 +356,11 @@ class App {
                 if ($outbox->send()) {
                     $isSent = true;
                 } elseif (str_contains($outbox->ErrorInfo, 'Spam message rejected')) {
-                    echo "Spam message was rejected by the server, skipping.";
+                    error_log("Spam message was rejected by the server, skipping.");
                     $isSpam = true;
                     break;
                 } else {
-                    echo $outbox->ErrorInfo . "\n";
+                    error_log('message could not be sent: ' . $outbox->ErrorInfo);
                 }
             }
 
@@ -375,7 +375,7 @@ class App {
 
     private function createNewMail(array $mailServerConfig): PHPMailer
     {
-        $outbox = new PHPMailer();
+        $outbox = new Outbox();
         $outbox->isSMTP();
         $outbox->Host = $mailServerConfig['smtp-host'];
         $outbox->Port = $mailServerConfig['smtp-port'];
@@ -399,10 +399,6 @@ class App {
 
         $headers = $this->parseHeaders($mail->headersRaw, $inbox);
         foreach ($headers as [$headerName, $headerValue]) {
-            if ($headerName === 'To') {
-                $headerName = 'X-Original-To';
-            }
-
             // ignore headers that are handled elsewhere or shall not be copied
             if (in_array($headerName, [
                 'Subject',
@@ -434,6 +430,7 @@ class App {
             }
 
             if (!in_array($headerName, [
+                'To',
                 'Cc',
                 'X-No-Archive',
                 'Mailing-List',
@@ -466,7 +463,7 @@ class App {
             ], true)
             && !str_starts_with($headerName, 'List-')
             ) {
-                echo "copy unknown header: $headerName: $headerValue\n";
+                error_log("copy unknown header: $headerName: $headerValue");
             }
 
             $customHeaders[] = [$headerName, $headerValue];
