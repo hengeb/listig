@@ -313,7 +313,7 @@ class App {
 
             $mailConfig = [
                 'subject' => $mail->subject,
-                'sender-name' => $mail->senderName ?: "<{$mail->senderAddress}>",
+                'sender-name' => $mail->senderName ?: preg_replace('/^(.+?)[@+].*$/', '$1', $mail->senderAddress),
             ];
 
             $subjectPrefix = $this->replaceConfigVariables($list['subject-prefix'], $mailConfig, $list);
