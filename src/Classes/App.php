@@ -292,7 +292,7 @@ class App {
             $mailServerConfig['imap-password']
         );
 
-         // expunge deleted mails upon mailbox close
+        // expunge deleted mails upon mailbox close
         $inbox->setConnectionArgs(CL_EXPUNGE, 0, []);
 
         try {
@@ -338,12 +338,17 @@ class App {
             $this->copyBody($mail, $outbox);
             $this->copyAttachments($mail, $outbox);
 
-            $reportToOwners = in_array(['Auto-Submitted', 'auto-replied'], $customHeaders, true);
+            $reportToOwners = in_array(['Auto-Submitted', 'Auto-Replied'], $customHeaders, true);
             $recipientAddresses = $reportToOwners ? $list['owners'] : $list['members'];
+
+            // exclude recipients who are already listed in the To or CC header.
+            $recipientAddressesFiltered = array_filter($recipientAddresses, fn($address) =>
+                !in_array(strtolower($address), array_map('strtolower', array_keys(array_merge($mail->to, $mail->cc))), true)
+            );
 
             $isSent = false;
             $isSpam = false;
-            foreach ($recipientAddresses as $recipientAddress) {
+            foreach ($recipientAddressesFiltered as $recipientAddress) {
                 $outbox->clearAddresses();
                 $outbox->addAddress($recipientAddress, $recipientAddress);
 
@@ -365,7 +370,7 @@ class App {
             }
 
             // message could be sent at least to one recipient or was identified as spam
-            if ($isSent || $isSpam) {
+            if ($isSent || $isSpam || count($recipientAddressesFiltered) === 0) {
                 $inbox->deleteMail($mailId);
             }
 
@@ -444,7 +449,6 @@ class App {
                 'Thread-Index',
                 'In-Reply-To',
                 'Reply-To',
-                'Auto-Submitted',
                 'X-Forwarded-Message-Id',
                 'References',
                 'Comments',
