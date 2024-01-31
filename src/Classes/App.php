@@ -160,7 +160,7 @@ class App {
                 'domain' => preg_replace('/^.*@/', '', $listAddress),
                 'owners' => array_map(
                     fn($ownerDn) => $ldap->query($ownerDn, $ldapConfig['user-filter'])->execute()[0]->getAttribute('mail')[0],
-                    $listEntry->getAttribute('owner')
+                    $listEntry->getAttribute('owner') ?? []
                 ),
                 'members' => [],
             ];
