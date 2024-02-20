@@ -350,7 +350,15 @@ class App {
             $isSpam = false;
             foreach ($recipientAddressesFiltered as $recipientAddress) {
                 $outbox->clearAddresses();
-                $outbox->addAddress($recipientAddress, $recipientAddress);
+                $outbox->clearEnvelopeTo();
+                $outbox->addEnvelopeTo($recipientAddress);
+
+                foreach ($mail->to as $address=>$name) {
+                    $outbox->addAddress($address, $name ?? '');
+                }
+                foreach ($mail->cc as $address=>$name) {
+                    $outbox->addCC($address, $name ?? '');
+                }
 
                 $outbox->clearCustomHeaders();
                 foreach ($customHeaders as [$headerName, $headerValue]) {
@@ -378,7 +386,7 @@ class App {
         }
     }
 
-    private function createNewMail(array $mailServerConfig): PHPMailer
+    private function createNewMail(array $mailServerConfig): Outbox
     {
         $outbox = new Outbox();
         $outbox->isSMTP();
@@ -400,6 +408,7 @@ class App {
     {
         $customHeaders = [
             ['X-Forwarded-From', $mail->senderAddress],
+            ['X-Original-To', $mail->toString],
         ];
 
         $headers = $this->parseHeaders($mail->headersRaw, $inbox);
@@ -408,6 +417,8 @@ class App {
             if (in_array($headerName, [
                 'Subject',
                 'From',
+                'To',
+                'Cc',
                 'Message-ID',
                 'Content-Type',
                 'MIME-Version',
@@ -435,8 +446,6 @@ class App {
             }
 
             if (!in_array($headerName, [
-                'To',
-                'Cc',
                 'X-No-Archive',
                 'Mailing-List',
                 'Sender',
