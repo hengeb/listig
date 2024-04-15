@@ -338,7 +338,7 @@ class App {
             $this->copyBody($mail, $outbox);
             $this->copyAttachments($mail, $outbox);
 
-            $reportToOwners = in_array(['Auto-Submitted', 'Auto-Replied'], $customHeaders, true);
+            $reportToOwners = in_array(['Auto-Submitted', 'Auto-Replied'], $customHeaders, true) || in_array(['Auto-Submitted', 'auto-replied'], $customHeaders, true);
             $recipientAddresses = $reportToOwners ? $list['owners'] : $list['members'];
 
             // exclude recipients who are already listed in the To or CC header.
