@@ -1,7 +1,6 @@
-version: "3.5"
 services:
-  listig:
-    image: hengeb/${SERVICENAME}
+  app:
+    image: ${ORGNAME}/${SERVICENAME}
     restart: unless-stopped
     container_name: ${SERVICENAME}
     volumes:
@@ -11,7 +10,7 @@ services:
     depends_on:
       - redis
     networks:
-      - ${SERVICENAME}
+      - default
       - ldap
 
   redis:
@@ -20,12 +19,8 @@ services:
     restart: unless-stopped
     volumes:
       - "${VOLUMES_DIR}/redis:/data"
-    networks:
-      - ${SERVICENAME}
 
 networks:
   ldap:
     name: ldap
     external: true
-  listig:
-    name: ${SERVICENAME}
