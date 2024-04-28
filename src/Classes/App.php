@@ -156,6 +156,7 @@ class App {
             $lists[$listName] = [
                 'list-name' => $listName,
                 'list-address' => $listAddress,
+                'list-sender' => str_replace('@', '+bounces@', $listAddress),
                 'list-password' => $listPassword,
                 'domain' => preg_replace('/^.*@/', '', $listAddress),
                 'owners' => array_map(
@@ -325,6 +326,7 @@ class App {
             $senderName = $this->replaceConfigVariables($list['rewrite-sender-name'], $mailConfig, $list);
 
             $outbox->setFrom($list['list-address'], $senderName);
+            $outbox->Sender = $list['list-sender'];
             $outbox->Subject = $subject;
             $outbox->MessageID = $mail->messageId;
             $outbox->MessageDate = $mail->headers->date;
@@ -338,7 +340,10 @@ class App {
             $this->copyBody($mail, $outbox);
             $this->copyAttachments($mail, $outbox);
 
-            $reportToOwners = in_array(['Auto-Submitted', 'Auto-Replied'], $customHeaders, true) || in_array(['Auto-Submitted', 'auto-replied'], $customHeaders, true);
+            $reportToOwners = in_array(['Auto-Submitted', 'Auto-Replied'], $customHeaders, true)
+              || in_array(['Auto-Submitted', 'auto-replied'], $customHeaders, true)
+              || count($mail->to) === 1 && strtolower(array_keys($mail->to[0])) === strtolower($list['list-sender']);
+
             $recipientAddresses = $reportToOwners ? $list['owners'] : $list['members'];
 
             // exclude recipients who are already listed in the To or CC header.
@@ -417,6 +422,7 @@ class App {
             if (in_array($headerName, [
                 'Subject',
                 'From',
+                'Sender',
                 'To',
                 'Cc',
                 'Message-ID',
@@ -448,7 +454,6 @@ class App {
             if (!in_array($headerName, [
                 'X-No-Archive',
                 'Mailing-List',
-                'Sender',
                 'X-Course-Id',
                 'X-Course-Name',
                 'Precedence',
@@ -491,7 +496,7 @@ class App {
         if (!in_array('List-Id', array_column($customHeaders, 0))) {
             $customHeaders[] = ['List-Id', '<' . $list['list-address'] . '>'];
             $customHeaders[] = ['List-Post', '<mailto:' . $list['list-address'] . '>'];
-            $customHeaders[] = ['Sender', '<' . $list['list-address'] . '>'];
+            $customHeaders[] = ['Sender', '<' . $list['list-sender'] . '>'];
             // TODO unsubscribe...
         }
 
