@@ -319,6 +319,7 @@ class App {
 
             $subjectPrefix = $this->replaceConfigVariables($list['subject-prefix'], $mailConfig, $list);
             $subject = $mail->subject;
+
             if (!str_contains(strtolower($subject), strtolower(($subjectPrefix)))) {
                 $subject = "$subjectPrefix$subject";
             }
@@ -342,7 +343,7 @@ class App {
 
             $reportToOwners = in_array(['Auto-Submitted', 'Auto-Replied'], $customHeaders, true)
               || in_array(['Auto-Submitted', 'auto-replied'], $customHeaders, true)
-              || count($mail->to) === 1 && strtolower(array_keys($mail->to[0])) === strtolower($list['list-sender']);
+              || count($mail->to) === 1 && strtolower(array_keys($mail->to)[0]) === strtolower($list['list-sender']);
 
             $recipientAddresses = $reportToOwners ? $list['owners'] : $list['members'];
 
