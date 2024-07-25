@@ -279,8 +279,15 @@ class App {
         return $config;
     }
 
+    private function filterInvalidListMembers(array $members): array
+    {
+        return array_filter($members, fn($address) => !str_ends_with(strtolower($address), '.invalid'));
+    }
+
     private function processList(array $list): void
     {
+        $list['members'] = $this->filterInvalidListMembers($list['members']);
+
         if (!$list['members']) {
             return;
         }
