@@ -1,5 +1,0 @@
-services:
-  app:
-    volumes:
-      - "./src:/usr/src/app/"
-      - "./config.yml:/usr/src/app/config.yml"

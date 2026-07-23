@@ -1,0 +1,32 @@
+{
+    "name": "hengeb/listig",
+    "description": "Self-hosted Docker-based mailing list manager",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.5",
+        "ezyang/htmlpurifier": "^4.16",
+        "latte/latte": "^3.0",
+        "php-di/php-di": "^7.0",
+        "php-imap/php-imap": "^3.0",
+        "slim/psr7": "^1.0",
+        "slim/slim": "^4.0",
+        "symfony/ldap": "^7.0",
+        "symfony/mailer": "^7.0",
+        "symfony/mime": "^7.0",
+        "symfony/translation": "^7.0",
+        "symfony/yaml": "^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Hengeb\\Listig\\": "src/"
+        }
+    },
+    "scripts": {
+        "worker": "php bin/worker.php"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

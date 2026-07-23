@@ -1,0 +1,132 @@
+auth:
+  magic_link_sent: "If we could identify you, you'll find a mail with an access link in your inbox."
+  link_expired: "The access link has expired. Please request a new one."
+  link_invalid: "Invalid access link."
+  login_mail:
+    subject: "Your access link for Listig"
+    body: "Click the following link to log in:\n\n%link%\n\nThe link is valid for 5 minutes."
+    body_html: "<p>Click the following link to log in:</p><p><a href=\"%link%\">%link%</a></p><p>The link is valid for 5 minutes.</p>"
+
+unsubscribe:
+  token_invalid: "Invalid token"
+  token_expired: "Token expired"
+  list_not_found: "List not found"
+  moderated_notice: "Your removal request has been forwarded to the list owners."
+  success: "You have been successfully unsubscribed from the list."
+  owner_notice:
+    subject: "[%list%] Removal request from %name%"
+    body: "%name% (%mail%) has requested removal from list %list%.\n\nPlease remove this member manually."
+
+reject:
+  spam: "Spam message rejected"
+  reserved_subaddress: "This subaddress is reserved and cannot be used"
+  missing_subaddress: "This list requires a subaddress (e.g. list+name@domain)"
+  auth_failed: "SPF/DKIM authentication failed"
+  size_exceeded: "Mail exceeds maximum size of %max_size% bytes"
+  owners_only: "Only list owners may post to this list"
+  members_only: "Only list members may post to this list"
+  rate_limited: "Rate limit exceeded"
+  moderation_declined: "Rejected by a list owner."
+  notice:
+    subject: "Your mail to %list% was rejected"
+    body: "Your mail to the list %list% (%mail%) was not delivered.\n\nReason: %reason%"
+
+moderation:
+  mail:
+    subject: "[Moderation] New mail pending for %list%"
+    body: "A mail to list %list% (%mail%) requires your approval.\n\nAccept: mailto:%accept%\nReject: mailto:%reject%\n"
+
+bounce:
+  owner_notice:
+    subject: "[Bounce] %list%: from %sender%"
+    body: "A bounce was received for list %list%.\n\nFrom: %sender%\nSubject: %subject%\n\nThe original bounce is attached."
+
+queue:
+  failure_notice:
+    subject: "[%list%] Delivery failure for %recipient%"
+    body: "Listig could not deliver a mail to %recipient% after 3 attempts.\n\nError: %error%"
+  spam_rejected:
+    subject: "[%list%] Mail rejected as spam by %domain%"
+    body: "A mail to the list %list% was rejected as spam by %domain% (a trusted major mail provider) and has been discarded for %count% remaining recipients, without further delivery attempts.\n\nServer response: %error%"
+
+login:
+  title: "Log in – Listig"
+  heading: "Log in"
+  email_label: "Email address"
+  submit: "Request access link"
+
+dashboard:
+  title: "My lists – Listig"
+  heading: "My lists"
+  empty: "You are not a member of any mailing list."
+  unsubscribe_button: "Unsubscribe"
+
+unsubscribe_page:
+  title: "Unsubscribe – Listig"
+  back_home: "Back to homepage"
+
+subscribe:
+  token_invalid: "Invalid token"
+  token_expired: "The confirmation link has expired. Please subscribe again."
+  list_not_found: "List not found"
+  failed: "Subscription could not be completed. Please contact the list owners."
+  success: "You have been successfully subscribed to the list."
+  confirm_mail:
+    subject: "Please confirm your subscription to %list%"
+    body: "Click the following link to confirm your subscription to the list %list%:\n\n%link%\n\nThe link is valid for 48 hours. If you did not request this, you can ignore this mail."
+
+subscribe_page:
+  title: "Subscribe – Listig"
+
+list:
+  manage:
+    title_prefix: "Manage"
+    overview: "Overview"
+    description: "Description"
+    members: "Members"
+    owners: "Owners"
+    reply_to: "Reply-to"
+    access: "Access"
+    moderation: "Moderation"
+    moderation_queue: "Moderation queue"
+    received: "Received"
+    actions: "Actions"
+    accept: "Accept"
+    reject: "Reject"
+    queue_status: "Delivery queue"
+    sent: "Sent"
+    failed: "Failed"
+    total: "Total"
+    bounces: "Bounces"
+    last_7_days: "Last 7 days"
+    last_30_days: "Last 30 days"
+    sender: "Sender"
+    subject: "Subject"
+    timestamp: "Timestamp"
+    js_error_prefix: "Error: "
+    js_error_generic: "Error"
+
+archive:
+  unknown_sender: "Unknown sender"
+  index:
+    heading: "Archive"
+    filter_label: "Filter by subject or sender"
+    filter_placeholder: "Filter by subject or sender…"
+    no_results: "No archived mail yet."
+    toggle_threading: "Toggle threaded view"
+    has_attachments: "Has attachments"
+    reply_one: "%count% reply"
+    reply_many: "%count% replies"
+    prev: "Previous"
+    next: "Next"
+  show:
+    back_to_list: "Back to archive"
+    load_images: "Load images"
+    mail_frame_title: "Mail content"
+    mail_unavailable: "This mail is no longer available."
+    attachments_heading: "Attachments"
+    unnamed_attachment: "Attachment"
+  login_required:
+    heading: "Login required"
+    message: "You need to be logged in to view this list's archive."
+    login_link: "Log in"

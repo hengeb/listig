@@ -1,0 +1,40 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:80"
+    volumes:
+      - ../config/config.yml:/app/config/config.yml:ro
+    env_file:
+      - ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/_/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-listig}
+      MARIADB_USER: ${DB_USER:-listig}
+      MARIADB_PASSWORD: ${DB_PASS:-secret}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASS:-rootsecret}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  db_data:

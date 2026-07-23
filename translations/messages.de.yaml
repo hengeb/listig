@@ -1,0 +1,132 @@
+auth:
+  magic_link_sent: "Falls wir dich zuordnen konnten, hast du eine Mail mit einem Zugangslink in deinem Postfach."
+  link_expired: "Der Zugangslink ist abgelaufen. Bitte fordere einen neuen an."
+  link_invalid: "Ungültiger Zugangslink."
+  login_mail:
+    subject: "Dein Zugangslink für Listig"
+    body: "Klicke auf den folgenden Link, um dich anzumelden:\n\n%link%\n\nDer Link ist 5 Minuten gültig."
+    body_html: "<p>Klicke auf den folgenden Link, um dich anzumelden:</p><p><a href=\"%link%\">%link%</a></p><p>Der Link ist 5 Minuten gültig.</p>"
+
+unsubscribe:
+  token_invalid: "Token ungültig"
+  token_expired: "Token abgelaufen"
+  list_not_found: "Liste nicht gefunden"
+  moderated_notice: "Deine Abmeldeanfrage wurde an die Listeninhaber weitergeleitet."
+  success: "Du wurdest erfolgreich von der Liste abgemeldet."
+  owner_notice:
+    subject: "[%list%] Abmeldeanfrage von %name%"
+    body: "%name% (%mail%) hat die Abmeldung von der Liste %list% beantragt.\n\nBitte entferne dieses Mitglied manuell."
+
+reject:
+  spam: "Spam-Nachricht abgelehnt"
+  reserved_subaddress: "Diese Subadresse ist reserviert und kann nicht verwendet werden"
+  missing_subaddress: "Diese Liste erfordert eine Subadresse (z. B. liste+name@domain)"
+  auth_failed: "SPF/DKIM-Authentifizierung fehlgeschlagen"
+  size_exceeded: "Mail überschreitet die maximale Größe von %max_size% Bytes"
+  owners_only: "Nur Listeninhaber dürfen an diese Liste posten"
+  members_only: "Nur Listenmitglieder dürfen an diese Liste posten"
+  rate_limited: "Rate-Limit überschritten"
+  moderation_declined: "Von einem Listeninhaber abgelehnt."
+  notice:
+    subject: "Deine Mail an %list% wurde abgelehnt"
+    body: "Deine Mail an die Liste %list% (%mail%) wurde nicht zugestellt.\n\nGrund: %reason%"
+
+moderation:
+  mail:
+    subject: "[Moderation] Neue Mail wartet für %list%"
+    body: "Eine Mail an die Liste %list% (%mail%) erfordert deine Freigabe.\n\nAnnehmen: mailto:%accept%\nAblehnen: mailto:%reject%\n"
+
+bounce:
+  owner_notice:
+    subject: "[Bounce] %list%: von %sender%"
+    body: "Für die Liste %list% ist ein Bounce eingegangen.\n\nVon: %sender%\nBetreff: %subject%\n\nDer ursprüngliche Bounce ist angehängt."
+
+queue:
+  failure_notice:
+    subject: "[%list%] Zustellungsfehler für %recipient%"
+    body: "Listig konnte eine Mail nach 3 Versuchen nicht an %recipient% zustellen.\n\nFehler: %error%"
+  spam_rejected:
+    subject: "[%list%] Mail von %domain% als Spam abgelehnt"
+    body: "Eine Mail an die Liste %list% wurde von %domain% (einem vertrauenswürdigen großen Mailanbieter) als Spam abgelehnt und wurde für %count% verbleibende Empfänger verworfen, ohne weitere Zustellversuche.\n\nServerantwort: %error%"
+
+login:
+  title: "Anmelden – Listig"
+  heading: "Anmelden"
+  email_label: "E-Mail-Adresse"
+  submit: "Zugangslink anfordern"
+
+dashboard:
+  title: "Meine Listen – Listig"
+  heading: "Meine Listen"
+  empty: "Du bist keiner Mailingliste zugeordnet."
+  unsubscribe_button: "Abmelden"
+
+unsubscribe_page:
+  title: "Abmeldung – Listig"
+  back_home: "Zur Startseite"
+
+subscribe:
+  token_invalid: "Token ungültig"
+  token_expired: "Der Bestätigungslink ist abgelaufen. Bitte melde dich erneut an."
+  list_not_found: "Liste nicht gefunden"
+  failed: "Anmeldung konnte nicht abgeschlossen werden. Bitte wende dich an die Listeninhaber."
+  success: "Du wurdest erfolgreich zur Liste angemeldet."
+  confirm_mail:
+    subject: "Bitte bestätige deine Anmeldung zu %list%"
+    body: "Klicke auf den folgenden Link, um deine Anmeldung zur Liste %list% zu bestätigen:\n\n%link%\n\nDer Link ist 48 Stunden gültig. Falls du diese Anmeldung nicht angefordert hast, kannst du diese Mail ignorieren."
+
+subscribe_page:
+  title: "Anmeldung – Listig"
+
+list:
+  manage:
+    title_prefix: "Verwalten"
+    overview: "Übersicht"
+    description: "Beschreibung"
+    members: "Mitglieder"
+    owners: "Inhaber"
+    reply_to: "Antworten an"
+    access: "Zugang"
+    moderation: "Moderation"
+    moderation_queue: "Moderationswarteschlange"
+    received: "Eingegangen"
+    actions: "Aktionen"
+    accept: "Annehmen"
+    reject: "Ablehnen"
+    queue_status: "Versandwarteschlange"
+    sent: "Gesendet"
+    failed: "Fehlgeschlagen"
+    total: "Gesamt"
+    bounces: "Bounces"
+    last_7_days: "Letzte 7 Tage"
+    last_30_days: "Letzte 30 Tage"
+    sender: "Absender"
+    subject: "Betreff"
+    timestamp: "Zeitpunkt"
+    js_error_prefix: "Fehler: "
+    js_error_generic: "Fehler"
+
+archive:
+  unknown_sender: "Unbekannter Absender"
+  index:
+    heading: "Archiv"
+    filter_label: "Nach Betreff oder Absender filtern"
+    filter_placeholder: "Nach Betreff oder Absender filtern…"
+    no_results: "Noch keine archivierten Mails."
+    toggle_threading: "Thread-Ansicht umschalten"
+    has_attachments: "Enthält Anhänge"
+    reply_one: "%count% Antwort"
+    reply_many: "%count% Antworten"
+    prev: "Zurück"
+    next: "Weiter"
+  show:
+    back_to_list: "Zurück zum Archiv"
+    load_images: "Bilder laden"
+    mail_frame_title: "Mail-Inhalt"
+    mail_unavailable: "Diese Mail ist nicht mehr verfügbar."
+    attachments_heading: "Anhänge"
+    unnamed_attachment: "Anhang"
+  login_required:
+    heading: "Anmeldung erforderlich"
+    message: "Du musst angemeldet sein, um das Archiv dieser Liste anzusehen."
+    login_link: "Anmelden"

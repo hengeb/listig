@@ -1,34 +1,43 @@
-include .env
+COMPOSE = docker compose -f docker/compose.yaml
 
-config.yml:
-	$(error file config.yml is missing, see config.yml.sample)
+.DEFAULT_GOAL := help
 
-image:
-	@echo "(Re)building docker image"
-	docker build --no-cache -t $(ORGNAME)/$(SERVICENAME):latest .
+.PHONY: help dev stop down build rebuild logs logs-app shell db ps fresh
 
-rebuild:
-	@echo "Rebuilding docker image"
-	docker build -t $(ORGNAME)/$(SERVICENAME):latest .
-	make dev
+help:
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-dev: config.yml
-	@echo "Starting DEV Server"
-	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate --remove-orphans
+dev: ## Start all containers (app, db)
+	$(COMPOSE) up -d
 
-prod: image config.yml
-	@echo "Starting Production Server"
-	docker compose up -d --force-recreate --remove-orphans app
+stop: ## Stop containers, keep data
+	$(COMPOSE) stop
 
-upgrade:
-	git pull
-	make prod
+down: ## Stop and remove containers, keep volumes
+	$(COMPOSE) down
 
-shell:
-	docker compose exec app sh
+build: ## Build Docker images
+	$(COMPOSE) build
 
-rootshell:
-	docker compose exec --user root app sh
+rebuild: ## Rebuild images without cache
+	$(COMPOSE) build --no-cache
 
-logs:
-	docker compose logs -f
+logs: ## Tail logs from all containers
+	$(COMPOSE) logs -f
+
+logs-app: ## Tail logs from the app container only
+	$(COMPOSE) logs -f app
+
+shell: ## Open a shell inside the app container
+	$(COMPOSE) exec app sh
+
+db: ## Open MariaDB prompt as configured user
+	$(COMPOSE) exec db sh -c 'mariadb -u$$MARIADB_USER -p$$MARIADB_PASSWORD $$MARIADB_DATABASE'
+
+ps: ## Show container status
+	$(COMPOSE) ps
+
+fresh: ## Destroy everything including DB volume and restart clean
+	$(COMPOSE) down -v
+	$(COMPOSE) up -d

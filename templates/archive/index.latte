@@ -1,0 +1,193 @@
+{layout '../../templates/layout.latte'}
+
+{block title}{$translator->trans('archive.index.heading')} – {$list->displayName|escapeHtml} – Listig{/block}
+
+{block head}
+<style>
+    .visually-hidden { position: absolute; left: -9999px; }
+    .archive-toolbar { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
+    .archive-toolbar input[type=text] { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+    #archive-table td.subject { display: flex; align-items: center; gap: 0.35rem; }
+    .thread-toggle-icon { cursor: pointer; background: none; border: none; font-size: 1rem; padding: 0; line-height: 1; }
+    .thread-indent { display: inline-block; flex-shrink: 0; }
+    tr.reply-row { display: none; }
+    tr.reply-row.expanded { display: table-row; }
+    .paperclip { margin-left: 0.15rem; }
+    .reply-count { color: #888; font-size: 0.85em; margin-left: 0.4rem; white-space: nowrap; }
+</style>
+<script>
+let flatMode = false;
+let originalOrder = null;
+
+function getTbody() { return document.getElementById('archive-tbody'); }
+
+function toggleThreading() {
+    const tbody = getTbody();
+    const btn = document.getElementById('thread-toggle');
+    if (!originalOrder) originalOrder = Array.from(tbody.rows);
+    flatMode = !flatMode;
+    btn.setAttribute('aria-pressed', String(!flatMode));
+
+    if (flatMode) {
+        const rows = Array.from(tbody.rows);
+        rows.sort((a, b) => new Date(b.dataset.date) - new Date(a.dataset.date));
+        rows.forEach(r => {
+            r.classList.remove('reply-row', 'expanded');
+            r.style.display = '';
+            tbody.appendChild(r);
+        });
+        tbody.querySelectorAll('.thread-indent').forEach(el => { el.style.width = '0'; });
+        tbody.querySelectorAll('.thread-expand').forEach(el => { el.style.display = 'none'; });
+        tbody.querySelectorAll('[data-reply-count]').forEach(el => { el.style.display = 'none'; });
+    } else {
+        originalOrder.forEach(r => {
+            tbody.appendChild(r);
+            r.style.display = '';
+            if (r.dataset.isThreadStart === '0') r.classList.add('reply-row');
+        });
+        tbody.querySelectorAll('.thread-indent').forEach(el => {
+            el.style.width = (parseFloat(el.closest('tr').dataset.depth) * 1.25) + 'em';
+        });
+        tbody.querySelectorAll('.thread-expand').forEach(el => {
+            el.style.display = '';
+            el.setAttribute('aria-expanded', 'false');
+            el.textContent = '▶';
+        });
+        tbody.querySelectorAll('[data-reply-count]').forEach(el => { el.style.display = ''; });
+    }
+
+    applyFilter(document.getElementById('archive-filter').value);
+}
+
+function toggleThread(btn) {
+    const row = btn.closest('tr');
+    const root = row.dataset.threadRoot;
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    document.querySelectorAll('#archive-tbody tr.reply-row[data-thread-root="' + CSS.escape(root) + '"]').forEach(r => {
+        r.classList.toggle('expanded', !expanded);
+    });
+    btn.setAttribute('aria-expanded', String(!expanded));
+    btn.textContent = expanded ? '▶' : '▼';
+}
+
+function filterArchive(value) {
+    applyFilter(value);
+}
+
+function applyFilter(value) {
+    const needle = value.trim().toLowerCase();
+    const tbody = getTbody();
+
+    if (flatMode) {
+        Array.from(tbody.rows).forEach(r => {
+            const match = needle === '' || r.dataset.subject.includes(needle) || r.dataset.sender.includes(needle);
+            r.style.display = match ? '' : 'none';
+        });
+        return;
+    }
+
+    if (needle === '') {
+        Array.from(tbody.rows).forEach(r => {
+            r.style.display = '';
+            if (r.classList.contains('reply-row')) r.classList.remove('expanded');
+        });
+        tbody.querySelectorAll('.thread-expand').forEach(btn => {
+            btn.setAttribute('aria-expanded', 'false');
+            btn.textContent = '▶';
+        });
+        return;
+    }
+
+    const byRoot = {};
+    Array.from(tbody.rows).forEach(r => {
+        (byRoot[r.dataset.threadRoot] ||= []).push(r);
+    });
+
+    Object.values(byRoot).forEach(rows => {
+        const anyMatch = rows.some(r => r.dataset.subject.includes(needle) || r.dataset.sender.includes(needle));
+        rows.forEach(r => {
+            r.style.display = anyMatch ? '' : 'none';
+            if (anyMatch && r.classList.contains('reply-row')) r.classList.add('expanded');
+        });
+        if (anyMatch) {
+            const startRow = rows.find(r => r.dataset.isThreadStart === '1');
+            const btn = startRow ? startRow.querySelector('.thread-expand') : null;
+            if (btn) {
+                btn.setAttribute('aria-expanded', 'true');
+                btn.textContent = '▼';
+            }
+        }
+    });
+}
+</script>
+{/block}
+
+{block content}
+<h1>{$translator->trans('archive.index.heading')}: {$list->displayName|escapeHtml}</h1>
+
+<div class="archive-toolbar">
+    <label for="archive-filter" class="visually-hidden">{$translator->trans('archive.index.filter_label')}</label>
+    <input type="text" id="archive-filter" placeholder="{$translator->trans('archive.index.filter_placeholder')}" oninput="filterArchive(this.value)">
+</div>
+
+{if count($rows) === 0}
+<div class="card"><p style="color:#777;margin:0">{$translator->trans('archive.index.no_results')}</p></div>
+{else}
+<table id="archive-table">
+    <thead>
+        <tr>
+            <th>
+                {$translator->trans('list.manage.subject')}
+                <button type="button" class="thread-toggle-icon" id="thread-toggle" aria-pressed="true"
+                    aria-label="{$translator->trans('archive.index.toggle_threading')}"
+                    title="{$translator->trans('archive.index.toggle_threading')}"
+                    onclick="toggleThreading()">&#129525;</button>
+            </th>
+            <th>{$translator->trans('list.manage.sender')}</th>
+            <th>{$translator->trans('list.manage.timestamp')}</th>
+        </tr>
+    </thead>
+    <tbody id="archive-tbody">
+    {foreach $rows as $row}
+        <tr
+            n:class="!$row['is_thread_start'] ? 'reply-row'"
+            data-subject="{mb_strtolower($row['subject'] ?? '')}"
+            data-sender="{mb_strtolower($row['sender_name'] ?? '')}"
+            data-thread-root="{$row['thread_root']}"
+            data-depth="{$row['depth']}"
+            data-date="{str_replace(' ', 'T', $row['mail_date'])}"
+            data-is-thread-start="{if $row['is_thread_start']}1{else}0{/if}"
+        >
+            <td class="subject">
+                <span class="thread-indent" style="width:{($row['depth'] * 1.25)|noescape}em"></span>
+                {if $row['is_thread_start'] && $row['thread_size'] > 1}
+                    <button type="button" class="thread-toggle-icon thread-expand" onclick="toggleThread(this)" aria-expanded="false">&#9654;</button>
+                {/if}
+                <a href="/{$list->name}/archive/{$row['id']}">{($row['subject'] ?? '')|escapeHtml}</a>
+                {if $row['has_attachments']}<span class="paperclip" title="{$translator->trans('archive.index.has_attachments')}">&#128206;</span>{/if}
+                {if $row['is_thread_start'] && $row['thread_size'] > 1}
+                    <span class="reply-count" data-reply-count>
+                        {if $row['thread_size'] - 1 === 1}
+                            {$translator->trans('archive.index.reply_one', ['%count%' => 1])}
+                        {else}
+                            {$translator->trans('archive.index.reply_many', ['%count%' => $row['thread_size'] - 1])}
+                        {/if}
+                    </span>
+                {/if}
+            </td>
+            <td>{($row['sender_name'] ?? $translator->trans('archive.unknown_sender'))|escapeHtml}</td>
+            <td>{$row['mail_date']|escapeHtml}</td>
+        </tr>
+    {/foreach}
+    </tbody>
+</table>
+
+{if $totalPages > 1}
+<p style="margin-top:1rem">
+    {if $page > 1}<a href="?page={$page - 1}">&laquo; {$translator->trans('archive.index.prev')}</a>{/if}
+    &nbsp;{$page} / {$totalPages}&nbsp;
+    {if $page < $totalPages}<a href="?page={$page + 1}">{$translator->trans('archive.index.next')} &raquo;</a>{/if}
+</p>
+{/if}
+{/if}
+{/block}

@@ -1,0 +1,18 @@
+{layout '../templates/layout.latte'}
+
+{block title}{$translator->trans('unsubscribe_page.title')}{/block}
+
+{block content}
+<div style="max-width:480px;margin:4rem auto">
+    <div class="card" style="text-align:center">
+        {if $success}
+            <div style="font-size:2rem;margin-bottom:1rem">✓</div>
+            <p>{$message|escapeHtml}</p>
+        {else}
+            <div style="font-size:2rem;margin-bottom:1rem">✗</div>
+            <p style="color:#c0392b">{$message|escapeHtml}</p>
+        {/if}
+        <a href="/" class="btn btn-secondary" style="margin-top:1rem">{$translator->trans('unsubscribe_page.back_home')}</a>
+    </div>
+</div>
+{/block}

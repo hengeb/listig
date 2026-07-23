@@ -1,0 +1,48 @@
+configuration:
+  # Named blocks — referenced via 'use:' below
+  mail-config:
+    imap-host: $IMAP_HOST
+    imap-port: 993
+    imap-secure: ssl
+    smtp-host: $SMTP_HOST
+    smtp-port: 587
+    smtp-secure: tls
+    mail-user: "{list-mail}"
+    mail-password: $MAIL_PASSWORD
+
+  list-defaults:
+    reply-to: sender
+    allow-leave: direct
+    list-label: "[{display-name}]"
+    footer: "<p>Diese Mail wurde über die Liste {display-name} verschickt. <a href=\"{list-url}\">Zur Liste</a></p>"
+
+  database:
+    db-host: $DB_HOST
+    db-port: $DB_PORT
+    db-name: $DB_NAME
+    db-user: $DB_USER
+    db-password: $DB_PASS
+
+  default:
+    language: de
+    use:
+      - mail-config
+      - list-defaults
+      - database
+
+list-providers:
+  # Example: inline provider with inline members
+  - type: inline
+    lists:
+      example:
+        list-mail: example@yourdomain.org
+        display-name: "Example List"
+        members:
+          - alice@example.org
+          - firstname: Bob
+            lastname: Example
+            mail: bob@example.org
+        owners:
+          - firstname: Carol
+            lastname: Example
+            mail: carol@example.org

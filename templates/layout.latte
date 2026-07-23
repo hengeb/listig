@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="{$language}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{block title}Listig{/block}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #f5f5f5; color: #333; }
+        .container { max-width: 960px; margin: 0 auto; padding: 1rem 1.5rem; }
+        header { background: #1a1a2e; color: #fff; padding: 0.75rem 0; }
+        header .container { display: flex; justify-content: space-between; align-items: center; }
+        header a { color: #fff; text-decoration: none; font-weight: 600; font-size: 1.25rem; }
+        nav a { color: #ccc; text-decoration: none; margin-left: 1rem; font-size: 0.9rem; }
+        nav a:hover { color: #fff; }
+        main { padding: 2rem 0; }
+        .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 1.5rem; }
+        h1 { margin-top: 0; }
+        h2 { margin-top: 0; font-size: 1.1rem; color: #555; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f9f9f9; font-weight: 600; }
+        .btn { display: inline-block; padding: 0.4rem 0.9rem; border-radius: 4px; border: none; cursor: pointer; font-size: 0.875rem; text-decoration: none; }
+        .btn-primary { background: #1a1a2e; color: #fff; }
+        .btn-danger { background: #c0392b; color: #fff; }
+        .btn-success { background: #27ae60; color: #fff; }
+        .btn-secondary { background: #7f8c8d; color: #fff; }
+        .flash { padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; background: #d5e8d4; border: 1px solid #82b366; }
+        .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.75rem; }
+        .badge-ok { background: #d5e8d4; color: #27ae60; }
+        .badge-warn { background: #fff3cd; color: #856404; }
+        .badge-err { background: #f8d7da; color: #842029; }
+    </style>
+    {block head}{/block}
+</head>
+<body>
+<header>
+    <div class="container">
+        <a href="/">Listig</a>
+        <nav>
+            {if isset($user)}
+                <span style="color:#ccc;font-size:.85rem">{$user['email']|escapeHtml}</span>
+            {/if}
+        </nav>
+    </div>
+</header>
+<main>
+    <div class="container">
+        {block content}{/block}
+    </div>
+</main>
+</body>
+</html>
