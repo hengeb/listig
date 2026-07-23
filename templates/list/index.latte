@@ -1,0 +1,11 @@
+{layout '../../templates/layout.latte'}
+
+{block title}{$list->displayName|escapeHtml} – Listig{/block}
+
+{block content}
+<h1>{$list->displayName|escapeHtml}</h1>
+<p style="color:#666">{$list->mail|escapeHtml}</p>
+{if $list->description}
+    <p>{$list->description|escapeHtml}</p>
+{/if}
+{/block}

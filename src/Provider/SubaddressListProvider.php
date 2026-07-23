@@ -1,0 +1,77 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Hengeb\Listig\Provider;
+
+use Hengeb\Listig\Config\ConfigResolver;
+use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Member\InlineMemberResolver;
+use Hengeb\Listig\Member\NullMemberResolver;
+use Hengeb\Listig\Variable\ResolutionPurpose;
+use Hengeb\Listig\Variable\VariableResolver;
+
+/**
+ * type: subaddress — subaddress-based forwarding lists. Unlike InlineListProvider,
+ * `members:` is not resolved into static Member objects here: each entry's `mail`
+ * (and optional firstname/lastname/username) is a template containing {subaddress},
+ * resolved per incoming mail by MailProcessor. `owners:` uses the normal inline
+ * mechanism unchanged, so post-access: owners works exactly like type: inline.
+ */
+class SubaddressListProvider implements ListProvider
+{
+    private ?array $lists = null;
+
+    public function __construct(
+        private readonly ConfigResolver $configResolver,
+        private readonly array $providerConfig,
+    ) {
+    }
+
+    public function getLists(): array
+    {
+        if ($this->lists !== null) {
+            return $this->lists;
+        }
+
+        $this->lists = [];
+        foreach ($this->providerConfig['lists'] ?? [] as $name => $listDef) {
+            $listOverrides = array_diff_key($listDef, array_flip(['members', 'owners']));
+            $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
+            $raw['name'] = $name;
+
+            // list-mail may be a template (e.g. set once at provider level as
+            // "{list-name}@example.org"); resolved here, before a ListConfig exists,
+            // so {list-name} must be added to the context explicitly. Left in $raw
+            // as-is (not stripped) — ListConfig::createContext() merges its own
+            // computed 'list-mail' last, so it always wins over this raw entry.
+            // ResolutionPurpose::Disclosed here protects against e.g. a mistaken
+            // `list-mail: "{mail-password}"` even though no ListConfig (and
+            // therefore no filtered context) exists yet at this point — the
+            // blocking happens inside VariableResolver itself, not via a
+            // pre-filtered context.
+            $mail = VariableResolver::resolve($raw['list-mail'] ?? '', [array_merge($raw, ['list-name' => $name])], ResolutionPurpose::Disclosed);
+            if ($mail === '') {
+                throw new \RuntimeException("List '$name' has no list-mail (resolved to an empty value)");
+            }
+
+            $memberResolver  = new InlineMemberResolver([], $listDef['owners'] ?? null, new NullMemberResolver());
+            $memberTemplates = $listDef['members'] ?? [];
+
+            $this->lists[$name] = new ListConfig($name, $mail, $raw, $memberResolver, $memberTemplates);
+        }
+
+        return array_values($this->lists);
+    }
+
+    public function getList(string $name): ?ListConfig
+    {
+        $this->getLists();
+        return $this->lists[$name] ?? null;
+    }
+
+    public function setListConfigValue(string $listName, string $key, string $value): void
+    {
+        throw new \RuntimeException('Cannot modify a type: subaddress list at runtime.');
+    }
+}

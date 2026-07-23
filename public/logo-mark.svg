@@ -1,0 +1,13 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>Listig</title>
+  <desc>Ein stilisiertes Fuchsgesicht, geformt aus einem Briefumschlag – Logo fuer Listig, den Mailinglisten-Manager.</desc>
+  <rect x="10" y="10" width="180" height="180" rx="40" fill="#232A45"/>
+  <polygon points="45,95 82,95 62,45" fill="#D9832E"/>
+  <polygon points="155,95 118,95 138,45" fill="#D9832E"/>
+  <rect x="45" y="95" width="110" height="80" rx="14" fill="#F4A94A"/>
+  <path d="M82,95 L100,74 L118,95 Z" fill="#232A45"/>
+  <circle cx="72" cy="120" r="6.5" fill="#232A45"/>
+  <circle cx="128" cy="120" r="6.5" fill="#232A45"/>
+  <polygon points="94,135 106,135 100,144" fill="#232A45"/>
+  <path d="M82,151 Q100,161 121,145" fill="none" stroke="#232A45" stroke-width="4" stroke-linecap="round"/>
+</svg>

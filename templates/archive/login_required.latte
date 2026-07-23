@@ -1,0 +1,11 @@
+{layout '../../templates/layout.latte'}
+
+{block title}{$translator->trans('archive.login_required.heading')} – Listig{/block}
+
+{block content}
+<div class="card">
+    <h1>{$translator->trans('archive.login_required.heading')}</h1>
+    <p>{$translator->trans('archive.login_required.message')}</p>
+    <a href="/_/login" class="btn btn-primary">{$translator->trans('archive.login_required.login_link')}</a>
+</div>
+{/block}

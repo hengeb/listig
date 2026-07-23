@@ -1,0 +1,28 @@
+# Composer
+/vendor/
+
+# Environment — secrets must never be committed
+.env
+config/config.yml
+
+# Latte template cache
+/var/
+/tmp/latte/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# PHP
+*.cache
+

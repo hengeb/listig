@@ -1,0 +1,33 @@
+{layout '../templates/layout.latte'}
+
+{block title}{$translator->trans('dashboard.title')}{/block}
+
+{block content}
+<h1>{$translator->trans('dashboard.heading')}</h1>
+
+{if count($lists) === 0}
+    <div class="card">
+        <p style="color:#777;margin:0">{$translator->trans('dashboard.empty')}</p>
+    </div>
+{else}
+    {foreach $lists as $list}
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <div>
+                    <strong style="font-size:1.05rem">{$list->displayName|escapeHtml}</strong>
+                    <span style="color:#888;margin-left:.5rem;font-size:.9rem">&lt;{$list->mail|escapeHtml}&gt;</span>
+                    {if $list->description}
+                        <p style="color:#555;margin:.4rem 0 0">{$list->description|escapeHtml}</p>
+                    {/if}
+                    {if $list->archive->value === 'members' || $list->archive->value === 'public'}
+                        <p style="margin:.4rem 0 0"><a href="/{$list->name}/archive">{$translator->trans('archive.index.heading')}</a></p>
+                    {/if}
+                </div>
+                {if isset($unsubscribeLinks[$list->name])}
+                    <a href="{$unsubscribeLinks[$list->name]|escapeHtml}" class="btn btn-secondary" style="white-space:nowrap">{$translator->trans('dashboard.unsubscribe_button')}</a>
+                {/if}
+            </div>
+        </div>
+    {/foreach}
+{/if}
+{/block}

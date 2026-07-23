@@ -1,0 +1,13 @@
+.git
+.env
+/vendor/
+config/config.yml
+/var/
+/tmp/latte/
+*.log
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.cache
