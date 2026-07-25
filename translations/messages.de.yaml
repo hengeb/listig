@@ -26,6 +26,7 @@ reject:
   owners_only: "Nur Listeninhaber dürfen an diese Liste posten"
   members_only: "Nur Listenmitglieder dürfen an diese Liste posten"
   rate_limited: "Rate-Limit überschritten"
+  no_owners: "Diese Liste erfordert eine Freigabe, hat aber keine Listeninhaber, die diese erteilen könnten"
   moderation_declined: "Von einem Listeninhaber abgelehnt."
   notice:
     subject: "Deine Mail an %list% wurde abgelehnt"

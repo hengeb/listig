@@ -194,7 +194,7 @@ class ListConfig
     }
 
     public string $imapHost {
-        get => $this->resolve($this->raw['imap-host'] ?? '');
+        get => $this->resolve($this->raw['imap-host'] ?? $this->raw['mail-host'] ?? '', ResolutionPurpose::Trusted);
     }
 
     public int $imapPort {
@@ -209,12 +209,15 @@ class ListConfig
         get => $this->resolve($this->raw['imap-password'] ?? $this->raw['mail-password'] ?? '', ResolutionPurpose::Trusted);
     }
 
+    // Default depends on imapPort: the well-known implicit-TLS port (993) defaults
+    // to 'ssl', anything else to 'tls' (STARTTLS) — safer than blindly assuming
+    // implicit TLS on a non-standard port, which would simply fail to connect.
     public string $imapSecure {
-        get => $this->resolve($this->raw['imap-secure'] ?? 'ssl');
+        get => $this->resolve($this->raw['imap-secure'] ?? self::defaultSecureForPort($this->imapPort, 993));
     }
 
     public string $smtpHost {
-        get => $this->resolve($this->raw['smtp-host'] ?? '');
+        get => $this->resolve($this->raw['smtp-host'] ?? $this->raw['mail-host'] ?? '', ResolutionPurpose::Trusted);
     }
 
     public int $smtpPort {
@@ -229,8 +232,15 @@ class ListConfig
         get => $this->resolve($this->raw['smtp-password'] ?? $this->raw['mail-password'] ?? '', ResolutionPurpose::Trusted);
     }
 
+    // Default depends on smtpPort: the well-known implicit-TLS port (465) defaults
+    // to 'ssl', anything else (587, 25, ...) to 'tls' (STARTTLS).
     public string $smtpSecure {
-        get => $this->resolve($this->raw['smtp-secure'] ?? 'tls');
+        get => $this->resolve($this->raw['smtp-secure'] ?? self::defaultSecureForPort($this->smtpPort, 465));
+    }
+
+    private static function defaultSecureForPort(int $port, int $implicitTlsPort): string
+    {
+        return $port === $implicitTlsPort ? 'ssl' : 'tls';
     }
 
     public string $logLevel {
@@ -332,7 +342,7 @@ class ListConfig
      */
     public function createContext(): array
     {
-        $host = $this->raw['host'] ?? gethostname() ?: 'localhost';
+        $hostname = $this->raw['hostname'] ?? gethostname() ?: 'localhost';
 
         return array_merge(
             // Global defaults: imap/smtp credentials fall back to mail-* unless
@@ -347,12 +357,15 @@ class ListConfig
             // Strip 'name' and 'mail' — they get canonical list-* names below.
             array_diff_key($this->raw, array_flip(['name', 'mail'])),
             // Computed list-* variables (highest priority, override raw config).
+            // 'hostname' has no list- prefix — it's a deployment-level setting, not
+            // something that genuinely varies per list, unlike list-domain (derived
+            // from this list's own mail address).
             [
                 'list-name'         => $this->name,
                 'list-mail'         => $this->mail,
                 'list-domain'       => $this->domain,
-                'list-host'         => $host,
-                'list-url'          => "https://{$host}/{$this->name}",
+                'hostname'          => $hostname,
+                'list-url'          => "https://{$hostname}/{$this->name}",
                 'display-name'      => $this->raw['display-name'] ?? $this->name,
                 'list-display-name' => $this->raw['display-name'] ?? $this->name,
             ]

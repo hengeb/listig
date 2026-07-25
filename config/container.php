@@ -68,10 +68,15 @@ $builder->addDefinitions([
         return new MigrationRunner($c->get(PDO::class));
     },
 
+    // Path to config.yml — also used by bin/worker.php to watch the file for
+    // on-disk changes (see "Worker loop — config reload" in CLAUDE.md).
+    'config.path' => function (): string {
+        return $_ENV['CONFIG_PATH'] ?? getenv('CONFIG_PATH') ?: __DIR__ . '/config.yml';
+    },
+
     // Configuration
-    ConfigResolver::class => function (): ConfigResolver {
-        $configPath = $_ENV['CONFIG_PATH'] ?? getenv('CONFIG_PATH') ?: __DIR__ . '/config.yml';
-        return new ConfigResolver($configPath);
+    ConfigResolver::class => function (ContainerInterface $c): ConfigResolver {
+        return new ConfigResolver($c->get('config.path'));
     },
 
     // App secret
@@ -83,8 +88,14 @@ $builder->addDefinitions([
         return $secret;
     },
 
-    'app.host' => function (): string {
-        return $_ENV['APP_HOST'] ?? getenv('APP_HOST') ?: gethostname() ?: 'localhost';
+    // Hostname the app uses to build its own links (login, dashboard, manage page,
+    // API). Just another config.yml root key, read via getResolvedDefault() like
+    // db-*/language — the same 'hostname' key ListConfig::createContext() reads for
+    // {hostname}/{list-url}, so both stay in sync instead of being two disconnected
+    // settings. No env var of its own: set `hostname: $APP_HOST` in config.yml if
+    // the value should come from the environment.
+    'app.hostname' => function (ContainerInterface $c): string {
+        return $c->get(ConfigResolver::class)->getResolvedDefault()['hostname'] ?? gethostname() ?: 'localhost';
     },
 
     'mailer.dsn' => function (): string {
@@ -95,6 +106,17 @@ $builder->addDefinitions([
     // like db-*; individual lists may override it via ListConfig::$language.
     'app.language' => function (ContainerInterface $c): string {
         return $c->get(ConfigResolver::class)->getResolvedDefault()['language'] ?? 'en';
+    },
+
+    // QueueSender batch size (bin/worker.php's sendBatch() call) — config.yml's
+    // 'batch-size' root key, like any other setting here.
+    'worker.batch-size' => function (ContainerInterface $c): int {
+        return (int) ($c->get(ConfigResolver::class)->getResolvedDefault()['batch-size'] ?? 50);
+    },
+
+    // Worker cycle sleep in seconds — config.yml's 'sleep-seconds' root key.
+    'worker.sleep-seconds' => function (ContainerInterface $c): int {
+        return (int) ($c->get(ConfigResolver::class)->getResolvedDefault()['sleep-seconds'] ?? 60);
     },
 
     // Translator — resolves keys from translations/messages.{locale}.yaml, falling
@@ -223,7 +245,7 @@ $builder->addDefinitions([
             $c->get(FooterAppender::class),
             $c->get(QueueWriter::class),
             $c->get(TokenService::class),
-            $c->get('app.host'),
+            $c->get('app.hostname'),
         );
     },
 
@@ -322,7 +344,7 @@ $builder->addDefinitions([
             $c->get(RateLimiter::class),
             new AggregateMemberResolver($listProvider),
             $c->get(TranslatorInterface::class),
-            $c->get('app.host'),
+            $c->get('app.hostname'),
             $c->get('mailer.dsn'),
             $firstList?->mail ?? 'noreply@localhost',
             $firstList?->name ?? 'listig',
@@ -335,7 +357,7 @@ $builder->addDefinitions([
             $c->get(ListProvider::class),
             $c->get(TranslatorInterface::class),
             $c->get(TokenService::class),
-            $c->get('app.host'),
+            $c->get('app.hostname'),
         );
     },
 
@@ -389,7 +411,7 @@ $builder->addDefinitions([
             $c->get(RateLimiter::class),
             $c->get(PasswordCrypto::class),
             $c->get(TranslatorInterface::class),
-            $c->get('app.host'),
+            $c->get('app.hostname'),
         );
     },
 

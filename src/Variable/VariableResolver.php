@@ -22,8 +22,9 @@ namespace Hengeb\Listig\Variable;
  * BLOCKED_KEYS (passwords, hostnames, etc.) is looked up under Disclosed, the
  * real value is never returned — CLASSIFIED_PLACEHOLDER is substituted instead
  * and the attempt is logged. Only ResolutionPurpose::Trusted bypasses this
- * (used solely by ListConfig::$imapUser/$imapPassword/$smtpUser/$smtpPassword,
- * which must resolve these exact keys to build the actual IMAP/SMTP connection).
+ * (used solely by ListConfig::$imapHost/$imapUser/$imapPassword/$smtpHost/
+ * $smtpUser/$smtpPassword, which must resolve these exact keys to build the
+ * actual IMAP/SMTP connection).
  * This is enforced here, at the single point of {} resolution, rather than by
  * every caller remembering to hand over a pre-filtered context — which cannot
  * work at all for resolution that happens before a ListConfig exists yet (e.g.
@@ -74,7 +75,7 @@ class VariableResolver
         'password', 'mail-password', 'imap-password', 'smtp-password',
         'ldap-bind-password', 'db-password', 'api-token',
         'mail-user', 'imap-user', 'smtp-user',
-        'imap-host', 'imap-port', 'imap-secure',
+        'mail-host', 'imap-host', 'imap-port', 'imap-secure',
         'smtp-host', 'smtp-port', 'smtp-secure',
         'db-host', 'db-port', 'db-name', 'db-user',
         'ldap-host', 'ldap-base-dn', 'ldap-bind-dn', 'ldap-list-dn',

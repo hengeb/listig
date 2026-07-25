@@ -3,6 +3,12 @@
 # database below) — a named block only takes effect where it's referenced via 'use:'
 # (here, or in a list-provider's own 'use:'), it is otherwise inert.
 language: de
+# Public hostname this instance is reachable under (behind your reverse proxy) —
+# used to build login/dashboard/manage-page/unsubscribe links. Required for a real
+# deployment: gethostname() (the container's own, usually meaningless hostname) is
+# only a last-resort fallback, and the worker logs a warning at startup if this is
+# left unset. See CLAUDE.md "Docker Setup".
+hostname: $APP_HOST
 use:
   - mail-config
   - list-defaults

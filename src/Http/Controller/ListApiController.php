@@ -41,7 +41,7 @@ class ListApiController
         private readonly RateLimiter $rateLimiter,
         private readonly PasswordCrypto $passwordCrypto,
         private readonly TranslatorInterface $translator,
-        private readonly string $host,
+        private readonly string $hostname,
     ) {
     }
 
@@ -121,7 +121,7 @@ class ListApiController
                     $body['lastname'] ?? null,
                     $body['username'] ?? null,
                 );
-                $link = "https://{$this->host}/{$listName}/subscribe/confirm?token={$token}";
+                $link = "https://{$this->hostname}/{$listName}/subscribe/confirm?token={$token}";
                 $this->sendConfirmationMail($list, $mail, $link);
             } catch (\Throwable $e) {
                 error_log("Listig: Failed to send subscribe confirmation to $mail for list $listName: " . $e->getMessage());

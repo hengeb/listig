@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Provider;
 
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Crypto\PasswordCrypto;
 use Hengeb\Listig\Member\LdapMemberResolver;
 use Symfony\Component\Ldap\Entry;
 use Symfony\Component\Ldap\Ldap;
@@ -84,6 +85,13 @@ class LdapListProvider implements ListProvider
             if (preg_match('/^([^:]+):(.*)$/', $desc, $m)) {
                 $listOverrides[trim($m[1])] = trim($m[2]);
             }
+        }
+
+        // Unlike a config.yml value (always trusted plaintext, e.g. from .env via
+        // $VAR), a password stored directly in LDAP's description[] should be
+        // encrypted — see PasswordCrypto::warnIfPlaintext().
+        foreach (['password', 'mail-password', 'imap-password', 'smtp-password'] as $key) {
+            PasswordCrypto::warnIfPlaintext($key, $listOverrides[$key] ?? '', "LDAP description[] for list '$name'");
         }
 
         $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);

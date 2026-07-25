@@ -27,7 +27,7 @@ class AuthController
         private readonly RateLimiter $rateLimiter,
         private readonly MemberResolver $memberResolver,
         private readonly TranslatorInterface $translator,
-        private readonly string $host,
+        private readonly string $hostname,
         private readonly string $mailerDsn,
         private readonly string $listMail,
         private readonly string $listName,
@@ -71,7 +71,7 @@ class AuthController
             if ($member !== null) {
                 try {
                     $token = $this->tokenService->sign('login', $this->listName, $member->attributes['username'] ?? $email);
-                    $link = "https://{$this->host}/_/login/verify?token={$token}";
+                    $link = "https://{$this->hostname}/_/login/verify?token={$token}";
                     $this->sendLoginMail($email, $link);
                 } catch (\Throwable $e) {
                     error_log("Listig: Failed to send magic link to $email: " . $e->getMessage());

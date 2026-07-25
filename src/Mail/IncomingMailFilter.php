@@ -70,6 +70,13 @@ class IncomingMailFilter
         }
 
         if ($list->moderation->value === 'on') {
+            // A moderation item nobody can ever accept/reject is worse than an
+            // outright rejection — without this, the mail would silently vanish
+            // (ModerationMailer::send() logs and no-ops on empty owners) with no
+            // feedback to the sender at all.
+            if (empty($list->getOwners())) {
+                return FilterResult::reject('reject.no_owners');
+            }
             return FilterResult::moderation();
         }
 

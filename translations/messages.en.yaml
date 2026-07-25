@@ -26,6 +26,7 @@ reject:
   owners_only: "Only list owners may post to this list"
   members_only: "Only list members may post to this list"
   rate_limited: "Rate limit exceeded"
+  no_owners: "This list requires moderation but has no owners to approve it"
   moderation_declined: "Rejected by a list owner."
   notice:
     subject: "Your mail to %list% was rejected"

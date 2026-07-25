@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 use Hengeb\Listig\Archive\ArchiveIndexer;
+use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Imap\ImapArchiver;
 use Hengeb\Listig\Imap\ImapMailboxFactory;
 use Hengeb\Listig\Imap\ImapPoller;
@@ -51,12 +52,37 @@ $rejectionNotifier          = $container->get(RejectionNotifier::class);
 $queueSender                = $container->get(QueueSender::class);
 $db                         = $container->get(PDO::class);
 
-$sleepSeconds = (int) ($_ENV['WORKER_SLEEP_SECONDS'] ?? getenv('WORKER_SLEEP_SECONDS') ?: 60);
-$batchSize    = (int) ($_ENV['QUEUE_BATCH_SIZE'] ?? getenv('QUEUE_BATCH_SIZE') ?: 50);
+$sleepSeconds = $container->get('worker.sleep-seconds');
+$batchSize    = $container->get('worker.batch-size');
+
+if (($container->get(ConfigResolver::class)->getResolvedDefault()['hostname'] ?? '') === '') {
+    error_log(
+        "Listig: WARNING: 'hostname' is not set in config.yml — falling back to gethostname() "
+        . "('" . (gethostname() ?: 'localhost') . "'), which is almost always wrong in a "
+        . "containerized deployment behind a reverse proxy. Set 'hostname: your-public-domain.example.org' "
+        . "explicitly (see CLAUDE.md)."
+    );
+}
+
+// Watched so a change to config.yml on disk (edited in place, or a fresh
+// docker compose up after editing it) causes a clean self-restart instead of
+// running indefinitely on a stale, already-parsed configuration — see "Worker
+// loop — config reload" in CLAUDE.md. clearstatcache() is required: PHP caches
+// filemtime() per-process, so without it every check in this same process
+// would keep returning the mtime from the very first call.
+$configPath  = $container->get('config.path');
+$configMtime = @filemtime($configPath) ?: null;
 
 error_log('Listig worker started');
 
 while (true) {
+    clearstatcache(true, $configPath);
+    $currentConfigMtime = @filemtime($configPath) ?: null;
+    if ($currentConfigMtime !== $configMtime) {
+        error_log('Listig: config.yml changed on disk — restarting worker to reload configuration.');
+        exit(0);
+    }
+
     $cycleStart = microtime(true);
 
     // 1. Process each list

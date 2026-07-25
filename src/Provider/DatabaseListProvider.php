@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Provider;
 
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Crypto\PasswordCrypto;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
 use Hengeb\Listig\Member\MemberResolverFactory;
 use PDO;
@@ -66,6 +67,13 @@ class DatabaseListProvider implements ListProvider
         $mail = $rows['mail'] ?? null;
         if ($mail === null) {
             return null;
+        }
+
+        // Unlike a config.yml value (always trusted plaintext, e.g. from .env via
+        // $VAR), a password stored directly in a config-table row should be
+        // encrypted — see PasswordCrypto::warnIfPlaintext().
+        foreach (['mail-password', 'imap-password', 'smtp-password'] as $key) {
+            PasswordCrypto::warnIfPlaintext($key, $rows[$key] ?? '', "config-table row for list '$name'");
         }
 
         $raw = $this->configResolver->resolveListConfig($this->providerConfig, $rows);

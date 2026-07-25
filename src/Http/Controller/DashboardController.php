@@ -19,7 +19,7 @@ class DashboardController
         private readonly ListProvider $listProvider,
         private readonly TranslatorInterface $translator,
         private readonly TokenService $tokenService,
-        private readonly string $host,
+        private readonly string $hostname,
     ) {
     }
 
@@ -48,7 +48,7 @@ class DashboardController
                     $list->name,
                     $member?->attributes['username'] ?? $userEmail,
                 );
-                $unsubscribeLinks[$list->name] = "https://{$this->host}/{$list->name}/unsubscribe?token={$token}";
+                $unsubscribeLinks[$list->name] = "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}";
             }
         }
 

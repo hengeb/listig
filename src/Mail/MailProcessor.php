@@ -25,7 +25,7 @@ class MailProcessor
         private readonly FooterAppender $footerAppender,
         private readonly QueueWriter $queueWriter,
         private readonly TokenService $tokenService,
-        private readonly string $host,
+        private readonly string $hostname,
     ) {
     }
 
@@ -73,7 +73,7 @@ class MailProcessor
             $this->footerAppender->append($recipientEmail, $list, $recipientContexts);
 
             $token          = $this->tokenService->sign('unsubscribe', $list->name, $recipient->attributes['username'] ?? $recipient->email);
-            $unsubscribeUrl = "https://{$this->host}/{$list->name}/unsubscribe?token={$token}";
+            $unsubscribeUrl = "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}";
             $recipientEmail->getHeaders()->remove('list-unsubscribe');
             $recipientEmail->getHeaders()->addTextHeader('List-Unsubscribe', "<{$unsubscribeUrl}>");
             $recipientEmail->getHeaders()->addTextHeader('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click');

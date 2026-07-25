@@ -69,6 +69,8 @@ Configuration via `config.yml` (structure below) and `.env` for DB credentials a
 
 `docker/php.ini` (`display_errors = Off`, `log_errors = On`, `error_log = /dev/stderr`) overrides the base image's development-oriented defaults (`display_errors = STDOUT`, `log_errors = Off`) — see "Security Notes" for why this is load-bearing, not just tidiness.
 
+**Set `hostname` explicitly in config.yml.** It's used to build every link Listig generates (login, dashboard, manage page, unsubscribe, moderation) — see `{hostname}` above. Without it, `ListConfig`/`'app.hostname'` (`config/container.php`) fall back to PHP's `gethostname()`, which in a container returns the container's own internal hostname (a random ID or the compose service name) — never the public domain a reverse proxy actually exposes the app under, and there's no way to derive that automatically: the worker has no incoming request to read a `Host` header from at all, and even on the web side, deriving it from the request would make worker-generated links (unsubscribe, moderation) and web-generated links (login) disagree whenever the same instance is reachable under more than one name. `bin/worker.php` logs a warning at startup (`error_log`, not a hard failure) if `hostname` resolves to empty, precisely because this is easy to miss and the resulting links are silently wrong rather than erroring.
+
 ### CI: build & publish (`.github/workflows/docker-publish.yml`)
 
 On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Dockerfile` and pushes to the GitHub Container Registry as `ghcr.io/<owner>/<repo>` (`${{ github.repository }}` — no hardcoded name, works under any fork/rename). Uses `docker/build-push-action` with the GitHub Actions cache backend (`type=gha`) so unchanged apt/pecl/composer layers aren't rebuilt every run. Tagging (`docker/metadata-action`): the branch name on a branch push, the git tag and derived semver on a version tag, the commit SHA always, and `latest` only on the default branch. Auth is the repo's own `GITHUB_TOKEN` (`permissions: packages: write`) — no PAT or secret to manage. First push creates the package as **private** by default; make it public under the repo's Packages settings if it should be pullable without authentication.
@@ -259,12 +261,15 @@ use:
 
 # Named block — referenced via 'use:' above
 mail-config:
+  # mail-host sets both imap-host and smtp-host unless overridden individually —
+  # shown here as two separate hosts instead, since IMAP/SMTP are often split
+  # across different servers; use mail-host if yours is the same for both.
   imap-host: $IMAP_HOST
   imap-port: 993                      # default: 993
-  imap-secure: ssl                    # ssl | tls | none (default: ssl)
+  imap-secure: ssl                    # ssl | tls | none (default: 'ssl' if imap-port is 993, else 'tls')
   smtp-host: $SMTP_HOST
   smtp-port: 587                      # default: 587
-  smtp-secure: tls                    # ssl | tls | none (default: tls)
+  smtp-secure: tls                    # ssl | tls | none (default: 'ssl' if smtp-port is 465, else 'tls')
   # mail-user sets both imap-user and smtp-user unless overridden individually
   # mail-password sets both imap-password and smtp-password unless overridden
   mail-user: "{list-mail}"             # lazily resolved to list mail address per list
@@ -507,9 +512,9 @@ Variables use `{key}` syntax and are resolved **lazily** — at point of use, wi
 | `{list-name}` | Internal list identifier, set by the provider (LDAP: `cn`) |
 | `{list-mail}` | List email address |
 | `{list-domain}` | Domain part of the list email address |
-| `{list-host}` | Hostname of the Listig server (from `config.yml` or auto-detected) |
+| `{hostname}` | Hostname of the Listig server — the `hostname` config key, or `gethostname()` if unset (see "Docker Setup" — set this explicitly in any real deployment) |
 | `{display-name}` | `display-name` config value, falls back to `{list-name}`; alias: `{list-display-name}` |
-| `{list-url}` | `https://{list-host}/{list-name}` — link to the list manage page |
+| `{list-url}` | `https://{hostname}/{list-name}` — link to the list manage page |
 | Any other config key | Its resolved value |
 
 #### Mail-context variables (available while processing an incoming mail)
@@ -589,7 +594,7 @@ Two call sites need a non-email identifier for privacy — `MailProcessor` embed
 #### Blocked variables
 
 Never substituted in any context, even via custom aliases:
-`password`, `imap-host`, `imap-port`, `imap-user`, `imap-password`, `smtp-host`, `smtp-port`, `smtp-user`, `smtp-password`, `mail-password`, `ldap-bind-password`, `db-host`, `db-port`, `db-name`, `db-user`, `db-password`, `api-token`
+`password`, `mail-password`, `imap-password`, `smtp-password`, `ldap-bind-password`, `db-password`, `api-token`, `mail-user`, `imap-user`, `smtp-user`, `mail-host`, `imap-host`, `imap-port`, `imap-secure`, `smtp-host`, `smtp-port`, `smtp-secure`, `db-host`, `db-port`, `db-name`, `db-user`, `ldap-host`, `ldap-base-dn`, `ldap-bind-dn`, `ldap-list-dn`
 
 ---
 
@@ -625,16 +630,17 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `password` | encrypted string | IMAP password, AES-256-CBC with an `APP_SECRET`-derived subkey (see Key Derivation) (legacy; prefer `mail-password`) |
 | `mail-user` | string | Sets both `imap-user` and `smtp-user` unless those are set individually |
 | `mail-password` | encrypted string | Sets both `imap-password` and `smtp-password` unless those are set individually — AES-256-CBC with an `APP_SECRET`-derived subkey (see Key Derivation) |
-| `imap-host` | hostname | IMAP server hostname |
+| `mail-host` | hostname | Sets both `imap-host` and `smtp-host` unless those are set individually |
+| `imap-host` | hostname | IMAP server hostname (overrides `mail-host`) |
 | `imap-port` | integer | IMAP port (default: 993) |
 | `imap-user` | string | IMAP username (overrides `mail-user`) |
 | `imap-password` | encrypted string | IMAP password (overrides `mail-password`) |
-| `imap-secure` | `ssl` \| `tls` \| `none` | IMAP connection security (default: `ssl`) |
-| `smtp-host` | hostname | SMTP server hostname |
+| `imap-secure` | `ssl` \| `tls` \| `none` | IMAP connection security (default: `ssl` if `imap-port` is 993, else `tls`) |
+| `smtp-host` | hostname | SMTP server hostname (overrides `mail-host`) |
 | `smtp-port` | integer | SMTP port (default: 587) |
 | `smtp-user` | string | SMTP username (overrides `mail-user`) |
 | `smtp-password` | encrypted string | SMTP password (overrides `mail-password`) |
-| `smtp-secure` | `ssl` \| `tls` \| `none` | SMTP connection security (default: `tls`) |
+| `smtp-secure` | `ssl` \| `tls` \| `none` | SMTP connection security (default: `ssl` if `smtp-port` is 465, else `tls`) |
 | `smtp-from-name` | string | Display name in From header; may contain mail-context variables e.g. `{sender-name} (via {display-name})` |
 | `display-name` | string | Human-readable list name for UI (falls back to `cn`); used in `List-Id` header |
 | `description` | string | Optional list description shown in UI. Renamed to `list-description` on ingest by `ConfigResolver::resolveListConfig()` (applies to every provider, not just LDAP) — see "`description` → `list-description`" |
@@ -757,14 +763,14 @@ The resolver:
 - Detects cycles via `$visited` tracking; leaves variable literal on cycle, logs error
 - Blocks `VariableResolver::BLOCKED_KEYS` (passwords, hostnames, ...) — see "ResolutionPurpose" below
 
-`ListConfig::createContext()` produces the list-level context: all merged raw config keys plus computed `list-name`, `list-mail`, `list-domain`, `list-host`, `list-url`, `display-name`/`list-display-name`. It also sets imap/smtp user+password defaults (`imap-user: '{mail-user}'` etc.) so the fallback chain works without special-casing in `ListConfig` properties. It is the **only** context builder — there is no separate "safe" variant; protection against `BLOCKED_KEYS` happens at resolution time instead (next section).
+`ListConfig::createContext()` produces the list-level context: all merged raw config keys plus computed `list-name`, `list-mail`, `list-domain`, `hostname`, `list-url`, `display-name`/`list-display-name`. It also sets imap/smtp user+password defaults (`imap-user: '{mail-user}'` etc.) so the fallback chain works without special-casing in `ListConfig` properties. It is the **only** context builder — there is no separate "safe" variant; protection against `BLOCKED_KEYS` happens at resolution time instead (next section).
 
 ### ResolutionPurpose
 
 `Hengeb\Listig\Variable\ResolutionPurpose` is a plain (non-string-backed) enum with two cases, `Trusted` and `Disclosed`, passed as `VariableResolver::resolve()`/`lookup()`'s third argument and threaded unchanged through recursive resolution (same mechanism as `$visited`). Protection against `VariableResolver::BLOCKED_KEYS` is enforced at this single point of `{}` resolution, not by pre-filtering the context array handed to it — `ListConfig::createContext()` is the **only** context builder, and always returns the full raw config.
 
 - **`Disclosed`** (the default parameter value — least-privilege, secure-by-default) — used for any resolution whose result is user-visible (mail body/subject/headers, the UI, notification mails) or otherwise operator-controlled but not itself a credential lookup. If resolution — at any point in the recursion chain, not just the top-level key — reaches a key in `VariableResolver::BLOCKED_KEYS`, the real value is never returned: `VariableResolver::CLASSIFIED_PLACEHOLDER` (`'*CLASSIFIED*'`) is substituted instead, and the attempt is logged via `error_log()` (unconditional, same as every other log call in this codebase — `$list->logLevel` exists as a config property but is not wired to any actual level-based filtering anywhere, here or elsewhere, so this deliberately doesn't introduce that). The placeholder is never itself re-parsed as a template, same as a `Literal`-wrapped value.
-- **`Trusted`** — full, unfiltered access, bypassing the `BLOCKED_KEYS` check entirely. Used *only* by `ListConfig::$imapUser`/`$imapPassword`/`$smtpUser`/`$smtpPassword` (see "Which `ListConfig` properties are template-resolved" below) — these are the one deliberate case of a credential needing to fall back through another credential (`{mail-user}`/`{mail-password}`).
+- **`Trusted`** — full, unfiltered access, bypassing the `BLOCKED_KEYS` check entirely. Used *only* by `ListConfig::$imapHost`/`$imapUser`/`$imapPassword`/`$smtpHost`/`$smtpUser`/`$smtpPassword` (see "Which `ListConfig` properties are template-resolved" below) — these are the deliberate case of a credential/connection-string property needing to fall back through another blocked key (`{mail-host}`/`{mail-user}`/`{mail-password}`).
 
 Enforcing this at the point of `{}` resolution — rather than by filtering the context array before it's built — is what makes the protection apply even when no `ListConfig` exists yet: `InlineListProvider`/`YamlListProvider`/`SubaddressListProvider` all resolve a list's `list-mail` template against the raw, just-merged provider config (see "`list-mail`" above), before any `ListConfig` object is constructed. Passing `ResolutionPurpose::Disclosed` to that `VariableResolver::resolve()` call blocks `list-mail: "{mail-password}"` from resolving to the literal plaintext password, the same way as everywhere else, with no dependency on a `ListConfig` instance.
 
@@ -941,8 +947,8 @@ class ListConfig {
 
 Every property backed by a raw config value is resolved via `ListConfig`'s private `resolve()` before being cast/validated to its final type (`(int)`, `Enum::from()`, `'on'`/`'off'` comparison, ...) — not just plain string properties. This matters: without it, e.g. `smtp-port: "{port-tls}"` would silently produce `0` (an unresolved `"{port-tls}"` string cast to `int`), and `reply-to: "{my-alias}"` would throw an uncaught `ValueError` from `ReplyToBehavior::from()`.
 
-- **`resolve($raw)`, default `ResolutionPurpose::Disclosed`** — the default for everything: `$displayName`, `$description`, `$replyTo`, `$postAccess`, `$moderation`, `$allowLeave`, `$archive`, `$maxPerSender`, `$maxSize`, `$publicSubscribe`, `$logLevel`, `$language`, and — despite being `VariableResolver::BLOCKED_KEYS` themselves — `$imapHost`/`$imapPort`/`$imapSecure`/`$smtpHost`/`$smtpPort`/`$smtpSecure` too. A numeric or enum property resolved under `Trusted` could otherwise leak a fragment of a real secret rather than the whole value — e.g. `smtp-port: "{imap-password}"` would silently become the leading digits of the actual password cast to an int, which could then surface via a connection-failure error message. Staying on `Disclosed` here means these six properties can no longer reference each other or `{mail-user}`/`{mail-password}` — a deliberate trade-off in favor of the leak protection, since none of them actually need to.
-- **`resolve($raw, ResolutionPurpose::Trusted)`** — only `$imapUser`, `$imapPassword`, `$smtpUser`, `$smtpPassword`. These are the one deliberate, documented exception: they must be able to fall back to `{mail-user}`/`{mail-password}` (`mail-user` sets both `imap-user` and `smtp-user` unless overridden individually — see "config.yml Structure"), which are themselves `VariableResolver::BLOCKED_KEYS`.
+- **`resolve($raw)`, default `ResolutionPurpose::Disclosed`** — the default for everything: `$displayName`, `$description`, `$replyTo`, `$postAccess`, `$moderation`, `$allowLeave`, `$archive`, `$maxPerSender`, `$maxSize`, `$publicSubscribe`, `$logLevel`, `$language`, and — despite being `VariableResolver::BLOCKED_KEYS` themselves — `$imapPort`/`$imapSecure`/`$smtpPort`/`$smtpSecure` too. These four are numeric/enum properties (`(int)` cast, `'ssl'|'tls'|'none'` comparison): resolved under `Trusted`, a value like `smtp-port: "{imap-password}"` could silently become the leading digits of the actual password cast to an int, which could then surface via a connection-failure error message — a *fragment* leak that casting makes easy to miss. Staying on `Disclosed` here means these four properties can no longer reference `{mail-user}`/`{mail-password}`/`{mail-host}` or any other blocked key — a deliberate trade-off in favor of the leak protection, since none of them actually need to (there's no `mail-port`/`mail-secure` fallback level to reach).
+- **`resolve($raw, ResolutionPurpose::Trusted)`** — `$imapHost`, `$imapUser`, `$imapPassword`, `$smtpHost`, `$smtpUser`, `$smtpPassword`. These are string-valued connection/credential properties that must be able to fall back through another blocked key one level up — `imap-host`/`smtp-host` through `{mail-host}`, `imap-user`/`smtp-user` through `{mail-user}`, `imap-password`/`smtp-password` through `{mail-password}` (each `mail-*` key sets both `imap-*` and `smtp-*` unless overridden individually — see "config.yml Structure"). Unlike the numeric/enum group above, a resolved host/user/password is used whole (passed straight to the IMAP/SMTP client), not cast or compared — so there's no fragment-leak risk distinct from the whole-value risk `Trusted` already accepts for this deliberately small, documented set of properties.
 - **Not template-resolved at all** — `$apiToken`. A Bearer credential the caller must present verbatim; indirection here would only add complexity/attack surface (e.g. accidental sharing via a shared alias) for no real benefit.
 - **Not applicable** — `$domain` (derived from `$mail`, not a raw config value), `$personalizeKeys`/`$reservedSubaddresses` (comma-separated *lists of key names*, not content), `$requiresSubaddress`/`$isImapConfigured` (booleans computed from other properties). `$footer`/`$listLabel`/`$smtpFromName` are template-capable but *not* resolved inside `ListConfig` itself — they're read raw and resolved later, downstream, by `FooterAppender`/`MailProcessor` (which already resolve under `ResolutionPurpose::Disclosed`), since they're only ever consumed from the mail-sending pipeline and never read directly elsewhere.
 
@@ -1061,7 +1067,30 @@ Entries older than 90 days deleted each worker cycle.
 
 ### Worker loop (`bin/worker.php`)
 
-The worker runs as a single process. If a cycle takes longer than `WORKER_SLEEP_SECONDS`, the next cycle starts immediately after — no overlap protection needed since it is single-threaded.
+The worker runs as a single process. If a cycle takes longer than `sleep-seconds`, the next cycle starts immediately after — no overlap protection needed since it is single-threaded.
+
+`sleep-seconds` (step 5, default 60) and `batch-size` (step 3, default 50) are config.yml root keys, like any other setting there — resolved by the `'worker.sleep-seconds'`/`'worker.batch-size'` container entries (`config/container.php`) via `ConfigResolver::getResolvedDefault()`. Neither has an env var of its own; reference `$SOME_VAR` in config.yml (e.g. `sleep-seconds: $WORKER_SLEEP_SECONDS`) if the value should come from the environment instead.
+
+#### Worker loop — config reload
+
+The worker's container (and everything built from it — `ConfigResolver`, every `ListProvider`, all `ListConfig` objects) is built exactly once, before the loop starts, and kept for the entire process lifetime. Every `ListProvider` implementation also memoizes `getLists()`/`getList()` internally the first time it succeeds (`private ?array $lists = null; if ($this->lists !== null) return ...;`), so a change to `config.yml`, an LDAP `description[]` entry, a `config-table` row, or a `type: yaml` provider file is invisible to an already-running worker — not just until the next `sleep-seconds` cycle, but indefinitely, until the process actually restarts. (The **web/API side has no equivalent problem**: `public/index.php` builds a brand new container, and therefore fresh, unmemoized providers, on every single HTTP request — config changes there are visible on the very next request.)
+
+To avoid needing a manual restart after every `config.yml` edit, the worker watches the file's mtime once per loop iteration and exits cleanly (`exit(0)`) the moment it changes:
+
+```php
+clearstatcache(true, $configPath);  // filemtime() is cached per-process — without
+                                     // this, every check after the first would keep
+                                     // returning the original mtime forever
+$currentConfigMtime = @filemtime($configPath) ?: null;
+if ($currentConfigMtime !== $configMtime) {
+    error_log('Listig: config.yml changed on disk — restarting worker to reload configuration.');
+    exit(0);
+}
+```
+
+`docker/supervisord.conf`'s `[program:worker]` already has `autorestart=true`, so supervisord immediately restarts the process — which rebuilds the container from scratch and re-reads `config.yml` (and re-queries LDAP/the database/YAML files) fresh. A full process restart, rather than trying to invalidate each `ListProvider`'s cache in place, is deliberate: it's simpler, and guarantees a completely consistent state with no risk of partially-stale providers.
+
+This only watches `config.yml` itself — a change to a file pulled in via `!include`, or to a `type: yaml` provider's own `file:`, is **not** detected this way (no mechanism reports back which included files were actually read). Editing `config.yml` itself (even a no-op re-save) after changing an included file works around this.
 
 ```
 loop forever:
@@ -1096,17 +1125,17 @@ loop forever:
                 - ImapArchiver::archiveOrDelete() per list config
         d. ImapArchiver::deleteOldMails() -> delete inbox mails older than 30 days
     2. ModerationChecker::checkOverdue() -> remind owners of items pending > 7 days
-    3. QueueSender::sendBatch(QUEUE_BATCH_SIZE)
+    3. QueueSender::sendBatch(batch-size, see 'worker.batch-size' above)
     4. Cleanup:
         - DELETE FROM imap_seen WHERE seen_at < NOW() - INTERVAL 31 DAY
         - DELETE FROM rate_limit WHERE sent_at < NOW() - INTERVAL 1 HOUR
         - DELETE FROM bounce_log WHERE bounced_at < NOW() - INTERVAL 90 DAY
-    5. sleep(WORKER_SLEEP_SECONDS)
+    5. sleep(sleep-seconds, see 'worker.sleep-seconds' above)
 ```
 
 ### Sending batch (`QueueSender`)
 
-- Fetch up to `QUEUE_BATCH_SIZE` `queue_recipients` with `status=pending`, ordered by `last_attempt_at ASC`
+- Fetch up to `batch-size` (see "Worker loop" above) `queue_recipients` with `status=pending`, ordered by `last_attempt_at ASC`
 - Per recipient: call `SmtpConnectionFactory::getTransport($listConfig)` — reuses open connection if SMTP fingerprint unchanged, otherwise closes and opens a new one
 - Send via `symfony/mailer` with explicit `Envelope`
 - On success: mark `sent`; if all recipients for `mail_queue_id` done, delete `mail_queue` row
@@ -1158,8 +1187,9 @@ Visible `To` header: original recipients only, never expanded member list.
 6. **Size**: raw MIME size > `max-size` → reject, notify sender
 7. **Post-access**: sender not in allowed group → reject, notify sender
 8. **Rate limit**: exceeded → reject, notify sender
+9. **Moderation with no owners** (only reached if `moderation: on`): list has zero owners → reject (`reject.no_owners`), notify sender — a moderation item nobody can ever accept/reject would otherwise vanish silently instead of being distributed or bounced back with feedback
 
-Bounces checked before Authentication-Results: MAILER-DAEMON mails may legitimately lack valid SPF/DKIM. Spam filter checked before Authentication-Results too, for the same reason — but after bounce detection, so a MAILER-DAEMON bounce whose body happens to match a filter rule is still handled as a bounce, not a spam reject. Subaddress validation is checked before the spam filter (address-routing validity before content-based filtering) but after bounce detection. Note `bin/worker.php` already routes `+accept-*`/`+reject-*` mail through `ModerationResponseHandler` before `IncomingMailFilter::filter()` is ever reached, so the `accept-`/`reject-` check here is defense-in-depth; the `bounce` check is load-bearing, since bounce detection above is content-based and a non-standard bounce sent to `+bounce` would otherwise fall through.
+Bounces checked before Authentication-Results: MAILER-DAEMON mails may legitimately lack valid SPF/DKIM. Spam filter checked before Authentication-Results too, for the same reason — but after bounce detection, so a MAILER-DAEMON bounce whose body happens to match a filter rule is still handled as a bounce, not a spam reject. Subaddress validation is checked before the spam filter (address-routing validity before content-based filtering) but after bounce detection. Note `bin/worker.php` already routes `+accept-*`/`+reject-*` mail through `ModerationResponseHandler` before `IncomingMailFilter::filter()` is ever reached, so the `accept-`/`reject-` check here is defense-in-depth; the `bounce` check is load-bearing, since bounce detection above is content-based and a non-standard bounce sent to `+bounce` would otherwise fall through. The no-owners check is last since it's only relevant once a mail has already cleared every other gate and would otherwise reach `moderation: on`; `ModerationMailer::send()` still independently checks (and logs, then no-ops) for empty owners too, as a defense-in-depth backstop against a list losing its last owner *after* an item is already in `moderation_queue`.
 
 ### Header filter
 
@@ -1178,7 +1208,7 @@ Bounces checked before Authentication-Results: MAILER-DAEMON mails may legitimat
 | `List-Id` | `<{name}.{domain}>` — uses `name` (stable identifier, not `display-name` which may change) |
 | `List-Post` | `<mailto:{mail}>` or `NO` if `PostAccess::Owners` |
 | `List-Help` | `<mailto:{owner-mail}>` — added whenever the list has at least one owner (not conditional on `post-access`) |
-| `List-Unsubscribe` | `<https://{host}/{list-name}/unsubscribe?token={TOKEN}>` |
+| `List-Unsubscribe` | `<https://{hostname}/{list-name}/unsubscribe?token={TOKEN}>` |
 | `List-Unsubscribe-Post` | `List-Unsubscribe=One-Click` |
 | `Precedence` | `list` |
 | `X-Loop` | List mail address |

@@ -69,6 +69,22 @@ final class PasswordCrypto
         return $this->decrypt($value);
     }
 
+    /**
+     * Logs a warning if $value is non-empty and not already encrypted. Used by
+     * LdapListProvider/DatabaseListProvider to flag a plaintext password stored
+     * directly in LDAP description[] or a config-table row — unlike a config.yml
+     * value (always trusted plaintext, typically from .env via $VAR), these are
+     * written into a shared directory/database and should be encrypted with
+     * bin/encrypt-password.php first. Never used for config.yml-sourced values,
+     * which working unencrypted is the documented, intended behavior for.
+     */
+    public static function warnIfPlaintext(string $key, string $value, string $context): void
+    {
+        if ($value !== '' && !self::looksEncrypted($value)) {
+            error_log("Listig: Unencrypted '$key' found in $context — encrypt it with bin/encrypt-password.php before storing it there.");
+        }
+    }
+
     private static function looksEncrypted(string $value): bool
     {
         $parts = explode(':', $value);
