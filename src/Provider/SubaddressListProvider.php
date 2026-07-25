@@ -23,6 +23,7 @@ class SubaddressListProvider implements ListProvider
     private ?array $lists = null;
 
     public function __construct(
+        private readonly string $name,
         private readonly ConfigResolver $configResolver,
         private readonly array $providerConfig,
     ) {
@@ -35,10 +36,10 @@ class SubaddressListProvider implements ListProvider
         }
 
         $this->lists = [];
-        foreach ($this->providerConfig['lists'] ?? [] as $name => $listDef) {
+        foreach ($this->providerConfig['lists'] ?? [] as $listName => $listDef) {
             $listOverrides = array_diff_key($listDef, array_flip(['members', 'owners']));
             $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
-            $raw['name'] = $name;
+            $raw['name'] = $listName;
 
             // list-mail may be a template (e.g. set once at provider level as
             // "{list-name}@example.org"); resolved here, before a ListConfig exists,
@@ -50,15 +51,15 @@ class SubaddressListProvider implements ListProvider
             // therefore no filtered context) exists yet at this point — the
             // blocking happens inside VariableResolver itself, not via a
             // pre-filtered context.
-            $mail = VariableResolver::resolve($raw['list-mail'] ?? '', [array_merge($raw, ['list-name' => $name])], ResolutionPurpose::Disclosed);
+            $mail = VariableResolver::resolve($raw['list-mail'] ?? '', [array_merge($raw, ['list-name' => $listName])], ResolutionPurpose::Disclosed);
             if ($mail === '') {
-                throw new \RuntimeException("List '$name' has no list-mail (resolved to an empty value)");
+                throw new \RuntimeException("List '$listName' has no list-mail (resolved to an empty value) in provider '{$this->name}'");
             }
 
             $memberResolver  = new InlineMemberResolver([], $listDef['owners'] ?? null, new NullMemberResolver());
             $memberTemplates = $listDef['members'] ?? [];
 
-            $this->lists[$name] = new ListConfig($name, $mail, $raw, $memberResolver, $memberTemplates);
+            $this->lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver, $memberTemplates);
         }
 
         return array_values($this->lists);
@@ -72,6 +73,6 @@ class SubaddressListProvider implements ListProvider
 
     public function setListConfigValue(string $listName, string $key, string $value): void
     {
-        throw new \RuntimeException('Cannot modify a type: subaddress list at runtime.');
+        throw new \RuntimeException("Cannot modify a type: subaddress list at runtime (provider '{$this->name}').");
     }
 }

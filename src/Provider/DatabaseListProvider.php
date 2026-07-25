@@ -17,6 +17,7 @@ class DatabaseListProvider implements ListProvider
     private readonly MemberResolverFactory $memberResolverFactory;
 
     public function __construct(
+        private readonly string $name,
         private readonly ConfigResolver $configResolver,
         private readonly array $providerConfig,
         private readonly DatabaseConnectionFactory $dbFactory,

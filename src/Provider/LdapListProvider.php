@@ -16,6 +16,7 @@ class LdapListProvider implements ListProvider
     private ?array $lists = null;
 
     public function __construct(
+        private readonly string $name,
         private readonly ConfigResolver $configResolver,
         private readonly array $providerConfig,
     ) {
@@ -31,7 +32,7 @@ class LdapListProvider implements ListProvider
             $entries = $this->queryLists();
         } catch (\Throwable $e) {
             // LDAP unreachable: log, return empty, do NOT cache so the next cycle retries
-            error_log("Listig: LDAP connection failed for list provider ({$this->providerConfig['ldap-host']}): " . $e->getMessage());
+            error_log("Listig: LDAP connection failed for list provider '{$this->name}' ({$this->providerConfig['ldap-host']}): " . $e->getMessage());
             return [];
         }
 
@@ -44,8 +45,8 @@ class LdapListProvider implements ListProvider
                     $this->lists[$list->name] = $list;
                 }
             } catch (\Throwable $e) {
-                $name = ($entry->getAttribute('cn') ?? [])[0] ?? 'unknown';
-                error_log("Listig: Failed to load LDAP list '$name', skipping: " . $e->getMessage());
+                $listName = ($entry->getAttribute('cn') ?? [])[0] ?? 'unknown';
+                error_log("Listig: Failed to load LDAP list '$listName' from provider '{$this->name}', skipping: " . $e->getMessage());
             }
         }
 
@@ -112,7 +113,7 @@ class LdapListProvider implements ListProvider
         }
 
         if ($entry === null) {
-            throw new \RuntimeException("List '$listName' not found in LDAP");
+            throw new \RuntimeException("List '$listName' not found in LDAP (provider '{$this->name}')");
         }
 
         $descriptions = $entry->getAttribute('description') ?? [];

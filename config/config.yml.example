@@ -1,38 +1,46 @@
-configuration:
-  # Named blocks — referenced via 'use:' below
-  mail-config:
-    imap-host: $IMAP_HOST
-    imap-port: 993
-    imap-secure: ssl
-    smtp-host: $SMTP_HOST
-    smtp-port: 587
-    smtp-secure: tls
-    mail-user: "{list-mail}"
-    mail-password: $MAIL_PASSWORD
+# Everything at the root of this file is the default configuration, applied to every
+# list. 'use:' pulls in named blocks defined further down (mail-config, list-defaults,
+# database below) — a named block only takes effect where it's referenced via 'use:'
+# (here, or in a list-provider's own 'use:'), it is otherwise inert.
+language: de
+use:
+  - mail-config
+  - list-defaults
+  - database
 
-  list-defaults:
-    reply-to: sender
-    allow-leave: direct
-    list-label: "[{display-name}]"
-    footer: "<p>Diese Mail wurde über die Liste {display-name} verschickt. <a href=\"{list-url}\">Zur Liste</a></p>"
+# Named block — referenced via 'use:' above
+mail-config:
+  imap-host: $IMAP_HOST
+  imap-port: 993
+  imap-secure: ssl
+  smtp-host: $SMTP_HOST
+  smtp-port: 587
+  smtp-secure: tls
+  mail-user: "{list-mail}"
+  mail-password: $MAIL_PASSWORD
 
-  database:
-    db-host: $DB_HOST
-    db-port: $DB_PORT
-    db-name: $DB_NAME
-    db-user: $DB_USER
-    db-password: $DB_PASS
+# Named block — referenced via 'use:' above
+list-defaults:
+  reply-to: sender
+  allow-leave: direct
+  list-label: "[{display-name}]"
+  footer: "<p>Diese Mail wurde über die Liste {display-name} verschickt. <a href=\"{list-url}\">Zur Liste</a></p>"
 
-  default:
-    language: de
-    use:
-      - mail-config
-      - list-defaults
-      - database
+# Named block — referenced via 'use:' above
+database:
+  db-host: $DB_HOST
+  db-port: $DB_PORT
+  db-name: $DB_NAME
+  db-user: $DB_USER
+  db-password: $DB_PASS
 
+# A map keyed by provider name (not a list) — the name identifies the provider in
+# logs/errors, and doubles as its 'type' if the provider sets none of its own (here,
+# 'main' has an explicit type: inline; without it, 'main' would need to be spelled
+# 'inline' to work — see CLAUDE.md "list-providers").
 list-providers:
-  # Example: inline provider with inline members
-  - type: inline
+  main:
+    type: inline
     lists:
       example:
         list-mail: example@yourdomain.org

@@ -33,9 +33,32 @@ Listig is a self-hosted, Docker-based mailing list manager written in PHP 8.5.
 
 ## Docker Setup
 
-One image, built from `docker/Dockerfile`: PHP 8.5 (php-fpm) + nginx + the worker loop, all baked into the same container and managed by `supervisord` (`docker/supervisord.conf`) as three processes — nginx (`docker/nginx.conf`, `fastcgi_pass 127.0.0.1:9000` — same container, no network/DNS involved), php-fpm, and `bin/worker.php` (IMAP polling + queue sending loop). Only MariaDB is a separate container.
+One image, built from `docker/Dockerfile`: PHP 8.5 (php-fpm) + nginx + the worker loop, all baked into the same container and managed by `supervisord` (`docker/supervisord.conf`) as three processes — nginx (`docker/nginx.conf`, `fastcgi_pass 127.0.0.1:9000` — same container, no network/DNS involved), php-fpm, and `bin/worker.php` (IMAP polling + queue sending loop). Only MariaDB is a separate container. `docker/entrypoint.sh` is the image's `ENTRYPOINT`, running before any of that: it calls `bin/migrate.php` to apply pending database migrations, then `exec`s `CMD` (the `supervisord` invocation) — see "Database migrations" for why this lives here rather than inside the worker loop.
 
-Run via `docker/compose.yaml` (**app** + **db**), or directly:
+### Simplest deployment (published image, no repo checkout)
+
+`compose.yml.example` (repo root) is the smallest possible way to run Listig: MariaDB + the published `ghcr.io/hengeb/listig:latest` image, nothing built locally, no repo clone needed — just three files:
+
+```
+mkdir listig && cd listig
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/compose.yml.example
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/.env.example
+mkdir config
+curl -o config/config.yml.example https://raw.githubusercontent.com/hengeb/listig/main/config/config.yml.example
+
+cp compose.yml.example compose.yml
+cp .env.example .env
+cp config/config.yml.example config/config.yml
+# edit .env and config/config.yml to match your setup
+
+docker compose up -d
+```
+
+No manual migration step: the app container's entrypoint applies the schema itself on first start (see "Database migrations"). `compose.yml`/`config/config.yml` are the operator's real files — gitignored/dockerignored the same as `.env`, never meant to be committed back (see below). Requires the GHCR package to be public (see "CI: build & publish"); if it's private, `docker login ghcr.io` first.
+
+### Building from source (development)
+
+Run via `docker/compose.yaml` (**app** + **db**, builds the image from this checkout instead of pulling it), or directly:
 ```
 docker build -f docker/Dockerfile -t listig .
 docker run -d -p 8080:80 --env-file .env -v $(pwd)/config/config.yml:/app/config/config.yml:ro listig
@@ -58,6 +81,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 /
 ├── bin/
 │   ├── worker.php                    # CLI entry point: IMAP polling + queue sending loop
+│   ├── migrate.php                   # CLI entry point: applies pending migrations/*.sql — see MigrationRunner, run by docker/entrypoint.sh
 │   └── encrypt-password.php          # CLI tool: encrypt/decrypt a password with PasswordCrypto
 ├── config/
 │   ├── container.php                 # DI container (PHP-DI or similar)
@@ -115,7 +139,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   ├── YamlListProvider.php      # Reads lists from a separate YAML file; inline members or member-resolver; uses DatabaseConnectionFactory for DB member resolvers
 │   │   └── SubaddressListProvider.php # type: subaddress — subaddress forwarding; members: are unresolved templates containing {subaddress}, resolved per incoming mail; owners: resolved normally
 │   ├── Database/
-│   │   └── DatabaseConnectionFactory.php # Caches PDO instances by fingerprint of db-* config keys; shared by all DB-backed providers
+│   │   ├── DatabaseConnectionFactory.php # Caches PDO instances by fingerprint of db-* config keys; shared by all DB-backed providers
+│   │   └── MigrationRunner.php       # Applies pending migrations/*.sql, tracked in schema_migrations — see "Database migrations"
 │   ├── Smtp/
 │   │   └── SmtpConnectionFactory.php # Creates/caches symfony/mailer transports per SMTP config fingerprint;
 │   │                                 # closes and reopens connection when smtp-host/port/user/secure changes
@@ -166,13 +191,15 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── messages.de.yaml
 │   └── messages.en.yaml
 ├── migrations/
-│   └── 001_initial.sql        # includes archived_mail — see "Archive viewer"
+│   └── 001_initial.sql        # includes archived_mail — see "Archive viewer"; applied automatically, see "Database migrations"
 ├── docker/
 │   ├── Dockerfile             # php-fpm + nginx + worker, all in one image
-│   ├── compose.yaml
+│   ├── entrypoint.sh          # ENTRYPOINT: runs bin/migrate.php, then execs CMD (supervisord)
+│   ├── compose.yaml           # Dev/build-from-source compose file
 │   ├── nginx.conf             # proxies to 127.0.0.1:9000 (same container)
 │   ├── supervisord.conf       # manages php-fpm, nginx, worker as three processes
 │   └── php.ini                # display_errors=Off/log_errors=On — see "Security Notes"
+├── compose.yml.example        # Simplest deployment: published image + MariaDB, no repo checkout — see "Docker Setup"
 ├── .env.example
 ├── LICENSE
 ├── README.md
@@ -211,52 +238,62 @@ All other configuration lives in `config.yml`. The `db-*` and mail keys are read
 ## config.yml Structure
 
 ```yaml
-configuration:
-  # Named blocks — referenced via 'use:' in default or list-providers.
-  # Named blocks themselves may NOT contain 'use:' (prevents cycles).
-  # $VAR syntax substitutes environment variables at parse time (before lazy resolution).
-  # Missing environment variables cause a hard error at startup.
-  mail-config:
-    imap-host: $IMAP_HOST
-    imap-port: 993                      # default: 993
-    imap-secure: ssl                    # ssl | tls | none (default: ssl)
-    smtp-host: $SMTP_HOST
-    smtp-port: 587                      # default: 587
-    smtp-secure: tls                    # ssl | tls | none (default: tls)
-    # mail-user sets both imap-user and smtp-user unless overridden individually
-    # mail-password sets both imap-password and smtp-password unless overridden
-    mail-user: "{list-mail}"             # lazily resolved to list mail address per list
-    mail-password: $MAIL_PASSWORD       # from environment variable
+# The root of config.yml is the default configuration, applied to every list. A root
+# key is either:
+# - 'use:' (see below), 'list-providers:', or 'filters:' — handled specially, always
+#   applied, exactly as documented for each elsewhere in this file.
+# - a scalar value (string/number/bool) — a direct default key-value, applied to
+#   every list unconditionally.
+# - a map value — a *named block*, inert unless referenced via 'use:' (here, or in a
+#   list-provider's own 'use:'). Named blocks themselves may NOT contain 'use:'
+#   (prevents cycles).
+# $VAR syntax substitutes environment variables at parse time (before lazy resolution).
+# Missing environment variables cause a hard error at startup.
+# Direct root key-values take priority over values pulled in via 'use:'.
+# Within 'use:', later entries override earlier ones.
+language: de                        # 'de' | 'en' — global default, code-default is 'en' (see Internationalization)
+use:
+  - mail-config
+  - list-defaults
+  - database
 
-  list-defaults:
-    reply-to: sender
-    allow-leave: direct
-    list-label: "[{display-name}]"
-    footer: "<p>Diese Mail wurde über die Liste {display-name} verschickt. <a href=\"{list-url}\">Zur Liste</a></p>"
+# Named block — referenced via 'use:' above
+mail-config:
+  imap-host: $IMAP_HOST
+  imap-port: 993                      # default: 993
+  imap-secure: ssl                    # ssl | tls | none (default: ssl)
+  smtp-host: $SMTP_HOST
+  smtp-port: 587                      # default: 587
+  smtp-secure: tls                    # ssl | tls | none (default: tls)
+  # mail-user sets both imap-user and smtp-user unless overridden individually
+  # mail-password sets both imap-password and smtp-password unless overridden
+  mail-user: "{list-mail}"             # lazily resolved to list mail address per list
+  mail-password: $MAIL_PASSWORD       # from environment variable
 
-  # Database connection — used by DatabaseConnectionFactory for all DB-backed providers.
-  # Keys are db-host, db-port, db-name, db-user, db-password (note: db-password, not db-pass).
-  database:
-    db-host: $DB_HOST
-    db-port: $DB_PORT
-    db-name: $DB_NAME
-    db-user: $DB_USER
-    db-password: $DB_PASS
+# Named block — referenced via 'use:' above
+list-defaults:
+  reply-to: sender
+  allow-leave: direct
+  list-label: "[{display-name}]"
+  footer: "<p>Diese Mail wurde über die Liste {display-name} verschickt. <a href=\"{list-url}\">Zur Liste</a></p>"
 
-  # 'default' is the base configuration for all lists.
-  # May contain 'use:' to include named blocks.
-  # Direct key-values in 'default' take priority over values pulled in via 'use:'.
-  # Within 'use:', later entries override earlier ones.
-  default:
-    language: de                        # 'de' | 'en' — global default, code-default is 'en' (see Internationalization)
-    use:
-      - mail-config
-      - list-defaults
-      - database
+# Named block — referenced via 'use:' above. Database connection, used by
+# DatabaseConnectionFactory for all DB-backed providers. Keys are db-host, db-port,
+# db-name, db-user, db-password (note: db-password, not db-pass).
+database:
+  db-host: $DB_HOST
+  db-port: $DB_PORT
+  db-name: $DB_NAME
+  db-user: $DB_USER
+  db-password: $DB_PASS
 
 list-providers:
-  # type: ldap — reads lists from LDAP mailGroup objects; uses LdapMemberResolver internally
-  - type: ldap
+  # A map keyed by provider name (not an array) — the name identifies the provider
+  # in logs/error messages, and doubles as its 'type' if the provider sets none of
+  # its own; see "list-providers — provider name as implicit type" below.
+  staff:
+    # type: ldap — reads lists from LDAP mailGroup objects; uses LdapMemberResolver internally
+    type: ldap
     ldap-host: ldap://ldap.example.org
     ldap-base-dn: dc=example,dc=org
     ldap-bind-dn: cn=admin,dc=example,dc=org
@@ -273,7 +310,8 @@ list-providers:
   # list has no members (no error)
   # `lists:` is a map keyed by list name (not an array with a `name:` field).
   # `list-mail` is the list's own mail address — see "list-mail" below.
-  - type: inline
+  manual:
+    type: inline
     list-mail: "{list-name}@example.org"   # provider-level default; per-list override wins
     member-resolver:
       type: database
@@ -302,7 +340,8 @@ list-providers:
   # config-table structure: (name VARCHAR, key VARCHAR, value TEXT)
   # lists-query: SELECT DISTINCT name FROM {config-table}
   # config-query: SELECT key, value FROM {config-table} WHERE name = :name
-  - type: database
+  db:
+    type: database
     config-table: list_config
     member-resolver:
       type: ldap
@@ -313,7 +352,8 @@ list-providers:
       ldap-list-dn: ou=lists,dc=example,dc=org
 
   # type: subaddress — subaddress-based forwarding, see "type: subaddress — subaddress forwarding"
-  - type: subaddress
+  fwd:
+    type: subaddress
     lists:
       fwd:
         list-mail: fwd@example.org
@@ -323,6 +363,36 @@ list-providers:
           - mail: admin@example.org
         post-access: owners
         reserved-subaddresses: admin,root       # optional, in addition to built-in bounce/accept-/reject-
+```
+
+### list-providers — provider name as implicit type
+
+Every provider is required to resolve to one of the known types (`ldap`, `inline`, `database`, `yaml`, `subaddress`) — but `type:` itself doesn't have to be spelled out on every entry. `type` goes through the normal priority chain (`ConfigResolver::resolveListConfig($providerConfig)` — root `use:`/direct, then the provider's own `use:`/direct, exactly like any other config key), and if that resolves to nothing, the provider's own map key (its name) is used as the type instead. An unresolvable type (name doesn't match a known type, and no `type:` was set anywhere) is a hard error at startup — same fail-fast philosophy as a missing `$VAR` or invalid `filters:` regex.
+
+```yaml
+type: ldap   # root-level default type
+
+list-providers:
+  provider1:
+    ldap-host: ldap://ldap.example.org   # no own 'type' — inherits root default: ldap
+    ...
+  provider2:
+    type: inline                          # explicit — overrides the root default
+    ...
+```
+
+```yaml
+# no root-level default type this time
+list-providers:
+  ldap:                # no 'type' anywhere → falls back to its own name: type ldap
+    ...
+  inline:               # same → type inline
+    ...
+  foo:
+    type: database       # explicit → type database
+    ...
+  bar:                  # no 'type' anywhere, and "bar" isn't a known provider type
+    ...                  # → hard error at startup: Unknown list provider type "bar" for provider "bar"
 ```
 
 ### `lists:` format
@@ -361,7 +431,7 @@ A `type: subaddress` list forwards mail sent to `{local-part}+{subaddress}@{doma
 
 ### Spam filtering (`filters:`)
 
-Third top-level key in `config.yml`, alongside `configuration` and `list-providers`. Global, list-independent content filter checked by `IncomingMailFilter` for every incoming mail on every list (see "IncomingMailFilter — check order"). Implemented by `Hengeb\Listig\Mail\SpamFilter`, constructed from `ConfigResolver::getFilters()`.
+Third top-level key in `config.yml`, alongside the root config and `list-providers`. Global, list-independent content filter checked by `IncomingMailFilter` for every incoming mail on every list (see "IncomingMailFilter — check order"). Implemented by `Hengeb\Listig\Mail\SpamFilter`, constructed from `ConfigResolver::getFilters()`.
 
 ```yaml
 filters:
@@ -386,7 +456,7 @@ filters:
 - `$VAR` or `${VAR}` syntax supported
 - If the environment variable is not set: hard error at startup, do not silently use empty string
 - Substitution happens on raw string values only, before `{}` variable resolution
-- All config levels support `$VAR` substitution: named blocks, `default`, `list-providers`, and LDAP `description[]` values
+- All config levels support `$VAR` substitution: named blocks, the config.yml root, `list-providers`, and LDAP `description[]` values
 
 ### File includes (`!include`)
 
@@ -394,7 +464,8 @@ Any YAML value in `config.yml` (and in `type: yaml` list-provider files, see `Ya
 
 ```yaml
 list-providers:
-  - type: inline
+  main:
+    type: inline
     lists:
       mylist:
         list-mail: mylist@example.org
@@ -410,9 +481,9 @@ list-providers:
 ### Configuration priority (low → high)
 
 0. Code defaults (lowest — ensures keys always have a value; can be overridden at any level)
-1. `use:` blocks in `default` (in order; later entries override earlier)
-2. Direct key-values in `default`
-3. `use:` blocks in `list-provider` (merged; do not override direct `default` values)
+1. `use:` blocks at the config.yml root (in order; later entries override earlier)
+2. Direct key-values at the config.yml root
+3. `use:` blocks in `list-provider` (merged; do not override direct root-level values)
 4. Direct key-values in `list-provider` (override everything from 1–3)
 5. Per-list key-values from the provider (LDAP: `description[]`; database: `config-table` rows; inline: list-level keys) — highest priority
 
@@ -499,7 +570,7 @@ A variable may be followed by a `|filter:args` pipeline, applied to the resolved
   lastname: "{sn}"
   pronoun: "{businessCategory}"
   ```
-  Since these are just config keys, they go through the standard 5-level priority merge (see "Configuration priority") and are resolved lazily like any other `{}` template — settable once in `configuration.default`, at list-provider level, or per list, exactly like `list-mail`'s provider-level default. One exception: `LdapMemberResolver` additionally copies `cn` into `attributes['username']` — see "Privacy-preserving `username`" below.
+  Since these are just config keys, they go through the standard 5-level priority merge (see "Configuration priority") and are resolved lazily like any other `{}` template — settable once at the config.yml root, at list-provider level, or per list, exactly like `list-mail`'s provider-level default. One exception: `LdapMemberResolver` additionally copies `cn` into `attributes['username']` — see "Privacy-preserving `username`" below.
 
 **Resolution** (`MailProcessor::buildRecipientContext()`/`buildMailContext()`): `$recipient->attributes` (or, for the sender, `$senderMember->attributes` prefixed `sender-`) is exposed directly under each key's own name, with the canonical `mail`/`sender-mail` always set last so it can never be shadowed by a same-named attribute. A key a specific member simply doesn't have is absent from that member's context — the merge then falls through to whatever the list config defines for that key (e.g. a `pronoun: "{businessCategory}"` alias), and if nothing resolves it at all, `VariableResolver::resolve()` substitutes an empty string rather than leaking raw `{key}` syntax into a sent mail (see "Variable substitution").
 
@@ -645,6 +716,8 @@ interface ListProvider {
 | `YamlListProvider` | `yaml` | Reads lists from a separate YAML file; inline members or configured `MemberResolver`; takes optional `DatabaseConnectionFactory`; `setListConfigValue()` throws (file not rewritten at runtime) |
 | `SubaddressListProvider` | `subaddress` | Subaddress forwarding — see "type: subaddress — subaddress forwarding"; `members:` are unresolved `{subaddress}` templates, not a `MemberResolver`; `owners:` uses the normal inline mechanism; `setListConfigValue()` throws (static config) |
 
+Every implementation's constructor takes the provider's own name (its key in `list-providers:`, see "list-providers — provider name as implicit type") as its first argument, ahead of `ConfigResolver`/`providerConfig`/etc. — used in log/error messages so a failure (LDAP unreachable, a list missing `list-mail`, a YAML file not found, ...) identifies which provider it came from.
+
 `setListConfigValue()` is used by `ListApiController::encryptPassword()` — see "List Management API". The composite provider in `container.php` delegates to whichever underlying provider actually owns the list.
 
 ### ConfigResolver
@@ -652,7 +725,7 @@ interface ListProvider {
 `ConfigResolver` merges config.yml blocks, resolves `use:`, substitutes `$VAR` from environment, and produces a flat merged key-value map for each list. Variable `{}` resolution does **not** happen here — it is deferred to `VariableResolver` at point of use.
 
 - `resolveListConfig(array $providerConfig, array $listOverrides = []): array` — full per-list merge (levels 1–5)
-- `getResolvedDefault(): array` — resolves only levels 1+2 (the `default` block with its `use:` blocks expanded); used to read global settings like `db-*` credentials for the PDO connection
+- `getResolvedDefault(): array` — resolves only levels 1+2 (the config.yml root's direct key-values with its `use:` blocks expanded); used to read global settings like `db-*` credentials for the PDO connection
 
 ### VariableResolver
 
@@ -688,12 +761,12 @@ The resolver:
 
 ### ResolutionPurpose
 
-`Hengeb\Listig\Variable\ResolutionPurpose` is a plain (non-string-backed) enum with two cases, `Trusted` and `Disclosed`, passed as `VariableResolver::resolve()`/`lookup()`'s third argument and threaded unchanged through recursive resolution (same mechanism as `$visited`). It replaces an earlier design where protection came from handing `VariableResolver` a pre-stripped context array (`ListConfig::createSafeContext()`, `ListConfig::BLOCKED_KEYS`) instead of the raw one (`createContext()`) — that mechanism has been removed entirely.
+`Hengeb\Listig\Variable\ResolutionPurpose` is a plain (non-string-backed) enum with two cases, `Trusted` and `Disclosed`, passed as `VariableResolver::resolve()`/`lookup()`'s third argument and threaded unchanged through recursive resolution (same mechanism as `$visited`). Protection against `VariableResolver::BLOCKED_KEYS` is enforced at this single point of `{}` resolution, not by pre-filtering the context array handed to it — `ListConfig::createContext()` is the **only** context builder, and always returns the full raw config.
 
 - **`Disclosed`** (the default parameter value — least-privilege, secure-by-default) — used for any resolution whose result is user-visible (mail body/subject/headers, the UI, notification mails) or otherwise operator-controlled but not itself a credential lookup. If resolution — at any point in the recursion chain, not just the top-level key — reaches a key in `VariableResolver::BLOCKED_KEYS`, the real value is never returned: `VariableResolver::CLASSIFIED_PLACEHOLDER` (`'*CLASSIFIED*'`) is substituted instead, and the attempt is logged via `error_log()` (unconditional, same as every other log call in this codebase — `$list->logLevel` exists as a config property but is not wired to any actual level-based filtering anywhere, here or elsewhere, so this deliberately doesn't introduce that). The placeholder is never itself re-parsed as a template, same as a `Literal`-wrapped value.
 - **`Trusted`** — full, unfiltered access, bypassing the `BLOCKED_KEYS` check entirely. Used *only* by `ListConfig::$imapUser`/`$imapPassword`/`$smtpUser`/`$smtpPassword` (see "Which `ListConfig` properties are template-resolved" below) — these are the one deliberate case of a credential needing to fall back through another credential (`{mail-user}`/`{mail-password}`).
 
-Enforcing this at the single point of `{}` resolution — rather than at context construction — closes a gap the context-stripping approach could not: resolution that happens *before* a `ListConfig` exists at all. `InlineListProvider`/`YamlListProvider`/`SubaddressListProvider` all resolve a list's `list-mail` template against the raw, just-merged provider config (see "`list-mail`" above) — there is no `ListConfig` yet at that point, so there was never a "safe context" available to hand over. Concretely, `list-mail: "{mail-password}"` used to resolve the list's public email address to the literal plaintext password; passing `ResolutionPurpose::Disclosed` to that `VariableResolver::resolve()` call now blocks it the same way as everywhere else, with no dependency on a `ListConfig` instance.
+Enforcing this at the point of `{}` resolution — rather than by filtering the context array before it's built — is what makes the protection apply even when no `ListConfig` exists yet: `InlineListProvider`/`YamlListProvider`/`SubaddressListProvider` all resolve a list's `list-mail` template against the raw, just-merged provider config (see "`list-mail`" above), before any `ListConfig` object is constructed. Passing `ResolutionPurpose::Disclosed` to that `VariableResolver::resolve()` call blocks `list-mail: "{mail-password}"` from resolving to the literal plaintext password, the same way as everywhere else, with no dependency on a `ListConfig` instance.
 
 ### DatabaseConnectionFactory
 
@@ -866,7 +939,7 @@ class ListConfig {
 
 ### Which `ListConfig` properties are template-resolved, and against which context
 
-Every property backed by a raw config value is resolved via `ListConfig`'s private `resolve()` before being cast/validated to its final type (`(int)`, `Enum::from()`, `'on'`/`'off'` comparison, ...) — not just plain string properties. This matters: without it, e.g. `smtp-port: "{port-tls}"` would silently produce `0` (an unresolved `"{port-tls}"` string cast to `int`), and `reply-to: "{my-alias}"` would throw an uncaught `ValueError` from `ReplyToBehavior::from()` — both were real bugs, not hypothetical, fixed together with the `$displayName`/`$description` fix below.
+Every property backed by a raw config value is resolved via `ListConfig`'s private `resolve()` before being cast/validated to its final type (`(int)`, `Enum::from()`, `'on'`/`'off'` comparison, ...) — not just plain string properties. This matters: without it, e.g. `smtp-port: "{port-tls}"` would silently produce `0` (an unresolved `"{port-tls}"` string cast to `int`), and `reply-to: "{my-alias}"` would throw an uncaught `ValueError` from `ReplyToBehavior::from()`.
 
 - **`resolve($raw)`, default `ResolutionPurpose::Disclosed`** — the default for everything: `$displayName`, `$description`, `$replyTo`, `$postAccess`, `$moderation`, `$allowLeave`, `$archive`, `$maxPerSender`, `$maxSize`, `$publicSubscribe`, `$logLevel`, `$language`, and — despite being `VariableResolver::BLOCKED_KEYS` themselves — `$imapHost`/`$imapPort`/`$imapSecure`/`$smtpHost`/`$smtpPort`/`$smtpSecure` too. A numeric or enum property resolved under `Trusted` could otherwise leak a fragment of a real secret rather than the whole value — e.g. `smtp-port: "{imap-password}"` would silently become the leading digits of the actual password cast to an int, which could then surface via a connection-failure error message. Staying on `Disclosed` here means these six properties can no longer reference each other or `{mail-user}`/`{mail-password}` — a deliberate trade-off in favor of the leak protection, since none of them actually need to.
 - **`resolve($raw, ResolutionPurpose::Trusted)`** — only `$imapUser`, `$imapPassword`, `$smtpUser`, `$smtpPassword`. These are the one deliberate, documented exception: they must be able to fall back to `{mail-user}`/`{mail-password}` (`mail-user` sets both `imap-user` and `smtp-user` unless overridden individually — see "config.yml Structure"), which are themselves `VariableResolver::BLOCKED_KEYS`.
@@ -876,6 +949,17 @@ Every property backed by a raw config value is resolved via `ListConfig`'s priva
 ---
 
 ## Database Schema
+
+### Database migrations
+
+Schema changes live as plain `.sql` files in `migrations/`, applied automatically — no manual step, ever, on either a fresh install or an upgrade. `Hengeb\Listig\Database\MigrationRunner::run()` (`src/Database/MigrationRunner.php`):
+
+1. Creates `schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at DATETIME)` if it doesn't exist yet.
+2. Lists `migrations/*.sql`, sorted as plain strings (hence the naming convention below), and runs every file whose filename isn't already a `version` row, in order, via `PDO::exec()` — then records it.
+
+Invoked by `bin/migrate.php` (loads `.env`/the container exactly like `bin/worker.php`), which `docker/entrypoint.sh` runs once, before `exec`ing `CMD` — i.e. before supervisord starts nginx/php-fpm/worker at all. This avoids a race: with three processes started concurrently by supervisord, a web request or worker cycle could otherwise hit the database before migrations finish. Gating it in the entrypoint means nothing in the container ever sees a partially-migrated schema. A failure here is fatal — `bin/migrate.php` exits non-zero, `entrypoint.sh` has `set -e`, so the container aborts loudly rather than starting against a broken schema (same fail-fast philosophy as a missing `$VAR` or an invalid `filters:` regex).
+
+**New migration files** must follow `NNN_description.sql` with a zero-padded, incrementing 3-digit prefix (`002_...`, `003_...`, ...) — plain string sort must match numeric order. **Every statement must be idempotent** (`CREATE TABLE IF NOT EXISTS`, guard an `ALTER TABLE` by checking `information_schema` first, etc.): MariaDB commits DDL implicitly, so a crash between running a file's SQL and recording it in `schema_migrations` can't be rolled back — the file simply runs again on the next start, and idempotency is what makes that safe rather than merely convenient.
 
 ### `mail_queue`
 
@@ -1521,17 +1605,17 @@ Returns HTTP 200 with JSON `{"db": "ok", "ldap": "ok"}` if both reachable, HTTP 
 - Sensitive config keys (passwords, hostnames) blocked at `{}` resolution time via `ResolutionPurpose::Disclosed` (`VariableResolver::BLOCKED_KEYS`) — never reachable from mail body, footer, or UI, regardless of what a given `$contexts` array actually contains (see "ResolutionPurpose")
 - `bounce_log` retains sender addresses 90 days — document in privacy/data-retention policy
 - Never log MIME content, passwords, or tokens
-- `display_errors` must stay `Off` in production (`docker/php.ini`) — discovered as a real bug while building the archive viewer: the base image's default (`display_errors = STDOUT`) echoes even a vendor-library warning (e.g. `PhpImap\Mailbox` on a transient IMAP outage) directly into the HTTP response body. Beyond the obvious information disclosure (internal file paths, stack traces), this silently breaks intended non-200 status codes: once that warning has been echoed, output has already started, so a controller's later `withStatus(404)` can no longer take effect (`header()` is a no-op after output begins) — the response reaches the client as a broken `200` with error text as its body. Applies to the whole app, not just the archive viewer.
+- `display_errors` must stay `Off` in production (`docker/php.ini`) — the base image's default (`display_errors = STDOUT`) echoes even a vendor-library warning (e.g. `PhpImap\Mailbox` on a transient IMAP outage) directly into the HTTP response body. Beyond the obvious information disclosure (internal file paths, stack traces), this silently breaks intended non-200 status codes: once that warning has been echoed, output has already started, so a controller's later `withStatus(404)` can no longer take effect (`header()` is a no-op after output begins) — the response reaches the client as a broken `200` with error text as its body. Applies to the whole app, not just the archive viewer.
 - Archive viewer (see "Archive viewer" for the full design): sanitized via `ezyang/htmlpurifier` with a fixed small allowlist, rendered in a scriptless sandboxed `<iframe>` with its own CSP, external images opt-in only, attachments never trusted on their own MIME/disposition claim (magic-byte check before any inline delivery), and no email addresses displayed in the viewer's own UI (metadata only — see "Privacy" there for the body-text scope boundary). `Hidden`/`Off` are indistinguishable 404s, even to the list's own owner.
 - **Untrusted input in `{}` templates**: `VariableResolver::resolve()` only recursively re-resolves a value that is a *plain string taken directly from a context array* — i.e. genuinely operator-authored config, like a `vorname: "{firstname}"` alias or `list-mail: "{list-name}@..."`. Two other kinds of value are always treated as terminal, even if they contain `{`, and are never re-parsed as a template:
   - **Callables** — `MailProcessor`'s `sender-name` derives its result from the incoming mail's raw `From:` header, which an external sender controls.
   - **`Literal`-wrapped values** (`Hengeb\Listig\Variable\Literal`) — every value `MailProcessor::buildMailContext()`/`buildRecipientContext()` puts into the sender/recipient context (`Member::$attributes`, `subaddress`, `mail`) is wrapped this way, because it ultimately comes from a directory/database/CSV row or a self-service subscribe request, not list config.
 
-  Both exclusions are necessary and independent, and were found and fixed as two separate incidents: (1) a crafted `From: "{sender-someAttribute}" <x@y>` sent to a list using the documented `smtp-from-name: "{sender-name} (via {display-name})"` example would, without the callable exclusion, get `sender-name`'s raw extracted text re-parsed as a template — leaking whatever `someAttribute` happens to be on the *sender's own* `Member::$attributes`, broadcast to every recipient via the outgoing From header, with **no `personalize:` misconfiguration required**. (2) Separately, a member whose own `firstname` (or any other attribute, however sourced — e.g. self-set via the public subscribe API) is literally the string `"{someOtherAttribute}"` would, without the `Literal` exclusion, have that attribute's value substituted into their personalized mail even when `someOtherAttribute` was **never itself included in `personalize:`** — the whitelist only gates the *top-level* placeholder actually written in the mail, not what a resolved value's own nested `{}` syntax would otherwise trigger during recursive resolution. Any future context-building code that puts sender/recipient/incoming-mail-derived data into a context array must wrap it in `Literal` for this reason — a plain string is fair game for the next `{...}` it contains, so it must always be config, never message/member data.
+  Both exclusions are necessary and independent: (1) a crafted `From: "{sender-someAttribute}" <x@y>` sent to a list using the documented `smtp-from-name: "{sender-name} (via {display-name})"` example would, without the callable exclusion, get `sender-name`'s raw extracted text re-parsed as a template — leaking whatever `someAttribute` happens to be on the *sender's own* `Member::$attributes`, broadcast to every recipient via the outgoing From header, with **no `personalize:` misconfiguration required**. (2) Separately, a member whose own `firstname` (or any other attribute, however sourced — e.g. self-set via the public subscribe API) is literally the string `"{someOtherAttribute}"` would, without the `Literal` exclusion, have that attribute's value substituted into their personalized mail even when `someOtherAttribute` was **never itself included in `personalize:`** — the whitelist only gates the *top-level* placeholder actually written in the mail, not what a resolved value's own nested `{}` syntax would otherwise trigger during recursive resolution. Any future context-building code that puts sender/recipient/incoming-mail-derived data into a context array must wrap it in `Literal` for this reason — a plain string is fair game for the next `{...}` it contains, so it must always be config, never message/member data.
 
   This is a related but distinct protection from `ResolutionPurpose` (next bullet): `Literal`/callable exclusion stops *recursion into message/member data* regardless of who wrote the referencing template; `ResolutionPurpose` stops *reaching a specific credential key* regardless of who authored the referencing template (operator config included).
 - **`personalize:` is a genuine trust boundary, not just a formatting preference**: since `Member::$attributes` is fully dynamic (see "Member attributes — fully dynamic"), whitelisting a key there exposes whatever that resolver's backing store happens to have under that name to every sender who can address the list — including a member writing `{key}` in their own mail's subject/body, which `BodyPersonalizer` will substitute per-recipient. Only whitelist keys that are safe for members to see about *themselves* (firstname, pronoun, ...); never add anything sourced from a column/attribute that isn't meant to be mail-visible. This is still worth getting right even with the `Literal` protection above, since `Literal` only stops a whitelisted key's *value* from being abused to reach a second, non-whitelisted key — the whitelisted key's own value is always shown as-is.
-- **`ResolutionPurpose::Disclosed` blocks `VariableResolver::BLOCKED_KEYS` at resolution time, not by pre-filtering the context** (see "ResolutionPurpose" above) — this protects every `Disclosed` resolution uniformly, including ones a context-stripping approach structurally couldn't reach. Concretely: `ListConfig::$displayName` is read directly in many places outside the mail-sending pipeline (UI templates, notification mail subjects, the `smtp-from-name` fallback); a list configured with `display-name: "{imap-password}"` must not leak that value just because some *other* code path reads `$list->displayName` directly — it now can't, the same way it already couldn't when `{display-name}` was referenced *indirectly* from another template's recursive resolution. More significantly, `list-mail` (see "`list-mail`" above) is resolved *before* a `ListConfig` even exists — `list-mail: "{mail-password}"` used to resolve the list's own public email address to the literal plaintext password, since there was no `ListConfig`/`createSafeContext()` yet to filter through at that point. `ResolutionPurpose::Disclosed` closes this because the blocking lives in `VariableResolver` itself, independent of which `ListConfig` (if any) exists yet — see `InlineListProvider`/`YamlListProvider`/`SubaddressListProvider`'s `list-mail` resolution call sites.
+- **`ResolutionPurpose::Disclosed` blocks `VariableResolver::BLOCKED_KEYS` at resolution time, not by pre-filtering the context** (see "ResolutionPurpose" above) — this protects every `Disclosed` resolution uniformly, regardless of which code path triggered it. Concretely: `ListConfig::$displayName` is read directly in many places outside the mail-sending pipeline (UI templates, notification mail subjects, the `smtp-from-name` fallback); a list configured with `display-name: "{imap-password}"` must not leak that value just because some *other* code path reads `$list->displayName` directly, whether directly or via another template's recursive resolution. More significantly, `list-mail` (see "`list-mail`" above) is resolved *before* a `ListConfig` even exists — `InlineListProvider`/`YamlListProvider`/`SubaddressListProvider` resolve it against the raw, just-merged provider config, with no `ListConfig` instance to consult. Since the blocking lives in `VariableResolver` itself, `list-mail: "{mail-password}"` is blocked there too, independent of whether any `ListConfig` exists yet.
 
 ---
 
@@ -1564,12 +1648,12 @@ correctly escaped for the script context.
 
 Just another config key, resolved through the normal `ConfigResolver`/`ListConfig` merge
 chain — no special-casing:
-- Global default: `language` in `configuration.default` of `config.yml` (code-default `en`
+- Global default: `language` at the root of `config.yml` (code-default `en`
   if absent), read via `ConfigResolver::getResolvedDefault()['language']` into the
   `'app.language'` container entry, exactly like `db-*`.
 - Per-list override: same key via LDAP `description[]`, database `list_config`, or inline
-  config — works automatically because `resolveListConfig()` already merges `default:` into
-  every list. Exposed as `ListConfig::$language` (`$this->raw['language'] ?? 'en'`).
+  config — works automatically because `resolveListConfig()` already merges the root/default
+  config into every list. Exposed as `ListConfig::$language` (`$this->raw['language'] ?? 'en'`).
 
 ### Rule: templates vs. PHP, global vs. list-scoped
 

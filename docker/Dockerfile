@@ -47,10 +47,15 @@ RUN mkdir -p /tmp/latte && chmod 777 /tmp/latte
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/99-listig.ini
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
 
-# supervisord runs nginx, php-fpm, and the worker loop (bin/worker.php) as three
-# managed processes in this one container — see docker/supervisord.conf. Only
-# MariaDB stays external.
+# entrypoint.sh runs bin/migrate.php (applies any pending migrations/*.sql, see
+# src/Database/MigrationRunner.php) before handing off to CMD — so nginx, php-fpm,
+# and the worker never start against a stale schema. supervisord then runs all
+# three as managed processes in this one container — see docker/supervisord.conf.
+# Only MariaDB stays external.
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

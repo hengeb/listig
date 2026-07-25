@@ -21,6 +21,13 @@ class ConfigResolver
         $this->processConfig($config);
     }
 
+    /**
+     * `list-providers:` is a map keyed by provider name (not a plain array) — the name
+     * is used for error/log messages and, if a provider sets no `type` of its own (see
+     * `resolveListConfig()`), as the provider's type.
+     *
+     * @return array<string, array<string, mixed>>
+     */
     public function getListProviderConfigs(): array
     {
         return $this->listProviderConfigs;
@@ -112,17 +119,35 @@ class ConfigResolver
         return $merged;
     }
 
+    /**
+     * The config.yml root is the default block (see CLAUDE.md "Configuration priority").
+     * A root key is either:
+     * - 'list-providers' / 'filters': handled separately below.
+     * - 'use': the list of named blocks to merge into the default.
+     * - a scalar value: a direct default key-value.
+     * - an array/map value: a named block — inert unless referenced via some `use:`
+     *   (root, a list-provider's, or a per-list's).
+     */
     private function processConfig(array $config): void
     {
-        $configSection = $config['configuration'] ?? [];
+        $defaultConfig = [];
 
-        foreach ($configSection as $key => $value) {
-            if ($key === 'default') {
-                $this->defaultConfig = $this->substituteEnvVars($value ?? []);
+        foreach ($config as $key => $value) {
+            if ($key === 'list-providers' || $key === 'filters') {
+                continue;
+            }
+            if ($key === 'use') {
+                $defaultConfig['use'] = $value;
+                continue;
+            }
+            if (is_array($value)) {
+                $this->namedBlocks[$key] = $this->substituteEnvVars($value);
             } else {
-                $this->namedBlocks[$key] = $this->substituteEnvVars($value ?? []);
+                $defaultConfig[$key] = $value;
             }
         }
+
+        $this->defaultConfig = $this->substituteEnvVars($defaultConfig);
 
         $this->listProviderConfigs = array_map(
             fn(array $p) => $this->substituteEnvVars($p),

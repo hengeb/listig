@@ -12,10 +12,9 @@ use Symfony\Component\Mime\Email;
 
 /**
  * Sends short plain-text operational notifications (delivery failures, bounces,
- * moderation/unsubscribe notices) from a list's address. Centralizes the
- * "build Email, get transport, send, log on failure" boilerplate previously
- * duplicated across QueueSender, UnsubscribeController, ModerationResponseHandler,
- * and bin/worker.php.
+ * moderation/unsubscribe notices) from a list's address. Shared "build Email, get
+ * transport, send, log on failure" helper used by QueueSender, UnsubscribeController,
+ * ModerationResponseHandler, and bin/worker.php.
  */
 class NotificationMailer
 {

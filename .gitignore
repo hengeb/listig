@@ -5,6 +5,11 @@
 .env
 config/config.yml
 
+# Generated from compose.yml.example by an operator following the Quick start —
+# not a secret itself, but operator-specific (ports, ...) and not meant to be
+# committed back into the repo
+/compose.yml
+
 # Latte template cache
 /var/
 /tmp/latte/

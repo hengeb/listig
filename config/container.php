@@ -32,6 +32,7 @@ use Hengeb\Listig\Mail\NotificationMailer;
 use Hengeb\Listig\Mail\RejectionNotifier;
 use Hengeb\Listig\Mail\SpamFilter;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
+use Hengeb\Listig\Database\MigrationRunner;
 use Hengeb\Listig\Member\AggregateMemberResolver;
 use Hengeb\Listig\Moderation\ModerationChecker;
 use Hengeb\Listig\Moderation\ModerationMailer;
@@ -59,6 +60,12 @@ $builder->addDefinitions([
     PDO::class => function (ContainerInterface $c): PDO {
         $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
         return $c->get(DatabaseConnectionFactory::class)->getConnection($cfg);
+    },
+
+    // Applies pending migrations/*.sql on startup — see bin/migrate.php, run via
+    // docker/entrypoint.sh before supervisord starts nginx/php-fpm/worker.
+    MigrationRunner::class => function (ContainerInterface $c): MigrationRunner {
+        return new MigrationRunner($c->get(PDO::class));
     },
 
     // Configuration
@@ -150,15 +157,19 @@ $builder->addDefinitions([
         $dbFactory = $c->get(DatabaseConnectionFactory::class);
 
         $providers = [];
-        foreach ($providerConfigs as $config) {
-            $type = $config['type'] ?? '';
+        foreach ($providerConfigs as $name => $config) {
+            // 'type' goes through the normal priority chain (root use:/direct, then this
+            // provider's own use:/direct — see ConfigResolver::resolveListConfig()) before
+            // falling back to the provider's own name — see CLAUDE.md "list-providers".
+            $type = $configResolver->resolveListConfig($config)['type'] ?? '';
+            $type = $type !== '' ? $type : $name;
             $provider = match ($type) {
-                'ldap' => new \Hengeb\Listig\Provider\LdapListProvider($configResolver, $config),
-                'inline' => new \Hengeb\Listig\Provider\InlineListProvider($configResolver, $config, $dbFactory),
-                'database' => new \Hengeb\Listig\Provider\DatabaseListProvider($configResolver, $config, $dbFactory),
-                'yaml' => new \Hengeb\Listig\Provider\YamlListProvider($configResolver, $config, $dbFactory),
-                'subaddress' => new \Hengeb\Listig\Provider\SubaddressListProvider($configResolver, $config),
-                default => throw new \RuntimeException("Unknown list provider type: $type"),
+                'ldap' => new \Hengeb\Listig\Provider\LdapListProvider($name, $configResolver, $config),
+                'inline' => new \Hengeb\Listig\Provider\InlineListProvider($name, $configResolver, $config, $dbFactory),
+                'database' => new \Hengeb\Listig\Provider\DatabaseListProvider($name, $configResolver, $config, $dbFactory),
+                'yaml' => new \Hengeb\Listig\Provider\YamlListProvider($name, $configResolver, $config, $dbFactory),
+                'subaddress' => new \Hengeb\Listig\Provider\SubaddressListProvider($name, $configResolver, $config),
+                default => throw new \RuntimeException("Unknown list provider type \"$type\" for provider \"$name\""),
             };
             $providers[] = $provider;
         }

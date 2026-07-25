@@ -10,25 +10,31 @@ Listig is a self-hosted, Docker-based mailing list manager written in PHP 8.5.
 
 ## Quick start
 
-Requires Docker and Docker Compose.
+Requires only Docker and Docker Compose — no repo checkout, no separate migration step. Grab the three example files, fill them in, and start:
 
 ```bash
+mkdir listig && cd listig
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/compose.yml.example
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/.env.example
+mkdir config
+curl -o config/config.yml.example https://raw.githubusercontent.com/hengeb/listig/main/config/config.yml.example
+
+cp compose.yml.example compose.yml
 cp .env.example .env
 cp config/config.yml.example config/config.yml
-# edit both to match your setup (mail server, database, list provider, ...)
+# edit compose.yml/.env/config/config.yml to match your setup (mail server, database, list provider, ...)
 
-docker compose -f docker/compose.yaml up -d
+docker compose up -d
 ```
 
-The web UI is then reachable at `http://localhost:8080`. See [`Makefile`](Makefile) (`make help`) for common operations, and [`CLAUDE.md`](CLAUDE.md) for the full configuration reference — every `config.yml` key, all list-provider types (LDAP, database, CSV, inline, subaddress), moderation, the archive access levels, and the security model.
+The web UI is then reachable at `http://localhost:8080`. Database tables are created and kept up to date automatically on container start (see [`CLAUDE.md`](CLAUDE.md) "Database migrations") — there is nothing to download or run by hand. See `CLAUDE.md` for the full configuration reference — every `config.yml` key, all list-provider types (LDAP, database, CSV, inline, subaddress), moderation, the archive access levels, and the security model.
 
 ### Running as a single container
 
 For a standalone container without docker-compose (only MariaDB stays external):
 
 ```bash
-docker build -f docker/Dockerfile -t listig .
-docker run -d -p 8080:80 --env-file .env -v $(pwd)/config/config.yml:/app/config/config.yml:ro listig
+docker run -d -p 8080:80 --env-file .env -v $(pwd)/config/config.yml:/app/config/config.yml:ro ghcr.io/hengeb/listig:latest
 ```
 
 ## Configuration
@@ -37,8 +43,16 @@ All configuration lives in `config/config.yml` (start from `config/config.yml.ex
 
 ## Development
 
+Working from a repo checkout instead of the published image:
+
+```bash
+cp .env.example .env
+cp config/config.yml.example config/config.yml
+docker compose -f docker/compose.yaml up -d --build
+```
+
 - `make help` — list available Make targets (start/stop containers, logs, shell, rebuild, ...)
-- `docker/compose.yaml` — app (php-fpm + nginx + the worker loop, one image) + MariaDB
+- `docker/compose.yaml` — builds the image from source (app: php-fpm + nginx + the worker loop, one image) + MariaDB
 - No automated test suite yet — tracked as follow-up work
 
 ## License

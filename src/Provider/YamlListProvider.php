@@ -20,6 +20,7 @@ class YamlListProvider implements ListProvider
     private readonly MemberResolverFactory $memberResolverFactory;
 
     public function __construct(
+        private readonly string $name,
         private readonly ConfigResolver $configResolver,
         private readonly array $providerConfig,
         private readonly ?DatabaseConnectionFactory $dbFactory = null,
@@ -36,22 +37,22 @@ class YamlListProvider implements ListProvider
         $this->lists = [];
         $yamlFile = $this->providerConfig['file'] ?? '';
         if (!file_exists($yamlFile)) {
-            throw new \RuntimeException("YAML list provider file not found: $yamlFile");
+            throw new \RuntimeException("YAML list provider file not found: $yamlFile (provider '{$this->name}')");
         }
 
         $data = YamlIncludeResolver::parseFile($yamlFile);
         if (!is_array($data)) {
-            throw new \RuntimeException("Invalid YAML list provider file: $yamlFile");
+            throw new \RuntimeException("Invalid YAML list provider file: $yamlFile (provider '{$this->name}')");
         }
         $defaultMemberResolver = $this->memberResolverFactory->create(
             $this->providerConfig['member-resolver'] ?? null,
             $this->resolvedConfig(),
         );
 
-        foreach ($data['lists'] ?? [] as $name => $listDef) {
+        foreach ($data['lists'] ?? [] as $listName => $listDef) {
             $listOverrides = array_diff_key($listDef, array_flip(['members', 'owners']));
             $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
-            $raw['name'] = $name;
+            $raw['name'] = $listName;
 
             // list-mail may be a template (e.g. set once at provider level as
             // "{list-name}@example.org"); resolved here, before a ListConfig exists,
@@ -63,9 +64,9 @@ class YamlListProvider implements ListProvider
             // therefore no filtered context) exists yet at this point — the
             // blocking happens inside VariableResolver itself, not via a
             // pre-filtered context.
-            $mail = VariableResolver::resolve($raw['list-mail'] ?? '', [array_merge($raw, ['list-name' => $name])], ResolutionPurpose::Disclosed);
+            $mail = VariableResolver::resolve($raw['list-mail'] ?? '', [array_merge($raw, ['list-name' => $listName])], ResolutionPurpose::Disclosed);
             if ($mail === '') {
-                throw new \RuntimeException("List '$name' has no list-mail (resolved to an empty value)");
+                throw new \RuntimeException("List '$listName' has no list-mail (resolved to an empty value) in provider '{$this->name}'");
             }
 
             // Per-list inline members/owners override the default member-resolver
@@ -81,7 +82,7 @@ class YamlListProvider implements ListProvider
                 $memberResolver = $defaultMemberResolver;
             }
 
-            $this->lists[$name] = new ListConfig($name, $mail, $raw, $memberResolver);
+            $this->lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver);
         }
 
         return array_values($this->lists);
@@ -95,7 +96,7 @@ class YamlListProvider implements ListProvider
 
     public function setListConfigValue(string $listName, string $key, string $value): void
     {
-        throw new \RuntimeException('Cannot modify a YAML-file list at runtime.');
+        throw new \RuntimeException("Cannot modify a YAML-file list at runtime (provider '{$this->name}').");
     }
 
     private function resolvedConfig(): array

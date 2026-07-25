@@ -2,6 +2,7 @@
 .env
 /vendor/
 config/config.yml
+/compose.yml
 /var/
 /tmp/latte/
 *.log
