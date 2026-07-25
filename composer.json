@@ -8,7 +8,7 @@
         "ezyang/htmlpurifier": "^4.16",
         "latte/latte": "^3.0",
         "php-di/php-di": "^7.0",
-        "php-imap/php-imap": "^3.0",
+        "php-imap/php-imap": "^6.0",
         "slim/psr7": "^1.0",
         "slim/slim": "^4.0",
         "symfony/ldap": "^7.0",

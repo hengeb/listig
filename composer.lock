@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "fb4e42c71c37777b79cad2d2feb83893",
+    "content-hash": "b1250ac684b823332ef2f32b39a8ad12",
     "packages": [
         {
             "name": "doctrine/lexer",
@@ -599,33 +599,40 @@
         },
         {
             "name": "php-imap/php-imap",
-            "version": "3.1.0",
+            "version": "6.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/barbushin/php-imap.git",
-                "reference": "1df5b8b17527829a990475292b6794f06aaa4843"
+                "reference": "f16c7a4e7a0288723d74acf97034265360362e29"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/barbushin/php-imap/zipball/1df5b8b17527829a990475292b6794f06aaa4843",
-                "reference": "1df5b8b17527829a990475292b6794f06aaa4843",
+                "url": "https://api.github.com/repos/barbushin/php-imap/zipball/f16c7a4e7a0288723d74acf97034265360362e29",
+                "reference": "f16c7a4e7a0288723d74acf97034265360362e29",
                 "shasum": ""
             },
             "require": {
                 "ext-fileinfo": "*",
                 "ext-iconv": "*",
                 "ext-imap": "*",
+                "ext-json": "*",
                 "ext-mbstring": "*",
-                "php": ">=5.6"
+                "php": "^8.2"
             },
             "require-dev": {
-                "friendsofphp/php-cs-fixer": "^2.16",
-                "jakub-onderka/php-parallel-lint": "^1.0",
-                "paragonie/random_compat": "^1",
-                "phpunit/phpunit": "^5.7"
+                "friendsofphp/php-cs-fixer": "^3.4",
+                "maglnet/composer-require-checker": "^2.0|^3.2",
+                "nikic/php-parser": "^4.3,<4.7|^4.10",
+                "paragonie/hidden-string": "^1.0",
+                "php-parallel-lint/php-parallel-lint": "^1.3",
+                "phpunit/phpunit": "^8.5|^9.5",
+                "povils/phpmnd": "^2.2",
+                "psalm/plugin-phpunit": "^0.10.0|^0.15.1",
+                "roave/security-advisories": "dev-master",
+                "sebastian/phpcpd": "^4.1|^6.0"
             },
             "suggest": {
-                "ext-fileinfo": "To facilitate IncomingMailAttachment::getMimeType() auto-detection"
+                "ext-fileinfo": "To facilitate IncomingMailAttachment::getFileInfo() auto-detection"
             },
             "type": "library",
             "autoload": {
@@ -656,9 +663,9 @@
             ],
             "support": {
                 "issues": "https://github.com/barbushin/php-imap/issues",
-                "source": "https://github.com/barbushin/php-imap/tree/master"
+                "source": "https://github.com/barbushin/php-imap/tree/6.0.0"
             },
-            "time": "2020-04-10T11:43:19+00:00"
+            "time": "2026-05-10T18:53:08+00:00"
         },
         {
             "name": "psr/container",
