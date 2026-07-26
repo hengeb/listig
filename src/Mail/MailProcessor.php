@@ -106,12 +106,32 @@ class MailProcessor
             );
         }
 
-        // Threading and identification headers worth preserving
+        // Threading and identification headers worth preserving. symfony/mime enforces
+        // a specific header value class for some names (Headers::HEADER_CLASS_MAP) —
+        // Message-ID must be an IdentificationHeader and Date a DateHeader, both
+        // rejecting the UnstructuredHeader addTextHeader() always creates; In-Reply-To/
+        // References are deliberately lenient (UnstructuredHeader is allowed there too,
+        // to accept a Message-ID-shaped value that isn't strictly RFC-compliant), so
+        // those two keep using addTextHeader() as before.
         $headersRaw = $mail->headersRaw ?? '';
         foreach (['Message-ID', 'In-Reply-To', 'References', 'Date'] as $header) {
             $value = $this->headerFilter->readHeader($headersRaw, $header);
-            if ($value !== null) {
-                $email->getHeaders()->addTextHeader($header, $value);
+            if ($value === null) {
+                continue;
+            }
+            try {
+                match ($header) {
+                    // IdentificationHeader expects the bare id — Message-ID's raw value
+                    // ("<abc123@domain>") still has the angle brackets HeaderFilter
+                    // doesn't strip; getBodyAsString() re-adds them when serializing.
+                    'Message-ID' => $email->getHeaders()->addIdHeader($header, trim($value, '<> ')),
+                    'Date' => $email->getHeaders()->addDateHeader($header, new \DateTimeImmutable($value)),
+                    default => $email->getHeaders()->addTextHeader($header, $value),
+                };
+            } catch (\Throwable $e) {
+                // A malformed value from the sending MTA must not block distribution
+                // of an otherwise-fine mail — skip preserving just this one header.
+                error_log("Listig: Failed to preserve $header header on outgoing mail: " . $e->getMessage());
             }
         }
 
