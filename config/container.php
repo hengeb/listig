@@ -288,7 +288,12 @@ $builder->addDefinitions([
         return new NotificationMailer($c->get(SmtpConnectionFactory::class));
     },
     BounceHandler::class => function (ContainerInterface $c): BounceHandler {
-        return new BounceHandler($c->get(PDO::class), $c->get(NotificationMailer::class), $c->get(TranslatorInterface::class));
+        return new BounceHandler(
+            $c->get(PDO::class),
+            $c->get(NotificationMailer::class),
+            $c->get(TranslatorInterface::class),
+            $c->get(HeaderFilter::class),
+        );
     },
     RejectionNotifier::class => function (ContainerInterface $c): RejectionNotifier {
         return new RejectionNotifier($c->get(NotificationMailer::class), $c->get(TranslatorInterface::class));

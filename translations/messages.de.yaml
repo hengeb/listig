@@ -45,9 +45,10 @@ moderation:
     body: "Eine Mail an die Liste %list% (%mail%) erfordert deine Freigabe.\n\nAnnehmen: mailto:%accept%\nAblehnen: mailto:%reject%\n"
 
 bounce:
+  unknown: "unbekannt"
   owner_notice:
     subject: "[Bounce] %list%: von %sender%"
-    body: "Für die Liste %list% ist ein Bounce eingegangen.\n\nVon: %sender%\nBetreff: %subject%\n\nDer ursprüngliche Bounce ist angehängt."
+    body: "Für die Liste %list% ist ein Bounce eingegangen.\n\nUrsprünglicher Absender: %original_sender%\nFehlgeschlagener Empfänger: %failed_recipient%\nUrsache: %reason%\n\nVon: %sender%\nBetreff: %subject%\n\nDer ursprüngliche Bounce ist angehängt."
 
 queue:
   failure_notice:

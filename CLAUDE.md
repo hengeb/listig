@@ -1231,7 +1231,7 @@ Visible `To` header: original recipients only, never expanded member list.
 ### IncomingMailFilter — check order
 
 1. **X-Loop** present (any value) → discard silently
-2. **Bounce** (any match below) → log to `bounce_log`, forward to owner as `multipart/mixed` (Part 1: `text/plain` with metadata; Part 2: `message/rfc822` with full original bounce mail):
+2. **Bounce** (any match below) → log to `bounce_log`, forward to owner as `multipart/mixed` (Part 1: `text/plain` with metadata — see "Bounce notice details" below; Part 2: `message/rfc822` with full original bounce mail):
    - `Auto-Submitted` present and ≠ `no`
    - `X-Auto-Response-Suppress` present
    - `Content-Type: multipart/report; report-type=delivery-status`
@@ -1246,6 +1246,18 @@ Visible `To` header: original recipients only, never expanded member list.
 9. **Moderation with no owners** (only reached if `moderation: on`): list has zero owners → reject (`reject.no_owners`), notify sender — a moderation item nobody can ever accept/reject would otherwise vanish silently instead of being distributed or bounced back with feedback
 
 Bounces checked before Authentication-Results: MAILER-DAEMON mails may legitimately lack valid SPF/DKIM. Spam filter checked before Authentication-Results too, for the same reason — but after bounce detection, so a MAILER-DAEMON bounce whose body happens to match a filter rule is still handled as a bounce, not a spam reject. Subaddress validation is checked before the spam filter (address-routing validity before content-based filtering) but after bounce detection. Note `bin/worker.php` already routes `+accept-*`/`+reject-*` mail through `ModerationResponseHandler` before `IncomingMailFilter::filter()` is ever reached, so the `accept-`/`reject-` check here is defense-in-depth; the `bounce` check is load-bearing, since bounce detection above is content-based and a non-standard bounce sent to `+bounce` would otherwise fall through. The no-owners check is last since it's only relevant once a mail has already cleared every other gate and would otherwise reach `moderation: on`; `ModerationMailer::send()` still independently checks (and logs, then no-ops) for empty owners too, as a defense-in-depth backstop against a list losing its last owner *after* an item is already in `moderation_queue`.
+
+`PhpImap\Mailbox::getMailHeaderFieldValue()` (populates `IncomingMail::$autoSubmitted`, among others) is typed to always return `string`, using `''` for "header absent" — **never** `null`, despite `IncomingMailHeader`'s own `@var string|null` docblock claiming otherwise. `IncomingMailFilter::isBounce()`'s `Auto-Submitted` check must test `!== null && !== ''`, not just `!== null` — the latter is true for every mail lacking the header (i.e. essentially all normal mail), misclassifying it as a bounce.
+
+#### Bounce notice details
+
+`BounceHandler::forwardToOwners()` extracts a few fields from the raw bounce MIME via `HeaderFilter::readHeader()` (already generic enough to scan any raw text block, not just a header block) and includes them in the Part 1 text/plain body, best-effort — a bounce that isn't a standard RFC 3464 delivery-status notification (or omits these fields) falls back to the `bounce.unknown` translation string per missing field, never a blank or literal placeholder:
+
+- **Ursache/Reason** (`%reason%`) — `Diagnostic-Code` (preferred, human-readable, e.g. `smtp; 550 5.1.1 ...: User unknown`) falling back to the terser `Status` (e.g. `5.1.1`), both RFC 3464 fields living in the bounce's own `message/delivery-status` part.
+- **Fehlgeschlagener Empfänger/Failed recipient** (`%failed_recipient%`) — RFC 3464's `Final-Recipient` (falling back to `Original-Recipient`), stripped of its `rfc822;` address-type prefix. This is the specific address delivery failed for — Listig has no per-recipient VERP in its own `Envelope-From` (`{list-cn}+bounce@{domain}` is the same for every recipient, see "Envelope separation"), so this DSN field is the *only* way to learn which member's address actually bounced.
+- **Ursprünglicher Absender/Original sender** (`%original_sender%`) — the `From:` header of the *attached original message* (found by searching for `From:` only from the raw MIME's `message/rfc822` marker onward), not the outer bounce's own `From:` (typically `MAILER-DAEMON@...`, already shown separately as `%sender%`).
+
+`readHeader()`'s "first occurrence anywhere in the text" behavior is safe for `Diagnostic-Code`/`Final-Recipient` specifically because a standard DSN's delivery-status part always precedes the attached original message, so there's no risk of accidentally matching something inside the original mail's own headers/body instead.
 
 ### Header filter
 

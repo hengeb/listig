@@ -85,9 +85,15 @@ class IncomingMailFilter
 
     private function isBounce(IncomingMail $mail, string $unfolded): bool
     {
-        // Auto-Submitted present and != 'no'
+        // Auto-Submitted present and != 'no'. PhpImap\Mailbox::getMailHeaderFieldValue()
+        // (which populates $mail->autoSubmitted) is typed to always return string, never
+        // null, using '' for "header absent" — despite IncomingMailHeader's own @var
+        // string|null docblock claiming otherwise. Checking only "!== null" was always
+        // false→true here (an empty string is never null), so every mail lacking an
+        // Auto-Submitted header — i.e. essentially all normal mail — was misclassified
+        // as a bounce and forwarded to the owner instead of ever reaching distribute().
         $autoSubmitted = $mail->autoSubmitted;
-        if ($autoSubmitted !== null && strtolower(trim($autoSubmitted)) !== 'no') {
+        if ($autoSubmitted !== null && $autoSubmitted !== '' && strtolower(trim($autoSubmitted)) !== 'no') {
             return true;
         }
 

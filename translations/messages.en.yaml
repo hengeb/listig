@@ -45,9 +45,10 @@ moderation:
     body: "A mail to list %list% (%mail%) requires your approval.\n\nAccept: mailto:%accept%\nReject: mailto:%reject%\n"
 
 bounce:
+  unknown: "unknown"
   owner_notice:
     subject: "[Bounce] %list%: from %sender%"
-    body: "A bounce was received for list %list%.\n\nFrom: %sender%\nSubject: %subject%\n\nThe original bounce is attached."
+    body: "A bounce was received for list %list%.\n\nOriginal sender: %original_sender%\nFailed recipient: %failed_recipient%\nReason: %reason%\n\nFrom: %sender%\nSubject: %subject%\n\nThe original bounce is attached."
 
 queue:
   failure_notice:
