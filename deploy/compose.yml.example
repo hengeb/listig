@@ -5,18 +5,12 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ./config/config.yml:/app/config/config.yml:ro
+      - ./config.yml:/app/config/config.yml:ro
     env_file:
       - .env
     depends_on:
       db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/_/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
   db:
     image: mariadb:11

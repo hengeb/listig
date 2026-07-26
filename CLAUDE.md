@@ -37,24 +37,23 @@ One image, built from `docker/Dockerfile`: PHP 8.5 (php-fpm) + nginx + the worke
 
 ### Simplest deployment (published image, no repo checkout)
 
-`compose.yml.example` (repo root) is the smallest possible way to run Listig: MariaDB + the published `ghcr.io/hengeb/listig:latest` image, nothing built locally, no repo clone needed — just three files:
+`deploy/` holds the three template files needed to run Listig this way — nothing else is needed: MariaDB + the published `ghcr.io/hengeb/listig:latest` image, nothing built locally, no repo clone needed. All three live flat in the operator's own directory (no `config/` subfolder — `compose.yml.example`'s volume mount is `./config.yml:/app/config/config.yml:ro`):
 
 ```
 mkdir listig && cd listig
-curl -O https://raw.githubusercontent.com/hengeb/listig/main/compose.yml.example
-curl -O https://raw.githubusercontent.com/hengeb/listig/main/.env.example
-mkdir config
-curl -o config/config.yml.example https://raw.githubusercontent.com/hengeb/listig/main/config/config.yml.example
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/deploy/compose.yml.example
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/deploy/.env.example
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/deploy/config.yml.example
 
 cp compose.yml.example compose.yml
 cp .env.example .env
-cp config/config.yml.example config/config.yml
-# edit .env and config/config.yml to match your setup
+cp config.yml.example config.yml
+# edit .env and config.yml to match your setup
 
 docker compose up -d
 ```
 
-No manual migration step: the app container's entrypoint applies the schema itself on first start (see "Database migrations"). `compose.yml`/`config/config.yml` are the operator's real files — gitignored/dockerignored the same as `.env`, never meant to be committed back (see below). Requires the GHCR package to be public (see "CI: build & publish"); if it's private, `docker login ghcr.io` first.
+No manual migration step: the app container's entrypoint applies the schema itself on first start (see "Database migrations"). `compose.yml`/`config.yml` are the operator's real files — gitignored/dockerignored the same as `.env`, never meant to be committed back (see below). Requires the GHCR package to be public (see "CI: build & publish"); if it's private, `docker login ghcr.io` first.
 
 ### Building from source (development)
 
@@ -64,7 +63,7 @@ docker build -f docker/Dockerfile -t listig .
 docker run -d -p 8080:80 --env-file .env -v $(pwd)/config/config.yml:/app/config/config.yml:ro listig
 ```
 
-Configuration via `config.yml` (structure below) and `.env` for DB credentials and `APP_SECRET`. Neither is committed — `config/config.yml.example` and `.env.example` are the templates; copy each to the extension-less name and edit before first run. Both `.gitignore` and `.dockerignore` exclude `.env` and `config/config.yml` (the real files, not the `.example` templates), so neither a commit nor a build (e.g. via `COPY . .`) can accidentally bake real secrets in.
+Configuration via `config.yml` (structure below) and `.env` for DB credentials and `APP_SECRET`. Neither is committed — `deploy/config.yml.example` and `deploy/.env.example` are the templates (the single source of truth for both this flow and "Simplest deployment" above); copy each into place (`config/config.yml`, `.env`, both at repo root/`config/` per `docker/compose.yaml`'s mounts) and edit before first run. Both `.gitignore` and `.dockerignore` exclude `.env` and `config/config.yml` (the real files, not the `.example` templates), so neither a commit nor a build (e.g. via `COPY . .`) can accidentally bake real secrets in.
 `config.yml` may contain secrets via `$VAR` references to environment variables, or directly (e.g. LDAP bind password). Mount as a volume — never bake into the Docker image. `.dockerignore` also excludes `/vendor/`, so a host-side `composer install` (dev dependencies, host-specific builds) can never overwrite the `--no-dev` production `vendor/` that `docker/Dockerfile` installs inside the image.
 
 `docker/php.ini` (`display_errors = Off`, `log_errors = On`, `error_log = /dev/stderr`) overrides the base image's development-oriented defaults (`display_errors = STDOUT`, `log_errors = Off`) — see "Security Notes" for why this is load-bearing, not just tidiness.
@@ -86,8 +85,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── migrate.php                   # CLI entry point: applies pending migrations/*.sql — see MigrationRunner, run by docker/entrypoint.sh
 │   └── encrypt-password.php          # CLI tool: encrypt/decrypt a password with PasswordCrypto
 ├── config/
-│   ├── container.php                 # DI container (PHP-DI or similar)
-│   └── config.yml.example            # Template — copy to config.yml (gitignored), mounted as volume, may contain secrets
+│   └── container.php                 # DI container (PHP-DI or similar); config.yml itself is gitignored, copied here from deploy/config.yml.example for a repo checkout
 ├── public/
 │   └── index.php                     # Slim HTTP entry point
 ├── src/
@@ -201,8 +199,10 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── nginx.conf             # proxies to 127.0.0.1:9000 (same container)
 │   ├── supervisord.conf       # manages php-fpm, nginx, worker as three processes
 │   └── php.ini                # display_errors=Off/log_errors=On — see "Security Notes"
-├── compose.yml.example        # Simplest deployment: published image + MariaDB, no repo checkout — see "Docker Setup"
-├── .env.example
+├── deploy/                    # Simplest deployment: published image + MariaDB, no repo checkout — see "Docker Setup"
+│   ├── compose.yml.example    # Flat layout — config.yml mounted from the same directory, no config/ subfolder
+│   ├── .env.example
+│   └── config.yml.example     # Single source of truth for the config.yml template — also used by "Building from source"
 ├── LICENSE
 ├── README.md
 └── composer.json

@@ -52,6 +52,12 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
 
+# Baked into the image (rather than duplicated in every compose.yaml) so it applies
+# regardless of how the container is started — docker run, docker compose, ... —
+# see src/Http/Controller and "Health check" in CLAUDE.md for the /_/health route.
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
+    CMD curl -f http://localhost/_/health || exit 1
+
 # entrypoint.sh runs bin/migrate.php (applies any pending migrations/*.sql, see
 # src/Database/MigrationRunner.php) before handing off to CMD — so nginx, php-fpm,
 # and the worker never start against a stale schema. supervisord then runs all

@@ -14,15 +14,14 @@ Requires only Docker and Docker Compose — no repo checkout, no separate migrat
 
 ```bash
 mkdir listig && cd listig
-curl -O https://raw.githubusercontent.com/hengeb/listig/main/compose.yml.example
-curl -O https://raw.githubusercontent.com/hengeb/listig/main/.env.example
-mkdir config
-curl -o config/config.yml.example https://raw.githubusercontent.com/hengeb/listig/main/config/config.yml.example
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/deploy/compose.yml.example
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/deploy/.env.example
+curl -O https://raw.githubusercontent.com/hengeb/listig/main/deploy/config.yml.example
 
 cp compose.yml.example compose.yml
 cp .env.example .env
-cp config/config.yml.example config/config.yml
-# edit compose.yml/.env/config/config.yml to match your setup (mail server, database, list provider, ...)
+cp config.yml.example config.yml
+# edit compose.yml/.env/config.yml to match your setup (mail server, database, list provider, ...)
 
 docker compose up -d
 ```
@@ -34,20 +33,20 @@ The web UI is then reachable at `http://localhost:8080`. Database tables are cre
 For a standalone container without docker-compose (only MariaDB stays external):
 
 ```bash
-docker run -d -p 8080:80 --env-file .env -v $(pwd)/config/config.yml:/app/config/config.yml:ro ghcr.io/hengeb/listig:latest
+docker run -d -p 8080:80 --env-file .env -v $(pwd)/config.yml:/app/config/config.yml:ro ghcr.io/hengeb/listig:latest
 ```
 
 ## Configuration
 
-All configuration lives in `config/config.yml` (start from `config/config.yml.example`) plus a small set of secrets in `.env` (start from `.env.example`) — database credentials, mail server credentials, and `APP_SECRET`, the root key that per-purpose subkeys (password encryption, token signing) are derived from.
+All configuration lives in `config.yml` (start from `deploy/config.yml.example`) plus a small set of secrets in `.env` (start from `deploy/.env.example`) — database credentials, mail server credentials, and `APP_SECRET`, the root key that per-purpose subkeys (password encryption, token signing) are derived from.
 
 ## Development
 
 Working from a repo checkout instead of the published image:
 
 ```bash
-cp .env.example .env
-cp config/config.yml.example config/config.yml
+cp deploy/.env.example .env
+cp deploy/config.yml.example config/config.yml
 docker compose -f docker/compose.yaml up -d --build
 ```
 

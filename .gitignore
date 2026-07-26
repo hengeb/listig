@@ -5,10 +5,12 @@
 .env
 config/config.yml
 
-# Generated from compose.yml.example by an operator following the Quick start —
-# not a secret itself, but operator-specific (ports, ...) and not meant to be
-# committed back into the repo
-/compose.yml
+# Generated from deploy/*.example by an operator following the Quick start —
+# compose.yml/config.yml are not secrets themselves, but operator-specific and
+# not meant to be committed back into the repo; .env always is
+deploy/compose.yml
+deploy/.env
+deploy/config.yml
 
 # Latte template cache
 /var/
