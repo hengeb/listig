@@ -1,6 +1,6 @@
 {layout '../templates/layout.latte'}
 
-{block title}{$translator->trans('dashboard.title')}{/block}
+{block title}{$translator->trans('dashboard.title', ['%app_name%' => $appName])}{/block}
 
 {block content}
 <h1>{$translator->trans('dashboard.heading')}</h1>

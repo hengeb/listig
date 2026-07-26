@@ -6,6 +6,7 @@
     "require": {
         "php": ">=8.5",
         "ezyang/htmlpurifier": "^4.16",
+        "jumbojett/openid-connect-php": "^1.0",
         "latte/latte": "^3.0",
         "php-di/php-di": "^7.0",
         "php-imap/php-imap": "^6.0",

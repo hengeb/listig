@@ -42,6 +42,7 @@ class ListApiController
         private readonly PasswordCrypto $passwordCrypto,
         private readonly TranslatorInterface $translator,
         private readonly string $hostname,
+        private readonly string $appName,
     ) {
     }
 
@@ -73,7 +74,11 @@ class ListApiController
         $list = $request->getAttribute('list');
         $mail = strtolower(trim((string) $args['mail']));
 
-        $list->removeMember($mail);
+        try {
+            $list->removeMember($mail);
+        } catch (\RuntimeException $e) {
+            return $this->json($response, ['error' => $e->getMessage()], 409);
+        }
 
         return $response->withStatus(204);
     }
@@ -205,6 +210,7 @@ class ListApiController
             'success' => $success,
             'language' => $this->translator->getLocale(),
             'translator' => $this->translator,
+            'appName' => $this->appName,
         ]);
         $response->getBody()->write($html);
         return $response;

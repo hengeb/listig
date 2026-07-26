@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{block title}Listig{/block}</title>
+    <title>{block title}{$appName ?? 'Listig'}{/block}</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #f5f5f5; color: #333; }
@@ -11,6 +11,8 @@
         header { background: #1a1a2e; color: #fff; padding: 0.75rem 0; }
         header .container { display: flex; justify-content: space-between; align-items: center; }
         header a { color: #fff; text-decoration: none; font-weight: 600; font-size: 1.25rem; }
+        header a.brand { display: flex; align-items: center; gap: .5rem; }
+        header a.brand img { height: 1.6rem; width: 1.6rem; display: block; }
         nav a { color: #ccc; text-decoration: none; margin-left: 1rem; font-size: 0.9rem; }
         nav a:hover { color: #fff; }
         main { padding: 2rem 0; }
@@ -32,14 +34,28 @@
         .badge-err { background: #f8d7da; color: #842029; }
     </style>
     {block head}{/block}
+    {if isset($user)}
+    <script>
+    async function listigLogout(event) {
+        event.preventDefault();
+        const csrf = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('PHPSESSID='))?.split('=')[1] ?? '';
+        const r = await fetch('/_/api/logout', { method: 'POST', headers: { 'X-CSRF-Token': csrf } });
+        // Usually "/_/login", but an OIDC session may be sent on to the IdP's own
+        // logout page first — see AuthController::logout().
+        const data = await r.json();
+        location.href = data.redirectUrl || '/_/login';
+    }
+    </script>
+    {/if}
 </head>
 <body>
 <header>
     <div class="container">
-        <a href="/">Listig</a>
+        <a href="/" class="brand"><img src="/logo-mark.svg" alt=""> {$appName ?? 'Listig'}</a>
         <nav>
             {if isset($user)}
                 <span style="color:#ccc;font-size:.85rem">{$user['email']|escapeHtml}</span>
+                <a href="#" onclick="listigLogout(event)">{$translator->trans('auth.logout')}</a>
             {/if}
         </nav>
     </div>

@@ -4,7 +4,6 @@
 declare(strict_types=1);
 
 use Hengeb\Listig\Archive\ArchiveIndexer;
-use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Imap\ImapArchiver;
 use Hengeb\Listig\Imap\ImapMailboxFactory;
 use Hengeb\Listig\Imap\ImapPoller;
@@ -55,7 +54,7 @@ $db                         = $container->get(PDO::class);
 $sleepSeconds = $container->get('worker.sleep-seconds');
 $batchSize    = $container->get('worker.batch-size');
 
-if (($container->get(ConfigResolver::class)->getResolvedDefault()['hostname'] ?? '') === '') {
+if ($container->get('app.hostname.resolved') === '') {
     error_log(
         "Listig: WARNING: 'hostname' is not set in config.yml — falling back to gethostname() "
         . "('" . (gethostname() ?: 'localhost') . "'), which is almost always wrong in a "

@@ -64,17 +64,26 @@ class InlineMemberResolver implements MemberResolver
         return $this->fallback->findByEmail($email);
     }
 
+    public function supportsRemoval(): bool
+    {
+        return $this->members === null ? $this->fallback->supportsRemoval() : false;
+    }
+
     public function removeMember(string $listName, string $email): void
     {
         if ($this->members === null) {
             $this->fallback->removeMember($listName, $email);
             return;
         }
-        $email = strtolower($email);
-        $this->members = array_values(array_filter(
-            $this->members,
-            fn(Member $m) => strtolower($m->email) !== $email
-        ));
+        // Static inline config — mutating $this->members here would only affect
+        // this request's in-memory copy (a fresh instance is built from config.yml
+        // on every request, see "Worker loop — config reload"); it can never
+        // actually persist. Throw instead of silently discarding the request —
+        // callers must check supportsRemoval() first (see MemberResolver interface)
+        // to avoid this in the first place, e.g. to hide an "Unsubscribe" button.
+        throw new \RuntimeException(
+            'Cannot remove members from an inline (config.yml) list at runtime — members are statically configured.'
+        );
     }
 
     public function addMember(string $listName, Member $member): void

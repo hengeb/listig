@@ -19,6 +19,7 @@ Listig is a self-hosted, Docker-based mailing list manager written in PHP 8.5.
 | Mail building & parsing | `symfony/mime` |
 | SMTP sending | `symfony/mailer` |
 | LDAP | `symfony/ldap` |
+| OIDC login | `jumbojett/openid-connect-php` — optional, see "Authentication (OIDC)" |
 | Config files | `symfony/yaml` |
 | Web framework | `slim/slim` |
 | Templates | `latte/latte` |
@@ -70,6 +71,8 @@ Configuration via `config.yml` (structure below) and `.env` for DB credentials a
 
 **Set `hostname` explicitly in config.yml.** It's used to build every link Listig generates (login, dashboard, manage page, unsubscribe, moderation) — see `{hostname}` above. Without it, `ListConfig`/`'app.hostname'` (`config/container.php`) fall back to PHP's `gethostname()`, which in a container returns the container's own internal hostname (a random ID or the compose service name) — never the public domain a reverse proxy actually exposes the app under, and there's no way to derive that automatically: the worker has no incoming request to read a `Host` header from at all, and even on the web side, deriving it from the request would make worker-generated links (unsubscribe, moderation) and web-generated links (login) disagree whenever the same instance is reachable under more than one name. `bin/worker.php` logs a warning at startup (`error_log`, not a hard failure) if `hostname` resolves to empty, precisely because this is easy to miss and the resulting links are silently wrong rather than erroring.
 
+`'app.hostname'` is not a raw read of the config key — it goes through `VariableResolver::resolve()` (`'app.hostname.resolved'`, using the merged root default config as its own lookup context, same pattern as a provider's `list-mail` bootstrap resolution), so a root-level alias like `domain: $DOMAINNAME` / `hostname: "lists.{domain}"` actually resolves `{domain}` instead of leaking the literal `{domain}` into every generated URL. `'app.language'`/`'worker.batch-size'`/`'worker.sleep-seconds'` — the other scalar root keys read via `getResolvedDefault()` — go through the same resolution for consistency, even though templating them is a less common case than `hostname`. `db-*` (read directly by `PDO::class`) is the deliberate exception: those are `VariableResolver::BLOCKED_KEYS`, meant to stay pure `$VAR`-substituted literals, never `{}`-templated.
+
 ### CI: build & publish (`.github/workflows/docker-publish.yml`)
 
 On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Dockerfile` and pushes to the GitHub Container Registry as `ghcr.io/<owner>/<repo>` (`${{ github.repository }}` — no hardcoded name, works under any fork/rename). Uses `docker/build-push-action` with the GitHub Actions cache backend (`type=gha`) so unchanged apt/pecl/composer layers aren't rebuilt every run. Tagging (`docker/metadata-action`): the branch name on a branch push, the git tag and derived semver on a version tag, the commit SHA always, and `latest` only on the default branch. Auth is the repo's own `GITHUB_TOKEN` (`permissions: packages: write`) — no PAT or secret to manage. First push creates the package as **private** by default; make it public under the repo's Packages settings if it should be pullable without authentication.
@@ -96,7 +99,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── Archive/                      # Web archive viewer backend — see "Archive viewer"
 │   │   ├── ArchiveIndexer.php        # Writes archived_mail rows; called alongside (not from) ImapArchiver::archiveOrDelete()
 │   │   ├── ArchiveThreader.php       # Pure PHP: annotates a page of rows with depth/thread_size/is_thread_start
-│   │   ├── ArchiveMailLocator.php    # Re-locates a message by Message-ID in the IMAP "Archive" folder, on demand
+│   │   ├── ArchiveMailLocator.php    # Re-locates a message by Message-ID in the list's IMAP archive folder ($archiveFolder), on demand
 │   │   └── ArchiveHtmlSanitizer.php  # HTMLPurifier config + cid: rewriting + external-resource gating
 │   ├── Mail/
 │   │   ├── MailProcessor.php         # Builds outgoing Email from IncomingMail; personalizes per recipient; enqueues
@@ -149,6 +152,9 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   └── ModerationChecker.php     # Checks DB for overdue moderation items, sends reminders
 │   ├── Token/
 │   │   └── TokenService.php          # Signs and verifies HMAC-SHA256 tokens
+│   ├── OpenIdConnect/                # Optional OIDC login — see "Authentication (OIDC)"
+│   │   ├── OpenIdConnectService.php  # Thin wrapper around jumbojett/openid-connect-php (Auth Code + PKCE)
+│   │   └── OidcRedirectException.php # Turns the library's header()+exit redirect into a catchable PSR-7-friendly exception
 │   ├── Crypto/
 │   │   ├── KeyDerivation.php          # Static helper: HKDF-SHA256 subkeys from APP_SECRET, one per purpose
 │   │   └── PasswordCrypto.php         # AES-256-CBC encrypt/decrypt for IMAP/SMTP passwords
@@ -160,7 +166,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   └── RateLimiter.php           # Per-sender and global rate limiting (MariaDB-backed)
 │   └── Http/
 │       ├── Controller/
-│       │   ├── AuthController.php        # Magic-link login flow
+│       │   ├── AuthController.php        # Magic-link login flow, optional OIDC login, logout
 │       │   ├── DashboardController.php   # Member view: subscribed lists
 │       │   ├── ListController.php        # Owner manage page
 │       │   ├── ListApiController.php     # Bearer-token list management API: subscribe/unsubscribe/encrypt-password
@@ -454,6 +460,48 @@ filters:
 - A mail matches (is spam) if **any** rule matches. On match, `IncomingMailFilter` returns `FilterResult::reject('reject.spam')` — same reject pipeline as every other reject reason: `RejectionNotifier` notifies the sender (translation key `reject.spam`, e.g. "Spam message rejected" / "Spam-Nachricht abgelehnt"), the mail is marked seen, and `ImapArchiver::archiveOrDelete()` removes it from the inbox (or archives it, unless the list has `archive: off`).
 - Like every other config value, `filters:` supports `!include` (see "File includes"), so rules can be outsourced to their own file: `filters: !include filters.yml`.
 
+### App name (`app-name`)
+
+Root-level `config.yml` key, default `'Listig'` — the app's own display name, shown everywhere a page or mail addresses the app itself rather than a specific list (page `<title>`s, the header brand next to the logo mark, the login mail subject, the queue delivery-failure notice). Resolved via `'app.name'` in `config/container.php`, same `VariableResolver::resolve()`-backed pattern as `hostname`/`language` (see the block comment above `'app.hostname.resolved'`) — not blocked, not a credential, just a display string, so `{}` templates referencing other root keys work fine here too.
+
+Every controller that renders a template, plus `QueueSender` (delivery-failure notice), takes `appName`/`$this->appName` accordingly:
+- Templates receive it as the `appName` variable — used directly in `layout.latte`'s header/default `<title>` and every page's own `{block title}`, alongside `logo-mark.svg` in the header (see "Static assets" below).
+- Translated strings that name the app take `'%app_name%' => $appName` as a `trans()` param — `auth.login_mail.subject`, `queue.failure_notice.body`, and each page-title key (`login.title`, `dashboard.title`, `unsubscribe_page.title`, `subscribe_page.title`).
+
+This is a distinct concept from a *list's* `display-name` (see "`description` → `list-description`" for the analogous list-vs-member key-collision reasoning) — `app-name` names the whole Listig instance, not any one list.
+
+**Static assets**: `public/logo.svg` (full wordmark) and `public/logo-mark.svg` (icon only, no baked-in text — used in the header precisely so it stays correct next to a configurable `appName` instead of always visually saying "Listig") are served directly by nginx via the `location /` fallback's `try_files` (finds the real file before falling through to `index.php`), same as anything under `public/assets/` — no route or controller involved.
+
+### OIDC login (`oidc-*`)
+
+Root-level `config.yml` keys, like `hostname`/`language`/`db-*` — not per-list, since the login flow itself has no list in scope until after a member is found (see `AggregateMemberResolver::findListAndMemberByEmail()`, "Authentication (OIDC)"). Entirely optional: OIDC login is only enabled — `GET /_/login/oidc` registered at all, the "Log in with Single Sign-On" button shown on the login form — when `oidc-provider-url`, `oidc-client-id`, and `oidc-client-secret` are **all** set (`'oidc.enabled'` in `config/container.php`); otherwise the route doesn't exist (`404`), same 404-if-unconfigured philosophy as the List Management API's `api-token` gate.
+
+```yaml
+oidc-provider-url: https://sso.example.org   # discovery-capable issuer — /.well-known/openid-configuration is fetched from here
+oidc-client-id: listig
+oidc-client-secret: $OIDC_CLIENT_SECRET
+
+# Only needed if oidc-provider-url isn't the IdP's own public address — e.g. an
+# internal Docker Compose service name/URL — and the IdP (like Authelia) derives
+# and validates its issuer strictly from the request's Host header. See
+# OpenIdConnectService's docblock for the full mechanism.
+oidc-public-provider-url: https://sso.example.org
+
+# Optional: only needed if the IdP has no standard, spec-compliant
+# end_session_endpoint in its discovery document (RP-initiated logout is
+# discovered automatically otherwise — no config needed). Used verbatim, as the
+# full redirect target — Listig appends no query parameters of its own, since a
+# non-standard logout endpoint (e.g. Authelia's own) may expect entirely
+# different ones than the OIDC-spec id_token_hint/post_logout_redirect_uri.
+oidc-logout-url: "https://sso.example.org/logout?rd=https%3A%2F%2Flists.example.org%2F_%2Flogin"
+```
+
+- Discovery-only: no separate authorization/token/userinfo endpoint keys — `jumbojett/openid-connect-php` fetches them all from `oidc-provider-url`'s `/.well-known/openid-configuration`.
+- Authorization Code flow with PKCE (`S256`), scopes `openid profile email`.
+- All five keys are in `VariableResolver::BLOCKED_KEYS` (see "Blocked variables") — same treatment as `ldap-host`/`ldap-bind-dn`/`ldap-bind-password`, resolved under `ResolutionPurpose::Trusted` only at the one point they're actually consumed (`OpenIdConnectService::class` in `config/container.php`).
+- `oidc-public-provider-url` is used two ways in `OpenIdConnectService`: its host is spoofed into the `Host`/`X-Forwarded-Proto` headers of every backend→IdP request (so the IdP's discovery document — and the ID token's `iss` claim — reflect the public identity, not the internal address this backend actually connects to), and the token/jwks/userinfo endpoints discovery returns (now necessarily public-host-based too) are rewritten back onto `oidc-provider-url`, since only `authorization_endpoint` is ever browser-facing.
+- `oidc-logout-url` — see "Authentication (OIDC)" for the full logout flow (`OpenIdConnectService::getLogoutUrl()`, `AuthController::logout()`).
+
 ### Environment variable substitution
 
 `$VAR` in any config value is replaced with the corresponding environment variable at parse time, before lazy variable resolution. This allows secrets to live in `.env` while everything else is in `config.yml`.
@@ -594,7 +642,7 @@ Two call sites need a non-email identifier for privacy — `MailProcessor` embed
 #### Blocked variables
 
 Never substituted in any context, even via custom aliases:
-`password`, `mail-password`, `imap-password`, `smtp-password`, `ldap-bind-password`, `db-password`, `api-token`, `mail-user`, `imap-user`, `smtp-user`, `mail-host`, `imap-host`, `imap-port`, `imap-secure`, `smtp-host`, `smtp-port`, `smtp-secure`, `db-host`, `db-port`, `db-name`, `db-user`, `ldap-host`, `ldap-base-dn`, `ldap-bind-dn`, `ldap-list-dn`
+`password`, `mail-password`, `imap-password`, `smtp-password`, `ldap-bind-password`, `db-password`, `api-token`, `mail-user`, `imap-user`, `smtp-user`, `mail-host`, `imap-host`, `imap-port`, `imap-secure`, `smtp-host`, `smtp-port`, `smtp-secure`, `db-host`, `db-port`, `db-name`, `db-user`, `ldap-host`, `ldap-base-dn`, `ldap-bind-dn`, `ldap-list-dn`, `oidc-provider-url`, `oidc-client-id`, `oidc-client-secret`, `oidc-public-provider-url`, `oidc-logout-url`
 
 ---
 
@@ -649,6 +697,7 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `moderation` | `on` \| `off` | Whether posts require owner approval |
 | `allow-leave` | `direct` \| `moderated` | Unsubscribe behavior |
 | `archive` | `members` \| `owners` \| `public` \| `hidden` \| `off` | Archive instead of delete after processing, and who may view it in the web archive viewer — see "Archive access levels" (default: `off`) |
+| `archive-folder` | string | Name of the IMAP folder archived mail is moved into (default: `Archive`). Created automatically if it doesn't exist yet (`ImapArchiver::archiveOrDelete()`, best-effort `createMailbox()` + swallow "already exists"). Only relevant when `archive` is not `off` |
 | `max-per-sender` | integer | Rate limit: max mails per sender per 10 min (default: 5) |
 | `max-size` | size string or integer | Max accepted mail size (default: `5M`). Accepts `5M`, `5MB`, `5MiB`, `5K`, `5KB`, `5KiB`, `5G`, `5GB`, `5GiB`, or plain bytes. Converted to bytes in `ListConfig`. |
 | `list-label` | string | Prepended to subject as `$listLabel $subject` if not already present (case-insensitive) |
@@ -798,20 +847,23 @@ interface MemberResolver {
     public function getOwners(string $name): array;
     public function findByEmail(string $email): ?Member;
     public function removeMember(string $listName, string $email): void;
+    public function supportsRemoval(): bool;
     public function addMember(string $listName, Member $member): void;
 }
 ```
 
 | Implementation | type | Description |
 |---|---|---|
-| `LdapMemberResolver` | `ldap` | Resolves member/owner DNs via LDAP; every directory attribute except `mail` becomes a `Member::$attributes` entry under its own name (plus a `username` = `cn` convenience copy — see "Member attributes — fully dynamic"); `removeMember` removes the DN from the `member` attribute; `addMember` adds it — but only if a directory entry matching the email already exists, else throws |
-| `DatabaseMemberResolver` | `database` | `SELECT *`s `members-table` via `DatabaseConnectionFactory` + context config, exposing every non-reserved column as an attribute; `removeMember` sets `is_member = 0`, then deletes row if `is_member = 0 AND is_owner = 0`; `addMember` upserts dynamically from `Member::$attributes` (validated as SQL identifiers), preserving existing `is_owner` |
-| `CsvMemberResolver` | `csv` | Reads/writes a flat CSV file (`name,mail,is_member,is_owner` reserved, any other header column exposed as an attribute), shared across lists like `members-table`; re-reads on every call, writes take an exclusive `flock`, `addMember` extends the header for new attribute keys — see "CSV member file format" |
-| `InlineMemberResolver` | — | Resolves inline config.yml `members`/`owners`; each entry is a plain email string or a map with a required `mail` key plus any other keys, all becoming attributes verbatim. `members` and `owners` are independent — either can be `null` (not configured inline) to defer to a wrapped fallback `MemberResolver` instead; `removeMember`/`addMember` on the inline side are a no-op/throw (static config), on the deferred side they pass through to the fallback |
-| `NullMemberResolver` | — | Returns empty arrays; `removeMember` is a no-op; `addMember` throws |
-| `AggregateMemberResolver` | — | Searches across all providers; used by `AuthController` to find any list a user belongs to; `addMember`/mutating calls throw (lookup only) |
+| `LdapMemberResolver` | `ldap` | Resolves member/owner DNs via LDAP; every directory attribute except `mail` becomes a `Member::$attributes` entry under its own name (plus a `username` = `cn` convenience copy — see "Member attributes — fully dynamic"); `removeMember` removes the DN from the `member` attribute; `supportsRemoval` always `true`; `addMember` adds it — but only if a directory entry matching the email already exists, else throws |
+| `DatabaseMemberResolver` | `database` | `SELECT *`s `members-table` via `DatabaseConnectionFactory` + context config, exposing every non-reserved column as an attribute; `removeMember` sets `is_member = 0`, then deletes row if `is_member = 0 AND is_owner = 0`; `supportsRemoval` always `true`; `addMember` upserts dynamically from `Member::$attributes` (validated as SQL identifiers), preserving existing `is_owner` |
+| `CsvMemberResolver` | `csv` | Reads/writes a flat CSV file (`name,mail,is_member,is_owner` reserved, any other header column exposed as an attribute), shared across lists like `members-table`; re-reads on every call, writes take an exclusive `flock`; `supportsRemoval` always `true`; `addMember` extends the header for new attribute keys — see "CSV member file format" |
+| `InlineMemberResolver` | — | Resolves inline config.yml `members`/`owners`; each entry is a plain email string or a map with a required `mail` key plus any other keys, all becoming attributes verbatim. `members` and `owners` are independent — either can be `null` (not configured inline) to defer to a wrapped fallback `MemberResolver` instead. On the static-inline side (`$members !== null`), `removeMember` throws (a request-scoped in-memory removal can never persist — config.yml is never rewritten, and a fresh instance is built from it on every request anyway) and `supportsRemoval` is `false`; on the deferred side, both pass through to the fallback |
+| `NullMemberResolver` | — | Returns empty arrays; `removeMember` is a no-op; `supportsRemoval` `false` (no backing store at all); `addMember` throws |
+| `AggregateMemberResolver` | — | Searches across all providers; used by `AuthController` to find any list a user belongs to; `supportsRemoval` `false`; `addMember`/mutating calls throw (lookup only) |
 
 `addMember()` is used by `ListApiController` (see "List Management API") for both immediate (`PUT`) and double-opt-in-confirmed subscriptions. Callers must treat the `\RuntimeException` as a real error (e.g. HTTP `409`), not swallow it — an LDAP-backed list silently "succeeding" without actually adding a non-existent-directory-entry member would be worse than an explicit failure.
+
+`supportsRemoval()` — checked via `ListConfig::$supportsUnsubscribe` (a property hook, like every other derived `ListConfig` value — see "ListConfig with property hooks" — not a method, since `MemberResolver::supportsRemoval()` itself is; the interface it belongs to is method-based throughout) — lets a caller find out *before* calling `removeMember()` whether it would actually persist anything, rather than either silently no-op'ing (previously the case for `NullMemberResolver` and static-inline `InlineMemberResolver`, both of which "succeeded" without ever removing anyone) or throwing. `DashboardController` only shows the "Unsubscribe" link when `allowLeave === Direct` *and* `$supportsUnsubscribe`; `UnsubscribeController`'s direct-unsubscribe branch and `ListApiController::unsubscribe()` (`DELETE /{listname}/{mail}`) both check it (or catch the `\RuntimeException`) before claiming success — see "Unsubscribe endpoint".
 
 `member-resolver` can be configured as a sub-object on `type: inline` and `type: database` providers, with `type: database`, `type: ldap`, or `type: csv` (`{type: csv, file: /path/to/members.csv}`). `type: ldap` (the list provider) always uses `LdapMemberResolver` internally, independent of any `member-resolver` sub-object.
 
@@ -947,7 +999,7 @@ class ListConfig {
 
 Every property backed by a raw config value is resolved via `ListConfig`'s private `resolve()` before being cast/validated to its final type (`(int)`, `Enum::from()`, `'on'`/`'off'` comparison, ...) — not just plain string properties. This matters: without it, e.g. `smtp-port: "{port-tls}"` would silently produce `0` (an unresolved `"{port-tls}"` string cast to `int`), and `reply-to: "{my-alias}"` would throw an uncaught `ValueError` from `ReplyToBehavior::from()`.
 
-- **`resolve($raw)`, default `ResolutionPurpose::Disclosed`** — the default for everything: `$displayName`, `$description`, `$replyTo`, `$postAccess`, `$moderation`, `$allowLeave`, `$archive`, `$maxPerSender`, `$maxSize`, `$publicSubscribe`, `$logLevel`, `$language`, and — despite being `VariableResolver::BLOCKED_KEYS` themselves — `$imapPort`/`$imapSecure`/`$smtpPort`/`$smtpSecure` too. These four are numeric/enum properties (`(int)` cast, `'ssl'|'tls'|'none'` comparison): resolved under `Trusted`, a value like `smtp-port: "{imap-password}"` could silently become the leading digits of the actual password cast to an int, which could then surface via a connection-failure error message — a *fragment* leak that casting makes easy to miss. Staying on `Disclosed` here means these four properties can no longer reference `{mail-user}`/`{mail-password}`/`{mail-host}` or any other blocked key — a deliberate trade-off in favor of the leak protection, since none of them actually need to (there's no `mail-port`/`mail-secure` fallback level to reach).
+- **`resolve($raw)`, default `ResolutionPurpose::Disclosed`** — the default for everything: `$displayName`, `$description`, `$replyTo`, `$postAccess`, `$moderation`, `$allowLeave`, `$archive`, `$archiveFolder`, `$maxPerSender`, `$maxSize`, `$publicSubscribe`, `$logLevel`, `$language`, and — despite being `VariableResolver::BLOCKED_KEYS` themselves — `$imapPort`/`$imapSecure`/`$smtpPort`/`$smtpSecure` too. These four are numeric/enum properties (`(int)` cast, `'ssl'|'tls'|'none'` comparison): resolved under `Trusted`, a value like `smtp-port: "{imap-password}"` could silently become the leading digits of the actual password cast to an int, which could then surface via a connection-failure error message — a *fragment* leak that casting makes easy to miss. Staying on `Disclosed` here means these four properties can no longer reference `{mail-user}`/`{mail-password}`/`{mail-host}` or any other blocked key — a deliberate trade-off in favor of the leak protection, since none of them actually need to (there's no `mail-port`/`mail-secure` fallback level to reach).
 - **`resolve($raw, ResolutionPurpose::Trusted)`** — `$imapHost`, `$imapUser`, `$imapPassword`, `$smtpHost`, `$smtpUser`, `$smtpPassword`. These are string-valued connection/credential properties that must be able to fall back through another blocked key one level up — `imap-host`/`smtp-host` through `{mail-host}`, `imap-user`/`smtp-user` through `{mail-user}`, `imap-password`/`smtp-password` through `{mail-password}` (each `mail-*` key sets both `imap-*` and `smtp-*` unless overridden individually — see "config.yml Structure"). Unlike the numeric/enum group above, a resolved host/user/password is used whole (passed straight to the IMAP/SMTP client), not cast or compared — so there's no fragment-leak risk distinct from the whole-value risk `Trusted` already accepts for this deliberately small, documented set of properties.
 - **Not template-resolved at all** — `$apiToken`. A Bearer credential the caller must present verbatim; indirection here would only add complexity/attack surface (e.g. accidental sharing via a shared alias) for no real benefit.
 - **Not applicable** — `$domain` (derived from `$mail`, not a raw config value), `$personalizeKeys`/`$reservedSubaddresses` (comma-separated *lists of key names*, not content), `$requiresSubaddress`/`$isImapConfigured` (booleans computed from other properties). `$footer`/`$listLabel`/`$smtpFromName` are template-capable but *not* resolved inside `ListConfig` itself — they're read raw and resolved later, downstream, by `FooterAppender`/`MailProcessor` (which already resolve under `ResolutionPurpose::Disclosed`), since they're only ever consumed from the mail-sending pipeline and never read directly elsewhere.
@@ -1474,7 +1526,11 @@ the `Authorization: Bearer <token>` header, and — on success — attaches the 
 — appropriate for a caller that has already verified the address itself out of band.
 Both are idempotent: re-subscribing an existing member or unsubscribing a non-member
 returns `204` either way, matching the existing unsubscribe philosophy of never
-erroring on a state that's already reached.
+erroring on a state that's already reached. `DELETE` returns `409` instead if the
+list's member store can't persist a removal at all (`MemberResolver::supportsRemoval()`
+false — static inline config.yml members, or none configured) — same
+`\RuntimeException`-to-`409` handling as `PUT`'s `addMember()` failures, see
+"MemberResolver interface".
 
 ### Double opt-in (`POST .../subscribe` → `GET .../subscribe/confirm`)
 
@@ -1551,6 +1607,24 @@ queued mail simply has nothing to send.
 3. If found: login token generated (embeds the matched list's `name`, not an arbitrary/first list), link sent via that list's own `SmtpConnectionFactory` transport (valid 5 min) — a user who is only a member of list B is sent their login mail through list B's configured SMTP server, not list A's or an unconfigured global default
 4. On verify: native PHP session started, identity stored in session
 5. Session ID used as CSRF token: sent as `X-CSRF-Token` header on state-changing requests
+6. Logout: `POST /_/api/logout` (`AuthController::logout()`) — behind `AuthMiddleware` + `CsrfMiddleware` like every other `/_/api` route, since it's a state-changing action on an active session, not a public one. Clears `$_SESSION` and calls `session_destroy()`, returns `200` + JSON `{"redirectUrl": "..."}` (usually `/_/login`, but see "Authentication (OIDC)" for when an OIDC session sends the browser to the IdP's own logout page first). Triggered from the "Abmelden"/"Log out" link in `layout.latte`'s nav (shown whenever `$user` is set — every authenticated page passes it), which does the fetch-with-`X-CSRF-Token` dance client-side (same pattern as `list/manage.latte`'s `apiPost`/`apiDelete`) and navigates to the returned `redirectUrl`.
+
+### Authentication (OIDC)
+
+Optional alternative to the magic-link flow above — only active when `oidc-provider-url`/`oidc-client-id`/`oidc-client-secret` are configured (see "OIDC login (`oidc-*`)"). `OpenIdConnectService` wraps `jumbojett/openid-connect-php`, driving the Authorization Code + PKCE flow via provider discovery — see "OIDC login (`oidc-*`)" for the `oidc-public-provider-url` header-spoofing mechanism some IdPs (e.g. Authelia) need when reached over an internal address.
+
+- **`GET /_/login/oidc`** (`AuthController::loginOidc()`) — a single route serves both legs of the flow, exactly like the reference this was modeled on, distinguished by `OpenIdConnectService::authenticate()` internally (via the underlying library checking for `?code`/`?error`):
+  1. **Initial request** (no `?code`/`?error` yet): `authenticate()` returns the IdP's authorization URL; the controller redirects the browser there. This is the URL a login link/button points to directly — a user can link straight to `/_/login/oidc` (e.g. from another site, an email, a bookmark) and never see the magic-link form at all.
+  2. **Callback** (the same URL, now with `?code=...&state=...`, since it doubles as the registered `redirect_uri`): `authenticate()` validates the tokens (throws on failure — invalid state, IdP error response, signature/claims failure) and returns `null`.
+- On successful validation, the `email` claim (ID token first, `userinfo` endpoint as fallback — `OpenIdConnectService::getUserInfo()`) is looked up via the **exact same** `AggregateMemberResolver::findListAndMemberByEmail()` used by the magic-link flow — OIDC only replaces "prove you own this mailbox by clicking a link" with "prove your identity via your organization's IdP"; list membership is still the actual authorization check, an OIDC login for an email that isn't a member/owner of any list is rejected (`auth.oidc_not_found`) exactly as it would be silently ignored in the magic-link flow (the difference in visibility — an explicit message here vs. always the same generic response there — is *not* an enumeration risk: the magic-link form lets anyone submit *any* email, but only the actual account owner can ever complete their own IdP's login, so revealing "not found" here only ever tells a user something about their own account).
+- On success: `session_regenerate_id(true)`, `$_SESSION['user']` set identically to `verifyToken()` (`email` = `$member->attributes['username'] ?? $member->email`, `listCn` = the matched list's `name`). Also stashes the raw ID token in `$_SESSION['oidcIdToken']` — opaque to Listig itself, kept only so `logout()` can hand it back to the IdP as `id_token_hint` (see below).
+- No `TokenService`/HMAC token round-trip at all — the IdP's own signed ID token is the credential; Listig only re-derives which *list* the resulting email belongs to.
+- `login.latte` renders a "Log in with Single Sign-On" button (linking to `/_/login/oidc`) above the email form when `oidcEnabled` — passed by `showLogin()` — is `true`; entirely absent otherwise.
+
+**Logout** (`AuthController::logout()`, `POST /_/api/logout` — see "Authentication (Magic Link)" step 6 for the route/CSRF wiring, shared with the magic-link flow): destroying `$_SESSION` alone would leave a *local* Listig logout without touching the IdP's own session — the next "Log in with Single Sign-On" click would then silently re-authenticate via the IdP's still-valid cookie, with no login prompt at all. So if the destroyed session had an `oidcIdToken`, `logout()` also attempts **RP-Initiated Logout**:
+
+- `OpenIdConnectService::getLogoutUrl($idToken, $postLogoutRedirectUri)`: if `oidc-logout-url` is configured, returns it verbatim (no params appended — see "OIDC login (`oidc-*`)" for why). Otherwise calls the library's `signOut()`, which discovers `end_session_endpoint` from the provider config and appends `id_token_hint`/`post_logout_redirect_uri` itself (`$postLogoutRedirectUri` = `https://{hostname}/_/login`, so the IdP sends the browser back to Listig's own login page once it's done). Returns `null` — falling back to a purely local logout — if neither is available (no override, and the discovery document has no `end_session_endpoint`; not every IdP implements RP-Initiated Logout) or if anything throws (network error, IdP unreachable, ...) — a failure here must never prevent the local session from being destroyed, which has already happened by this point regardless.
+- Because the redirect target sometimes needs to leave Listig entirely (the IdP's own logout page) rather than always being `/_/login`, `logout()` can't just return a plain redirect response the way `verifyToken()`/`sendMagicLink()` do — the client-side `fetch()` in `layout.latte` would follow it as part of the AJAX call itself rather than navigating the browser there. Instead it always returns `200` + JSON `{"redirectUrl": "..."}`, and `listigLogout()` in `layout.latte` sets `location.href` from that.
 
 ### Unsubscribe endpoint
 
@@ -1560,6 +1634,7 @@ queued mail simply has nothing to send.
   in depth against a stale/copy-pasted URL — the token itself is still the sole source of truth for
   which list applies; the URL segment is never trusted on its own)
 - Valid but expired → error: "Token abgelaufen"
+- `allow-leave: direct` but the list's `MemberResolver` doesn't `supportsRemoval()` (static inline config.yml members, or no member store at all) → error: "Diese Liste unterstützt keine selbstständige Abmeldung..." (`unsubscribe.not_supported`) — a list-wide, non-address-specific fact, safe to reveal (unlike whether a *specific* address is a member), and correct in a way a false "success" isn't: the previous behavior called `removeMember()` unconditionally and always showed success, even when the underlying resolver silently no-op'ed and the member stayed subscribed forever. `removeMember()` is also wrapped in `try`/`catch (\RuntimeException)` as defense-in-depth, converting to the same message rather than an uncaught 500
 - Valid, address already removed → success message (idempotent)
 - Valid, address present → remove from LDAP (if `allow-leave: direct`) or notify owner (if `allow-leave: moderated`), show success message
 - Never reveal whether an address exists
@@ -1577,6 +1652,8 @@ segment — the only requirement is that no list is ever named `_` (enforced fai
 | GET | `/_/login` | — | Login form |
 | POST | `/_/login` | — | Send magic link (rate-limited) |
 | GET | `/_/login/verify` | — | Verify token, create session |
+| GET | `/_/login/oidc` | — | OIDC login initiation + callback — only registered when configured, see "Authentication (OIDC)" |
+| POST | `/_/api/logout` | user | Destroy session |
 | GET | `/` | user | Dashboard: subscribed lists |
 | GET | `/{listname}` | owner | Manage page |
 | POST | `/_/api/moderation/{id}/accept` | owner | Accept moderation item |
@@ -1601,12 +1678,15 @@ through Slim at all. nginx (`docker/nginx.conf`) has an explicit
 `location /assets/ { try_files $uri =404; }` block serving these directly, and a fallback
 `location / { try_files $uri /index.php$is_args$args; }` that only reaches the Slim front controller
 when no real file matches — so `public/assets/...` needs no reserved-name carve-out of its own.
+`public/logo.svg`/`public/logo-mark.svg` (see "App name (`app-name`)") predate that convention and sit
+directly under `public/` instead — served the same way, via the `location /` fallback's `try_files`
+finding the real file before it ever reaches `index.php`, so no nginx change was needed for them either.
 Only `index.php` itself is ever passed to php-fpm (`location = /index.php`); any other `.php` request
 is rejected with `404` (`location ~ \.php$ { return 404; }`).
 
 ### Member dashboard (`/`)
 
-Per subscribed list: mail address, display name (`display-name` || `cn`), description (`text`), "Unsubscribe" button if `AllowLeave::Direct`.
+Per subscribed list: mail address, display name (`display-name` || `cn`), description (`text`), "Unsubscribe" button if `AllowLeave::Direct` **and** `ListConfig::$supportsUnsubscribe` — the latter hides the button for a list whose member store can't actually persist a removal (static inline config.yml members, or none configured), instead of showing a button that would previously "succeed" without doing anything.
 
 ### Owner manage page (`/{listname}`)
 

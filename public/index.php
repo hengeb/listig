@@ -50,6 +50,16 @@ $app->addBodyParsingMiddleware();
 $app->get('/_/login', [AuthController::class, 'showLogin']);
 $app->post('/_/login', [AuthController::class, 'sendMagicLink']);
 $app->get('/_/login/verify', [AuthController::class, 'verifyToken']);
+
+// OIDC login — see "Authentication (OIDC)" in CLAUDE.md. Registered only when
+// configured (same 404-if-unconfigured philosophy as the List Management API's
+// api-token gate) — both the login-initiation *and* callback (its own redirect_uri)
+// leg of the flow share this one route, distinguished by AuthController::loginOidc()
+// via the presence of ?code/?error, matching the reference this was modeled on.
+if ($container->get('oidc.enabled')) {
+    $app->get('/_/login/oidc', [AuthController::class, 'loginOidc']);
+}
+
 $app->get('/{listname}/unsubscribe', [UnsubscribeController::class, 'unsubscribe']);
 
 // List-management API: Bearer-token auth, scoped per list via ApiTokenMiddleware
@@ -142,6 +152,7 @@ $app->group('', function (RouteCollectorProxy $group): void {
 
     // API routes (also need CSRF)
     $group->group('/_/api', function (RouteCollectorProxy $api): void {
+        $api->post('/logout', [AuthController::class, 'logout']);
         $api->post('/moderation/{id}/accept', [ModerationController::class, 'accept']);
         $api->post('/moderation/{id}/reject', [ModerationController::class, 'reject']);
         $api->get('/queue/{listname}', [QueueController::class, 'status']);

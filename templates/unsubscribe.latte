@@ -1,6 +1,6 @@
 {layout '../templates/layout.latte'}
 
-{block title}{$translator->trans('unsubscribe_page.title')}{/block}
+{block title}{$translator->trans('unsubscribe_page.title', ['%app_name%' => $appName])}{/block}
 
 {block content}
 <div style="max-width:480px;margin:4rem auto">

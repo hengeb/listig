@@ -11,11 +11,17 @@ FROM php:8.5-fpm-bookworm
 # pecl/imap package instead. "printf '\n\n'" accepts that installer's two interactive prompts
 # (Kerberos support, SSL support) at their default of "yes", matching the old
 # --with-kerberos --with-imap-ssl configure flags.
+#
+# libcurl4-openssl-dev + ext-curl: jumbojett/openid-connect-php makes its
+# discovery/token/userinfo HTTP calls via ext-curl — only exercised at all when
+# OIDC login is configured (see "Authentication (OIDC)"), but always installed
+# since config.yml isn't known at image-build time.
 RUN apt-get update && apt-get install -y \
     libldap2-dev \
     libonig-dev \
     libc-client2007e-dev \
     libkrb5-dev \
+    libcurl4-openssl-dev \
     curl \
     unzip \
     nginx \
@@ -27,6 +33,7 @@ RUN apt-get update && apt-get install -y \
         pdo_mysql \
         ldap \
         mbstring \
+        curl \
     && rm -f /etc/nginx/sites-enabled/default \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -55,7 +62,7 @@ EXPOSE 80
 # Baked into the image (rather than duplicated in every compose.yaml) so it applies
 # regardless of how the container is started — docker run, docker compose, ... —
 # see src/Http/Controller and "Health check" in CLAUDE.md for the /_/health route.
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s --start-interval=2s \
     CMD curl -f http://localhost/_/health || exit 1
 
 # entrypoint.sh runs bin/migrate.php (applies any pending migrations/*.sql, see

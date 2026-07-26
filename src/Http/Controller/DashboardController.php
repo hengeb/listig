@@ -20,6 +20,7 @@ class DashboardController
         private readonly TranslatorInterface $translator,
         private readonly TokenService $tokenService,
         private readonly string $hostname,
+        private readonly string $appName,
     ) {
     }
 
@@ -41,7 +42,7 @@ class DashboardController
             // Same mechanism MailProcessor::process() uses to build the
             // List-Unsubscribe header link — a signed, list-scoped token is the
             // only credential the /{listname}/unsubscribe endpoint accepts.
-            if ($list->allowLeave === AllowLeave::Direct) {
+            if ($list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
                 $member = $list->findMemberInList($userEmail);
                 $token = $this->tokenService->sign(
                     'unsubscribe',
@@ -58,6 +59,7 @@ class DashboardController
             'unsubscribeLinks' => $unsubscribeLinks,
             'language' => $this->translator->getLocale(),
             'translator' => $this->translator,
+            'appName' => $this->appName,
         ]);
 
         $response->getBody()->write($html);

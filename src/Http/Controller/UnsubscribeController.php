@@ -24,6 +24,7 @@ class UnsubscribeController
         private readonly ListProvider $listProvider,
         private readonly NotificationMailer $notificationMailer,
         private readonly TranslatorInterface $translator,
+        private readonly string $appName,
     ) {
     }
 
@@ -64,8 +65,22 @@ class UnsubscribeController
             return $this->render($response, 'unsubscribe.moderated_notice', [], true, $list->language);
         }
 
-        // Direct unsubscribe — remove and show success regardless (prevents enumeration)
-        $list->removeMember($memberEmail);
+        // Direct unsubscribe — remove and show success regardless of whether
+        // $memberEmail was actually still a member (prevents enumeration). But if
+        // the list's member store can't persist a removal at all (static inline
+        // config.yml members, or no store configured), that's a list-wide,
+        // non-address-specific fact — safe to reveal, and better than a false
+        // "success" that leaves the member subscribed forever.
+        if (!$list->supportsUnsubscribe) {
+            return $this->render($response, 'unsubscribe.not_supported', [], false, $list->language);
+        }
+
+        try {
+            $list->removeMember($memberEmail);
+        } catch (\RuntimeException $e) {
+            error_log("Listig: Unsubscribe failed for list {$list->name}: " . $e->getMessage());
+            return $this->render($response, 'unsubscribe.not_supported', [], false, $list->language);
+        }
 
         return $this->render($response, 'unsubscribe.success', [], true, $list->language);
     }
@@ -105,6 +120,7 @@ class UnsubscribeController
             'success' => $success,
             'language' => $this->translator->getLocale(),
             'translator' => $this->translator,
+            'appName' => $this->appName,
         ]);
         $response->getBody()->write($html);
         return $response;

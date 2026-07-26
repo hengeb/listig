@@ -23,6 +23,7 @@ class QueueSender
         private readonly NotificationMailer $notificationMailer,
         private readonly TranslatorInterface $translator,
         private readonly SpamRejectionDetector $spamRejectionDetector,
+        private readonly string $appName,
     ) {
     }
 
@@ -217,6 +218,7 @@ class QueueSender
             $this->translator->trans('queue.failure_notice.body', [
                 '%recipient%' => $failedRecipient,
                 '%error%' => $error,
+                '%app_name%' => $this->appName,
             ], null, $locale),
         );
     }

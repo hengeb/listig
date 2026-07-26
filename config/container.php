@@ -37,6 +37,7 @@ use Hengeb\Listig\Member\AggregateMemberResolver;
 use Hengeb\Listig\Moderation\ModerationChecker;
 use Hengeb\Listig\Moderation\ModerationMailer;
 use Hengeb\Listig\Moderation\ModerationResponseHandler;
+use Hengeb\Listig\OpenIdConnect\OpenIdConnectService;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\Queue\QueueSender;
 use Hengeb\Listig\Queue\QueueWriter;
@@ -44,6 +45,8 @@ use Hengeb\Listig\Queue\SpamRejectionDetector;
 use Hengeb\Listig\RateLimit\RateLimiter;
 use Hengeb\Listig\Smtp\SmtpConnectionFactory;
 use Hengeb\Listig\Token\TokenService;
+use Hengeb\Listig\Variable\ResolutionPurpose;
+use Hengeb\Listig\Variable\VariableResolver;
 use Latte\Engine;
 use Psr\Container\ContainerInterface;
 use Symfony\Component\Translation\Loader\YamlFileLoader;
@@ -88,31 +91,66 @@ $builder->addDefinitions([
         return $secret;
     },
 
-    // Hostname the app uses to build its own links (login, dashboard, manage page,
-    // API). Just another config.yml root key, read via getResolvedDefault() like
-    // db-*/language — the same 'hostname' key ListConfig::createContext() reads for
-    // {hostname}/{list-url}, so both stay in sync instead of being two disconnected
-    // settings. No env var of its own: set `hostname: $APP_HOST` in config.yml if
-    // the value should come from the environment.
-    'app.hostname' => function (ContainerInterface $c): string {
-        return $c->get(ConfigResolver::class)->getResolvedDefault()['hostname'] ?? gethostname() ?: 'localhost';
+    // Root-level config values are lazily {}-resolved, same as any per-list value
+    // (see VariableResolver) — the merged default array is used as its own lookup
+    // context, exactly like a provider's list-mail bootstrap resolution. Every
+    // getResolvedDefault()-backed entry below goes through this so a root key like
+    // 'hostname: "lists.{domain}"' referencing a sibling key ('domain') actually
+    // resolves instead of leaking the literal template into every generated URL.
+    // db-* (PDO::class, below) is the deliberate exception — those are
+    // VariableResolver::BLOCKED_KEYS, meant to stay pure $VAR-substituted literals,
+    // never {}-templated.
+    'app.hostname.resolved' => function (ContainerInterface $c): string {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        if (!array_key_exists('hostname', $cfg) || $cfg['hostname'] === null) {
+            return '';
+        }
+        return VariableResolver::resolve((string) $cfg['hostname'], [$cfg]);
     },
 
-    // Global default locale — just another config key, read via getResolvedDefault()
-    // like db-*; individual lists may override it via ListConfig::$language.
+    // Hostname the app uses to build its own links (login, dashboard, manage page,
+    // API) — the same 'hostname' key ListConfig::createContext() reads for
+    // {hostname}/{list-url}, so both stay in sync instead of being two disconnected
+    // settings. No env var of its own: set `hostname: $APP_HOST` in config.yml if
+    // the value should come from the environment. Falls back to gethostname() only
+    // once the resolved value (above) is empty — see bin/worker.php's startup
+    // warning for the same check, pre-fallback.
+    'app.hostname' => function (ContainerInterface $c): string {
+        $resolved = $c->get('app.hostname.resolved');
+        return $resolved !== '' ? $resolved : (gethostname() ?: 'localhost');
+    },
+
+    // Global default locale — just another config key; individual lists may
+    // override it via ListConfig::$language.
     'app.language' => function (ContainerInterface $c): string {
-        return $c->get(ConfigResolver::class)->getResolvedDefault()['language'] ?? 'en';
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $raw = $cfg['language'] ?? null;
+        return $raw !== null ? VariableResolver::resolve((string) $raw, [$cfg]) : 'en';
     },
 
     // QueueSender batch size (bin/worker.php's sendBatch() call) — config.yml's
     // 'batch-size' root key, like any other setting here.
     'worker.batch-size' => function (ContainerInterface $c): int {
-        return (int) ($c->get(ConfigResolver::class)->getResolvedDefault()['batch-size'] ?? 50);
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $raw = $cfg['batch-size'] ?? null;
+        return $raw !== null ? (int) VariableResolver::resolve((string) $raw, [$cfg]) : 50;
     },
 
     // Worker cycle sleep in seconds — config.yml's 'sleep-seconds' root key.
     'worker.sleep-seconds' => function (ContainerInterface $c): int {
-        return (int) ($c->get(ConfigResolver::class)->getResolvedDefault()['sleep-seconds'] ?? 60);
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $raw = $cfg['sleep-seconds'] ?? null;
+        return $raw !== null ? (int) VariableResolver::resolve((string) $raw, [$cfg]) : 60;
+    },
+
+    // Display name for the app itself — config.yml's 'app-name' root key, default
+    // 'Listig'. Passed as 'appName' to every rendered template (page titles, header)
+    // and as '%app_name%' to every translated string that names the app (login mail
+    // subject, queue failure notice, ...) — see CLAUDE.md "app-name".
+    'app.name' => function (ContainerInterface $c): string {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $raw = $cfg['app-name'] ?? null;
+        return $raw !== null ? VariableResolver::resolve((string) $raw, [$cfg]) : 'Listig';
     },
 
     // Translator — resolves keys from translations/messages.{locale}.yaml, falling
@@ -325,6 +363,52 @@ $builder->addDefinitions([
             $c->get(NotificationMailer::class),
             $c->get(TranslatorInterface::class),
             $c->get(SpamRejectionDetector::class),
+            $c->get('app.name'),
+        );
+    },
+
+    // OIDC login (see "Authentication (OIDC)" in CLAUDE.md) is entirely optional —
+    // enabled only if all three keys are configured. Root-level config.yml keys
+    // (like hostname/language/db-*, see the block above), not per-list: the login
+    // flow itself has no list in scope until after a member is found (same reason
+    // AggregateMemberResolver exists for the magic-link flow).
+    'oidc.enabled' => function (ContainerInterface $c): bool {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        return !empty($cfg['oidc-provider-url']) && !empty($cfg['oidc-client-id']) && !empty($cfg['oidc-client-secret']);
+    },
+
+    // Null when OIDC isn't configured — public/index.php only registers the
+    // GET /_/login/oidc route (and login.latte only shows the button) when
+    // 'oidc.enabled' is true, so this is never actually called in that case.
+    OpenIdConnectService::class => function (ContainerInterface $c): ?OpenIdConnectService {
+        if (!$c->get('oidc.enabled')) {
+            return null;
+        }
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+
+        // Only needed when the IdP is reached over a different address than its
+        // own public identity — e.g. an internal Docker Compose service name/URL
+        // — and derives its issuer strictly from the request's Host header (see
+        // OpenIdConnectService's docblock for why). Absent otherwise.
+        $publicProviderUrl = $cfg['oidc-public-provider-url'] ?? null;
+        $publicProviderHost = $publicProviderUrl
+            ? parse_url(VariableResolver::resolve((string) $publicProviderUrl, [$cfg], ResolutionPurpose::Trusted), PHP_URL_HOST)
+            : null;
+
+        // Only needed for providers without a standard, spec-compliant
+        // end_session_endpoint (discovered automatically otherwise) — see
+        // OpenIdConnectService::getLogoutUrl().
+        $logoutUrlOverride = isset($cfg['oidc-logout-url'])
+            ? VariableResolver::resolve((string) $cfg['oidc-logout-url'], [$cfg], ResolutionPurpose::Trusted)
+            : null;
+
+        return new OpenIdConnectService(
+            VariableResolver::resolve((string) $cfg['oidc-provider-url'], [$cfg], ResolutionPurpose::Trusted),
+            VariableResolver::resolve((string) $cfg['oidc-client-id'], [$cfg], ResolutionPurpose::Trusted),
+            VariableResolver::resolve((string) $cfg['oidc-client-secret'], [$cfg], ResolutionPurpose::Trusted),
+            'https://' . $c->get('app.hostname') . '/_/login/oidc',
+            $publicProviderHost,
+            $logoutUrlOverride,
         );
     },
 
@@ -338,6 +422,9 @@ $builder->addDefinitions([
             $c->get(TranslatorInterface::class),
             $c->get('app.hostname'),
             $c->get(SmtpConnectionFactory::class),
+            $c->get('app.name'),
+            $c->get('oidc.enabled'),
+            $c->get(OpenIdConnectService::class),
         );
     },
 
@@ -348,11 +435,18 @@ $builder->addDefinitions([
             $c->get(TranslatorInterface::class),
             $c->get(TokenService::class),
             $c->get('app.hostname'),
+            $c->get('app.name'),
         );
     },
 
     ListController::class => function (ContainerInterface $c): ListController {
-        return new ListController($c->get(Engine::class), $c->get(ListProvider::class), $c->get(PDO::class), $c->get(TranslatorInterface::class));
+        return new ListController(
+            $c->get(Engine::class),
+            $c->get(ListProvider::class),
+            $c->get(PDO::class),
+            $c->get(TranslatorInterface::class),
+            $c->get('app.name'),
+        );
     },
 
     ArchiveController::class => function (ContainerInterface $c): ArchiveController {
@@ -364,6 +458,7 @@ $builder->addDefinitions([
             $c->get(ArchiveMailLocator::class),
             $c->get(ArchiveHtmlSanitizer::class),
             $c->get(TranslatorInterface::class),
+            $c->get('app.name'),
         );
     },
 
@@ -389,6 +484,7 @@ $builder->addDefinitions([
             $c->get(ListProvider::class),
             $c->get(NotificationMailer::class),
             $c->get(TranslatorInterface::class),
+            $c->get('app.name'),
         );
     },
 
@@ -402,6 +498,7 @@ $builder->addDefinitions([
             $c->get(PasswordCrypto::class),
             $c->get(TranslatorInterface::class),
             $c->get('app.hostname'),
+            $c->get('app.name'),
         );
     },
 

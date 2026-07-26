@@ -79,6 +79,8 @@ class VariableResolver
         'smtp-host', 'smtp-port', 'smtp-secure',
         'db-host', 'db-port', 'db-name', 'db-user',
         'ldap-host', 'ldap-base-dn', 'ldap-bind-dn', 'ldap-list-dn',
+        'oidc-provider-url', 'oidc-client-id', 'oidc-client-secret', 'oidc-public-provider-url',
+        'oidc-logout-url',
     ];
 
     /** Substituted for a BLOCKED_KEYS value looked up under ResolutionPurpose::Disclosed. */

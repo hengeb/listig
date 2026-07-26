@@ -56,6 +56,11 @@ class DatabaseMemberResolver implements MemberResolver
         return $this->rowToMember($row);
     }
 
+    public function supportsRemoval(): bool
+    {
+        return true;
+    }
+
     public function removeMember(string $listName, string $email): void
     {
         $this->db()->prepare(

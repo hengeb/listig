@@ -52,6 +52,11 @@ class CsvMemberResolver implements MemberResolver
         return null;
     }
 
+    public function supportsRemoval(): bool
+    {
+        return true;
+    }
+
     public function removeMember(string $listName, string $email): void
     {
         $email = strtolower($email);

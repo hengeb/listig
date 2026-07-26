@@ -9,16 +9,17 @@ use Hengeb\Listig\Imap\ImapMailboxFactory;
 use PhpImap\IncomingMail;
 
 /**
- * Re-locates an archived mail by Message-ID inside the list's IMAP "Archive"
- * folder (see ImapArchiver::archiveOrDelete) and fetches it — the only place
- * outside Imap/ that touches PhpImap\Mailbox directly, mirroring why ImapPoller/
- * ImapArchiver exist as wrappers instead of being called ad hoc.
+ * Re-locates an archived mail by Message-ID inside the list's IMAP archive
+ * folder ($list->archiveFolder, default "Archive" — see ImapArchiver::archiveOrDelete
+ * and ListConfig::$archiveFolder) and fetches it — the only place outside Imap/
+ * that touches PhpImap\Mailbox directly, mirroring why ImapPoller/ImapArchiver
+ * exist as wrappers instead of being called ad hoc.
  *
  * NOTE: PhpImap\Mailbox::switchMailbox() mutates the Mailbox instance cached by
- * ImapMailboxFactory in place (it's the same object, now pointed at "Archive" —
- * not a copy). Harmless within one HTTP request (nothing else needs INBOX in an
- * archive-viewer request), but do not assume a Mailbox obtained from the factory
- * is always on INBOX after this class has touched it.
+ * ImapMailboxFactory in place (it's the same object, now pointed at the archive
+ * folder — not a copy). Harmless within one HTTP request (nothing else needs
+ * INBOX in an archive-viewer request), but do not assume a Mailbox obtained from
+ * the factory is always on INBOX after this class has touched it.
  */
 class ArchiveMailLocator
 {
@@ -38,7 +39,7 @@ class ArchiveMailLocator
         // fetchMailByUid()'s try/catch-and-log-null pattern.
         try {
             $mailbox = $this->mailboxFactory->getMailbox($list);
-            $mailbox->switchMailbox('Archive');
+            $mailbox->switchMailbox($list->archiveFolder);
 
             // Strip quotes from attacker-influenced content (the Message-ID ultimately
             // comes from an external sender's header) before interpolating into the

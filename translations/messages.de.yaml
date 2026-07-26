@@ -2,8 +2,14 @@ auth:
   magic_link_sent: "Falls wir dich zuordnen konnten, hast du eine Mail mit einem Zugangslink in deinem Postfach."
   link_expired: "Der Zugangslink ist abgelaufen. Bitte fordere einen neuen an."
   link_invalid: "Ungültiger Zugangslink."
+  logout: "Abmelden"
+  oidc_login_button: "Mit Single Sign-On anmelden"
+  oidc_divider: "oder"
+  oidc_failed: "Die Anmeldung über Single Sign-On ist fehlgeschlagen. Bitte versuche es erneut."
+  oidc_no_email: "Dein Single-Sign-On-Konto enthält keine E-Mail-Adresse. Bitte melde dich stattdessen über das Formular an."
+  oidc_not_found: "Deine über Single Sign-On bestätigte E-Mail-Adresse ist bei keiner Liste als Mitglied oder Inhaber eingetragen."
   login_mail:
-    subject: "Dein Zugangslink für Listig"
+    subject: "Dein Zugangslink für %app_name%"
     body: "Hallo %name%,\n\nklicke auf den folgenden Link, um dich anzumelden:\n\n%link%\n\nDer Link ist 5 Minuten gültig."
     body_html: "<p>Hallo %name%,</p><p>Klicke auf den folgenden Link, um dich anzumelden:</p><p><a href=\"%link%\">%link%</a></p><p>Der Link ist 5 Minuten gültig.</p>"
 
@@ -13,6 +19,7 @@ unsubscribe:
   list_not_found: "Liste nicht gefunden"
   moderated_notice: "Deine Abmeldeanfrage wurde an die Listeninhaber weitergeleitet."
   success: "Du wurdest erfolgreich von der Liste abgemeldet."
+  not_supported: "Diese Liste unterstützt keine selbstständige Abmeldung. Bitte wende dich an die Listeninhaber."
   owner_notice:
     subject: "[%list%] Abmeldeanfrage von %name%"
     body: "%name% (%mail%) hat die Abmeldung von der Liste %list% beantragt.\n\nBitte entferne dieses Mitglied manuell."
@@ -45,25 +52,25 @@ bounce:
 queue:
   failure_notice:
     subject: "[%list%] Zustellungsfehler für %recipient%"
-    body: "Listig konnte eine Mail nach 3 Versuchen nicht an %recipient% zustellen.\n\nFehler: %error%"
+    body: "%app_name% konnte eine Mail nach 3 Versuchen nicht an %recipient% zustellen.\n\nFehler: %error%"
   spam_rejected:
     subject: "[%list%] Mail von %domain% als Spam abgelehnt"
     body: "Eine Mail an die Liste %list% wurde von %domain% (einem vertrauenswürdigen großen Mailanbieter) als Spam abgelehnt und wurde für %count% verbleibende Empfänger verworfen, ohne weitere Zustellversuche.\n\nServerantwort: %error%"
 
 login:
-  title: "Anmelden – Listig"
+  title: "Anmelden – %app_name%"
   heading: "Anmelden"
   email_label: "E-Mail-Adresse"
   submit: "Zugangslink anfordern"
 
 dashboard:
-  title: "Meine Listen – Listig"
+  title: "Meine Listen – %app_name%"
   heading: "Meine Listen"
   empty: "Du bist keiner Mailingliste zugeordnet."
   unsubscribe_button: "Abmelden"
 
 unsubscribe_page:
-  title: "Abmeldung – Listig"
+  title: "Abmeldung – %app_name%"
   back_home: "Zur Startseite"
 
 subscribe:
@@ -77,7 +84,7 @@ subscribe:
     body: "Klicke auf den folgenden Link, um deine Anmeldung zur Liste %list% zu bestätigen:\n\n%link%\n\nDer Link ist 48 Stunden gültig. Falls du diese Anmeldung nicht angefordert hast, kannst du diese Mail ignorieren."
 
 subscribe_page:
-  title: "Anmeldung – Listig"
+  title: "Anmeldung – %app_name%"
 
 list:
   manage:

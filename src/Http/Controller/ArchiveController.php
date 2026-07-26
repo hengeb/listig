@@ -33,6 +33,7 @@ class ArchiveController
         private readonly ArchiveMailLocator $mailLocator,
         private readonly ArchiveHtmlSanitizer $sanitizer,
         private readonly TranslatorInterface $translator,
+        private readonly string $appName,
     ) {
     }
 
@@ -64,6 +65,7 @@ class ArchiveController
             'total'      => $total,
             'language'   => $list->language,
             'translator' => $this->translator,
+            'appName'    => $this->appName,
         ]);
         $response->getBody()->write($html);
         return $response;
@@ -105,6 +107,7 @@ class ArchiveController
             'attachments' => $attachments,
             'language'    => $list->language,
             'translator'  => $this->translator,
+            'appName'     => $this->appName,
         ]);
         $response->getBody()->write($html);
         return $response;
@@ -245,6 +248,7 @@ class ArchiveController
             'list'       => $list,
             'language'   => $list->language,
             'translator' => $this->translator,
+            'appName'    => $this->appName,
         ]);
         $response = (new Response())->withStatus(401);
         $response->getBody()->write($html);

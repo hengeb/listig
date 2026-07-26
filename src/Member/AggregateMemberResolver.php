@@ -64,6 +64,11 @@ class AggregateMemberResolver implements MemberResolver
         // Not applicable for aggregate resolver
     }
 
+    public function supportsRemoval(): bool
+    {
+        return false;
+    }
+
     public function addMember(string $listName, Member $member): void
     {
         throw new \RuntimeException('Not applicable for aggregate resolver — used for lookup only.');

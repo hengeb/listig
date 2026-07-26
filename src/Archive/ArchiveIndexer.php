@@ -17,7 +17,8 @@ use PhpImap\IncomingMail;
  * also runs for bounce/reject outcomes that were never sent to the list — callers
  * only invoke index() at the three call sites representing a successful distribute
  * (bin/worker.php, ModerationController::accept, ModerationResponseHandler) once
- * archiveOrDelete() has already moved the raw mail into the IMAP "Archive" folder.
+ * archiveOrDelete() has already moved the raw mail into the list's IMAP archive
+ * folder ($list->archiveFolder).
  */
 class ArchiveIndexer
 {

@@ -28,7 +28,7 @@ class ImapArchiver
         // only differ in who may view the archive through the web UI (Http/Controller/
         // ArchiveController.php). This method deliberately does not index into
         // archived_mail itself — see Archive/ArchiveIndexer.php's docblock for why.
-        $archiveFolder = 'Archive';
+        $archiveFolder = $list->archiveFolder;
         try {
             $mailbox->createMailbox($archiveFolder);
         } catch (\Throwable) {

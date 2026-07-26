@@ -9,6 +9,19 @@ language: de
 # only a last-resort fallback, and the worker logs a warning at startup if this is
 # left unset. See CLAUDE.md "Docker Setup".
 hostname: $APP_HOST
+
+# Optional: shown everywhere the app names itself — page titles, header, login mail
+# subject, delivery-failure notices. Defaults to "Listig". See CLAUDE.md "App name
+# (app-name)".
+# app-name: My Mailing Lists
+
+# Optional: log in via an OIDC provider (e.g. Keycloak, Authelia, authentik) instead
+# of / in addition to the magic-link email form. Only takes effect once all three
+# keys below are set — uncomment to enable. See CLAUDE.md "OIDC login (oidc-*)".
+# oidc-provider-url: https://sso.yourdomain.org
+# oidc-client-id: listig
+# oidc-client-secret: $OIDC_CLIENT_SECRET
+
 use:
   - mail-config
   - list-defaults
@@ -45,8 +58,7 @@ database:
 # 'main' has an explicit type: inline; without it, 'main' would need to be spelled
 # 'inline' to work — see CLAUDE.md "list-providers").
 list-providers:
-  main:
-    type: inline
+  inline:
     lists:
       example:
         list-mail: example@yourdomain.org

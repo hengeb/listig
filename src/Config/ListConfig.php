@@ -65,9 +65,21 @@ class ListConfig
         return $this->memberResolver->findByEmail($email);
     }
 
+    /** @throws \RuntimeException if the underlying member store cannot actually persist a removal */
     public function removeMember(string $email): void
     {
         $this->memberResolver->removeMember($this->name, $email);
+    }
+
+    /**
+     * Whether removeMember() can actually persist a removal for this list — false
+     * for a list with no configured member store, or one backed by static inline
+     * config.yml members. Check this before offering self-service unsubscribe
+     * (the "Unsubscribe" dashboard link, the direct-unsubscribe flow) rather than
+     * attempting removeMember() and having it silently no-op or throw.
+     */
+    public bool $supportsUnsubscribe {
+        get => $this->memberResolver->supportsRemoval();
     }
 
     /** @throws \RuntimeException if the underlying member store cannot accept new members */
@@ -152,13 +164,24 @@ class ListConfig
     }
 
     /**
-     * Members/Owners/Public/Hidden all archive the raw mail (move to the IMAP "Archive"
-     * folder instead of deleting it) — they differ only in who may view it through the
-     * web archive viewer (Http/Controller/ArchiveController.php): Hidden archives it but
-     * exposes it to no one. Off deletes it as before. See CLAUDE.md "Archive access levels".
+     * Members/Owners/Public/Hidden all archive the raw mail (move to the IMAP archive
+     * folder, see $archiveFolder below, instead of deleting it) — they differ only in
+     * who may view it through the web archive viewer (Http/Controller/ArchiveController.php):
+     * Hidden archives it but exposes it to no one. Off deletes it as before. See
+     * CLAUDE.md "Archive access levels".
      */
     public ArchiveMode $archive {
         get => ArchiveMode::from($this->resolve((string) ($this->raw['archive'] ?? 'off')));
+    }
+
+    /**
+     * Name of the IMAP folder archived mail is moved into (see ImapArchiver::archiveOrDelete()
+     * and ArchiveMailLocator::find(), the only two places that touch it) — configurable per
+     * list since some IMAP setups reserve/already use "Archive" for something else, or a
+     * provider's own webmail names its own archive folder differently (e.g. "Archives").
+     */
+    public string $archiveFolder {
+        get => $this->resolve((string) ($this->raw['archive-folder'] ?? 'Archive'));
     }
 
     public int $maxPerSender {
@@ -326,11 +349,6 @@ class ListConfig
         }
     }
 
-    public function getRaw(): array
-    {
-        return $this->raw;
-    }
-
     /**
      * Returns the context array for this list: all merged config keys plus the
      * computed list-* variables. Pass to VariableResolver::resolve() as one entry
@@ -342,20 +360,34 @@ class ListConfig
      */
     public function createContext(): array
     {
-        $hostname = $this->raw['hostname'] ?? gethostname() ?: 'localhost';
-
-        return array_merge(
-            // Global defaults: imap/smtp credentials fall back to mail-* unless
-            // explicitly overridden per-provider or per-list.
+        // Global defaults + all merged config keys, i.e. everything a raw 'hostname'
+        // template (e.g. 'lists.{domain}') could reference. Built without the
+        // computed list-* block below, both because 'name'/'mail' need stripping
+        // first (they get canonical list-* names) and because resolving hostname
+        // against a context that itself needs hostname would recurse — same
+        // bootstrap-context pattern as a provider's own list-mail resolution
+        // (see "list-mail" in CLAUDE.md), not $this->resolve() (which builds its
+        // context from this method).
+        $baseContext = array_merge(
             [
                 'imap-user'     => '{mail-user}',
                 'imap-password' => '{mail-password}',
                 'smtp-user'     => '{mail-user}',
                 'smtp-password' => '{mail-password}',
             ],
-            // All merged config keys (override defaults above if explicitly set).
-            // Strip 'name' and 'mail' — they get canonical list-* names below.
             array_diff_key($this->raw, array_flip(['name', 'mail'])),
+        );
+
+        $rawHostname = $this->raw['hostname'] ?? null;
+        $hostname = $rawHostname !== null
+            ? VariableResolver::resolve((string) $rawHostname, [$baseContext])
+            : '';
+        if ($hostname === '') {
+            $hostname = gethostname() ?: 'localhost';
+        }
+
+        return array_merge(
+            $baseContext,
             // Computed list-* variables (highest priority, override raw config).
             // 'hostname' has no list- prefix — it's a deployment-level setting, not
             // something that genuinely varies per list, unlike list-domain (derived

@@ -19,6 +19,7 @@ class ListController
         private readonly ListProvider $listProvider,
         private readonly PDO $db,
         private readonly TranslatorInterface $translator,
+        private readonly string $appName,
     ) {
     }
 
@@ -55,6 +56,7 @@ class ListController
             'memberCount' => count($list->getMembers()),
             'language' => $list->language,
             'translator' => $this->translator,
+            'appName' => $this->appName,
         ]);
 
         $response->getBody()->write($html);
