@@ -4,8 +4,8 @@ auth:
   link_invalid: "Invalid access link."
   login_mail:
     subject: "Your access link for Listig"
-    body: "Click the following link to log in:\n\n%link%\n\nThe link is valid for 5 minutes."
-    body_html: "<p>Click the following link to log in:</p><p><a href=\"%link%\">%link%</a></p><p>The link is valid for 5 minutes.</p>"
+    body: "Hello %name%,\n\nClick the following link to log in:\n\n%link%\n\nThe link is valid for 5 minutes."
+    body_html: "<p>Hello %name%,</p><p>Click the following link to log in:</p><p><a href=\"%link%\">%link%</a></p><p>The link is valid for 5 minutes.</p>"
 
 unsubscribe:
   token_invalid: "Invalid token"

@@ -98,10 +98,6 @@ $builder->addDefinitions([
         return $c->get(ConfigResolver::class)->getResolvedDefault()['hostname'] ?? gethostname() ?: 'localhost';
     },
 
-    'mailer.dsn' => function (): string {
-        return $_ENV['MAILER_DSN'] ?? getenv('MAILER_DSN') ?: 'smtp://localhost:25';
-    },
-
     // Global default locale — just another config key, read via getResolvedDefault()
     // like db-*; individual lists may override it via ListConfig::$language.
     'app.language' => function (ContainerInterface $c): string {
@@ -334,20 +330,14 @@ $builder->addDefinitions([
 
     // HTTP Controllers
     AuthController::class => function (ContainerInterface $c): AuthController {
-        $listProvider = $c->get(ListProvider::class);
-        $lists = $listProvider->getLists();
-        $firstList = $lists[0] ?? null;
-
         return new AuthController(
             $c->get(Engine::class),
             $c->get(TokenService::class),
             $c->get(RateLimiter::class),
-            new AggregateMemberResolver($listProvider),
+            new AggregateMemberResolver($c->get(ListProvider::class)),
             $c->get(TranslatorInterface::class),
             $c->get('app.hostname'),
-            $c->get('mailer.dsn'),
-            $firstList?->mail ?? 'noreply@localhost',
-            $firstList?->name ?? 'listig',
+            $c->get(SmtpConnectionFactory::class),
         );
     },
 

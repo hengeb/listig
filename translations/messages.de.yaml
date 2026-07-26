@@ -4,8 +4,8 @@ auth:
   link_invalid: "Ungültiger Zugangslink."
   login_mail:
     subject: "Dein Zugangslink für Listig"
-    body: "Klicke auf den folgenden Link, um dich anzumelden:\n\n%link%\n\nDer Link ist 5 Minuten gültig."
-    body_html: "<p>Klicke auf den folgenden Link, um dich anzumelden:</p><p><a href=\"%link%\">%link%</a></p><p>Der Link ist 5 Minuten gültig.</p>"
+    body: "Hallo %name%,\n\nklicke auf den folgenden Link, um dich anzumelden:\n\n%link%\n\nDer Link ist 5 Minuten gültig."
+    body_html: "<p>Hallo %name%,</p><p>Klicke auf den folgenden Link, um dich anzumelden:</p><p><a href=\"%link%\">%link%</a></p><p>Der Link ist 5 Minuten gültig.</p>"
 
 unsubscribe:
   token_invalid: "Token ungültig"

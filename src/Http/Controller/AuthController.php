@@ -4,15 +4,17 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Http\Controller;
 
-use Hengeb\Listig\Member\MemberResolver;
+use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Member\AggregateMemberResolver;
+use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\RateLimit\RateLimiter;
+use Hengeb\Listig\Smtp\SmtpConnectionFactory;
 use Hengeb\Listig\Token\TokenService;
 use Latte\Engine;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
 use Symfony\Component\Mailer\Mailer;
-use Symfony\Component\Mailer\Transport;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -25,12 +27,10 @@ class AuthController
         private readonly Engine $latte,
         private readonly TokenService $tokenService,
         private readonly RateLimiter $rateLimiter,
-        private readonly MemberResolver $memberResolver,
+        private readonly AggregateMemberResolver $memberResolver,
         private readonly TranslatorInterface $translator,
         private readonly string $hostname,
-        private readonly string $mailerDsn,
-        private readonly string $listMail,
-        private readonly string $listName,
+        private readonly SmtpConnectionFactory $smtpConnectionFactory,
     ) {
     }
 
@@ -67,12 +67,13 @@ class AuthController
         $exceeded = $this->rateLimiter->isLoginExceeded($email);
 
         if (!$exceeded) {
-            $member = $this->memberResolver->findByEmail($email);
-            if ($member !== null) {
+            $found = $this->memberResolver->findListAndMemberByEmail($email);
+            if ($found !== null) {
+                ['list' => $list, 'member' => $member] = $found;
                 try {
-                    $token = $this->tokenService->sign('login', $this->listName, $member->attributes['username'] ?? $email);
+                    $token = $this->tokenService->sign('login', $list->name, $member->attributes['username'] ?? $email);
                     $link = "https://{$this->hostname}/_/login/verify?token={$token}";
-                    $this->sendLoginMail($email, $link);
+                    $this->sendLoginMail($list, $member, $email, $link);
                 } catch (\Throwable $e) {
                     error_log("Listig: Failed to send magic link to $email: " . $e->getMessage());
                 }
@@ -112,16 +113,20 @@ class AuthController
         return $response->withHeader('Location', '/')->withStatus(302);
     }
 
-    private function sendLoginMail(string $to, string $link): void
+    private function sendLoginMail(ListConfig $list, Member $member, string $to, string $link): void
     {
+        $firstname = $member->attributes['firstname'] ?? '';
+        $lastname = $member->attributes['lastname'] ?? '';
+        $name = trim("$firstname $lastname") ?: $to;
+
         $email = new Email();
-        $email->from(new Address($this->listMail, 'Listig'));
+        $email->from(new Address($list->mail, $list->displayName));
         $email->to(new Address($to));
         $email->subject($this->translator->trans('auth.login_mail.subject'));
-        $email->text($this->translator->trans('auth.login_mail.body', ['%link%' => $link]));
-        $email->html($this->translator->trans('auth.login_mail.body_html', ['%link%' => $link]));
+        $email->text($this->translator->trans('auth.login_mail.body', ['%link%' => $link, '%name%' => $name]));
+        $email->html($this->translator->trans('auth.login_mail.body_html', ['%link%' => $link, '%name%' => $name]));
 
-        $transport = Transport::fromDsn($this->mailerDsn);
+        $transport = $this->smtpConnectionFactory->getTransport($list);
         $mailer = new Mailer($transport);
         $mailer->send($email);
     }
