@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Imap;
 
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
+use PhpImap\Imap;
 
 class ImapArchiver
 {
@@ -29,8 +30,18 @@ class ImapArchiver
         // ArchiveController.php). This method deliberately does not index into
         // archived_mail itself — see Archive/ArchiveIndexer.php's docblock for why.
         $archiveFolder = $list->archiveFolder;
+
+        // Deliberately bypasses PhpImap\Mailbox::createMailbox() — it resolves the
+        // given name *relative to the currently selected mailbox* (INBOX here),
+        // which would create e.g. "INBOX.Archive" instead of a top-level "Archive"
+        // folder. moveMail() below (and ArchiveMailLocator::find()'s
+        // switchMailbox(), which defaults to absolute) both target the top-level
+        // folder — see ImapMailboxFactory::getAbsoluteFolderPath() for the full
+        // explanation. Using the mismatched nested path here previously failed
+        // with "Could not move messages!" on every single archive attempt.
+        $absoluteFolderPath = $this->mailboxFactory->getAbsoluteFolderPath($list, $archiveFolder);
         try {
-            $mailbox->createMailbox($archiveFolder);
+            Imap::createmailbox($mailbox->getImapStream(), $absoluteFolderPath);
         } catch (\Throwable) {
             // Folder may already exist
         }

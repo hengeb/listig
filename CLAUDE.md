@@ -95,7 +95,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── Imap/
 │   │   ├── ImapPoller.php            # Polls IMAP via PhpImap\Mailbox; checks UIDVALIDITY; returns (uid, uidvalidity, mime, mail: IncomingMail) tuples
 │   │   ├── ImapArchiver.php          # Archives or deletes processed mails; deletes inbox mails older than 30 days
-│   │   └── ImapMailboxFactory.php    # Builds/caches PhpImap\Mailbox connections per list, keyed by imap-* fingerprint
+│   │   └── ImapMailboxFactory.php    # Builds/caches PhpImap\Mailbox connections per list, keyed by imap-* fingerprint; also computes absolute (top-level) IMAP folder paths — see "Archive folder path"
 │   ├── Archive/                      # Web archive viewer backend — see "Archive viewer"
 │   │   ├── ArchiveIndexer.php        # Writes archived_mail rows; called alongside (not from) ImapArchiver::archiveOrDelete()
 │   │   ├── ArchiveThreader.php       # Pure PHP: annotates a page of rows with depth/thread_size/is_thread_start
@@ -697,7 +697,7 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `moderation` | `on` \| `off` | Whether posts require owner approval |
 | `allow-leave` | `direct` \| `moderated` | Unsubscribe behavior |
 | `archive` | `members` \| `owners` \| `public` \| `hidden` \| `off` | Archive instead of delete after processing, and who may view it in the web archive viewer — see "Archive access levels" (default: `off`) |
-| `archive-folder` | string | Name of the IMAP folder archived mail is moved into (default: `Archive`). Created automatically if it doesn't exist yet (`ImapArchiver::archiveOrDelete()`, best-effort `createMailbox()` + swallow "already exists"). Only relevant when `archive` is not `off` |
+| `archive-folder` | string | Name of the IMAP folder archived mail is moved into (default: `Archive`), created as a top-level folder (sibling of INBOX) if it doesn't exist yet — see "Archive folder path" for why this needs its own explanation. Only relevant when `archive` is not `off` |
 | `max-per-sender` | integer | Rate limit: max mails per sender per 10 min (default: 5) |
 | `max-size` | size string or integer | Max accepted mail size (default: `5M`). Accepts `5M`, `5MB`, `5MiB`, `5K`, `5KB`, `5KiB`, `5G`, `5GB`, `5GiB`, or plain bytes. Converted to bytes in `ListConfig`. |
 | `list-label` | string | Prepended to subject as `$listLabel $subject` if not already present (case-insensitive) |
@@ -710,13 +710,17 @@ Each `description` value is a `key:value` string. These have the highest priorit
 
 ### Archive access levels
 
-`archive` (`ArchiveMode` — `src/Config/Enum/ArchiveMode.php`) replaced an earlier plain `on`/`off` boolean. Four of the five values archive the mail identically at the IMAP level — `ImapArchiver::archiveOrDelete()` moves the raw original into an `Archive` folder on the list's own IMAP mailbox instead of deleting it — and differ only in who may view it through the web archive viewer (see "Archive viewer" below):
+`archive` (`ArchiveMode` — `src/Config/Enum/ArchiveMode.php`) replaced an earlier plain `on`/`off` boolean. Four of the five values archive the mail identically at the IMAP level — `ImapArchiver::archiveOrDelete()` moves the raw original into the list's archive folder (`$archiveFolder`, see "`archive-folder`" above) on its own IMAP mailbox instead of deleting it — and differ only in who may view it through the web archive viewer (see "Archive viewer" below):
 
 - `members` — visible to list members (and owners)
 - `owners` — visible to owners only
 - `public` — visible to anyone, no login required
 - `hidden` — archived, but exposed to no one via the UI, not even the owner — a retention-only mode (compliance/backup) distinct from `off`, which doesn't keep the mail at all
 - `off` (default) — not archived; deleted after processing, as before
+
+### Archive folder path
+
+`ImapArchiver::archiveOrDelete()` creates the archive folder (if it doesn't exist) via `PhpImap\Imap::createmailbox()` directly with a fully-qualified `{host:port/imap/secure}FolderName` path built by `ImapMailboxFactory::getAbsoluteFolderPath()` — deliberately **not** via `PhpImap\Mailbox::createMailbox($name)`. The reason is a real bug this fix replaced: `Mailbox::createMailbox()` resolves `$name` *relative to whichever mailbox is currently selected* on that `Mailbox` instance — and every `Mailbox` this app hands out is always connected with `INBOX` selected (`ImapMailboxFactory::createMailbox()`'s own connection string always ends `.../imap/ssl}INBOX`) — so `createMailbox('Archive')` actually created a folder *nested under INBOX* (`INBOX.Archive` on a `.`-delimited server), not a top-level one. `Mailbox::moveMail($uid, $folder)` (used right after, to actually move the mail there) and `Mailbox::switchMailbox($folder)` (used by `ArchiveMailLocator::find()` to view it, with its own default `$absolute = true`) both target the **top-level** folder name unprefixed — so the folder that got created and the folder those two methods looked for were never the same one, and every single archive attempt failed with `imap_mail_move()`'s `"Could not move messages!"`, even though the (wrong, nested) folder visibly existed on the server. Building the correct absolute path once in `ImapMailboxFactory` (shared with nothing else needing it, currently) and creating it via the low-level `Imap::createmailbox()` call sidesteps `Mailbox`'s relative-path assembly entirely, matching what `moveMail()`/`switchMailbox()` already expected.
 
 ### Archive viewer
 
