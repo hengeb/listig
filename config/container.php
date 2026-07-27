@@ -8,6 +8,7 @@ use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
+use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Crypto\KeyDerivation;
 use Hengeb\Listig\Crypto\PasswordCrypto;
 use Hengeb\Listig\Http\Controller\ArchiveController;
@@ -151,6 +152,19 @@ $builder->addDefinitions([
         $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
         $raw = $cfg['app-name'] ?? null;
         return $raw !== null ? VariableResolver::resolve((string) $raw, [$cfg]) : 'Listig';
+    },
+
+    // Synthetic ListConfig built purely from the config.yml root defaults (levels
+    // 1-2 of the priority chain, via getResolvedDefault() — no list-provider/list
+    // override involved). Used only to give AuthController a list-agnostic SMTP
+    // identity for login mail (see "Authentication (Magic Link)") — name/mail are
+    // never displayed or routed, just carriers for ListConfig's existing
+    // smtp-*/mail-* fallback and Trusted-resolution logic, so smtpHost/smtpUser/
+    // smtpPassword/smtpPort/smtpSecure resolve exactly as they would for any list
+    // that set no smtp-* overrides of its own.
+    'app.default-smtp-config' => function (ContainerInterface $c): ListConfig {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        return new ListConfig('_default-smtp', '', $cfg);
     },
 
     // Translator — resolves keys from translations/messages.{locale}.yaml, falling
@@ -432,6 +446,7 @@ $builder->addDefinitions([
             $c->get('app.hostname'),
             $c->get(SmtpConnectionFactory::class),
             $c->get('app.name'),
+            $c->get('app.default-smtp-config'),
             $c->get('oidc.enabled'),
             $c->get(OpenIdConnectService::class),
         );

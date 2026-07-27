@@ -77,11 +77,13 @@ function setView(view) {
     {if $mailMissing}
         <p>{$translator->trans('archive.show.mail_unavailable')}</p>
     {else}
+        {if $hasExternalContent}
         <div class="notice">
             <span class="notice-icon">&#9888;</span>
             <span>{$translator->trans('archive.show.external_content_notice')}</span>
             <button class="btn btn-secondary" onclick="loadImages(this)">{$translator->trans('archive.show.load_images')}</button>
         </div>
+        {/if}
         {if $hasPlainAlternative}
         <div class="view-toggle">
             <button type="button" class="btn btn-primary" id="view-html-btn" onclick="setView('html')">{$translator->trans('archive.show.view_html')}</button>

@@ -121,6 +121,16 @@ class ArchiveController
 
         $totalAttachmentSize = array_sum(array_map(fn(IncomingMailAttachment $a) => $a->sizeInBytes ?? 0, $attachments));
 
+        // The "external content blocked" notice (show.latte) should only appear
+        // when there's actually something blocked — previously shown unconditionally
+        // under every mail, even a plain-text-only one or an HTML one with no
+        // off-origin images at all.
+        $hasExternalContent = $mail !== null && $this->sanitizer->hasExternalResources(
+            $mail->textHtml,
+            $mail->textPlain,
+            self::indexAttachmentsByPosition($mail->getAttachments()),
+        );
+
         $this->translator->setLocale($list->language);
 
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/archive/show.latte', [
@@ -131,6 +141,7 @@ class ArchiveController
             'attachments'          => $attachments,
             'imageAttachments'     => $imageAttachments,
             'totalAttachmentSize'  => ByteFormatter::format($totalAttachmentSize),
+            'hasExternalContent'   => $hasExternalContent,
             // Only meaningful when both exist — a mail with only one part has
             // nothing to switch between, so the toggle button stays hidden for it.
             'hasPlainAlternative'  => $mail !== null && ($mail->textHtml ?? '') !== '' && ($mail->textPlain ?? '') !== '',

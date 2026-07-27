@@ -82,18 +82,56 @@ class ArchiveHtmlSanitizer
         string $attachmentToken = '',
         string $view = 'html',
     ): string {
-        if ($view !== 'text' && ($textHtml ?? '') !== '') {
-            $html = $this->rewriteCidReferences($textHtml, $attachments, $attachmentBaseUrl, $attachmentToken);
-            $html = $this->purifier->purify($html);
-        } else {
-            $html = $this->renderPlainText($textPlain ?? '');
-        }
+        $html = $this->renderBody($textHtml, $textPlain, $attachments, $attachmentBaseUrl, $attachmentToken, $view);
 
         if (!$loadImages) {
             $html = $this->stripExternalResources($html);
         }
 
         return $html;
+    }
+
+    /**
+     * Whether this mail actually has any off-origin image to strip/gate —
+     * ArchiveController::show() calls this to decide whether to render the
+     * "external content blocked" notice/button at all, instead of showing it
+     * unconditionally under every mail regardless of whether stripExternalResources()
+     * would find anything to strip. Runs the same cid:-rewrite + purify pass
+     * render() does (so cid: references are never mistaken for external — see
+     * isExternal()'s http(s)-only pattern), just without the loadImages gate.
+     */
+    /** @param IncomingMailAttachment[] $attachments */
+    public function hasExternalResources(
+        ?string $textHtml,
+        ?string $textPlain,
+        array $attachments,
+        string $attachmentBaseUrl = '',
+        string $view = 'html',
+    ): bool {
+        $html = $this->renderBody($textHtml, $textPlain, $attachments, $attachmentBaseUrl, '', $view);
+        if (trim($html) === '') {
+            return false;
+        }
+
+        [, $root] = $this->parseFragment($html);
+        return $root !== null && $this->findExternalImages($root) !== [];
+    }
+
+    /** @param IncomingMailAttachment[] $attachments */
+    private function renderBody(
+        ?string $textHtml,
+        ?string $textPlain,
+        array $attachments,
+        string $attachmentBaseUrl,
+        string $attachmentToken,
+        string $view,
+    ): string {
+        if ($view !== 'text' && ($textHtml ?? '') !== '') {
+            $html = $this->rewriteCidReferences($textHtml, $attachments, $attachmentBaseUrl, $attachmentToken);
+            return $this->purifier->purify($html);
+        }
+
+        return $this->renderPlainText($textPlain ?? '');
     }
 
     private function renderPlainText(string $text): string
@@ -142,16 +180,12 @@ class ArchiveHtmlSanitizer
             return $html;
         }
 
-        $dom = new \DOMDocument();
-        $wrapped = '<!DOCTYPE html><html><body><div id="__root">' . $html . '</div></body></html>';
-        @$dom->loadHTML('<?xml encoding="utf-8">' . $wrapped, LIBXML_NOERROR | LIBXML_NOWARNING);
-
-        $root = $dom->getElementById('__root');
+        [$dom, $root] = $this->parseFragment($html);
         if ($root === null) {
             return $html;
         }
 
-        foreach (iterator_to_array($dom->getElementsByTagName('img')) as $img) {
+        foreach ($this->findExternalImages($root) as $img) {
             foreach (['src', 'srcset'] as $attr) {
                 if ($img->hasAttribute($attr) && self::isExternal($img->getAttribute($attr))) {
                     $img->removeAttribute($attr);
@@ -164,6 +198,38 @@ class ArchiveHtmlSanitizer
             $inner .= $dom->saveHTML($child);
         }
         return $inner;
+    }
+
+    /**
+     * @return \DOMElement[] every img[src]/img[srcset] element under $root pointing
+     *         off-origin — shared scan used both to strip them (stripExternalResources())
+     *         and to merely detect their presence (hasExternalResources()). Operates
+     *         on an already-parsed element (not a fresh string) so a caller that
+     *         goes on to mutate/save the same DOMDocument (stripExternalResources())
+     *         works on the exact tree these elements belong to.
+     */
+    private function findExternalImages(\DOMElement $root): array
+    {
+        $found = [];
+        foreach (iterator_to_array($root->getElementsByTagName('img')) as $img) {
+            foreach (['src', 'srcset'] as $attr) {
+                if ($img->hasAttribute($attr) && self::isExternal($img->getAttribute($attr))) {
+                    $found[] = $img;
+                    break;
+                }
+            }
+        }
+        return $found;
+    }
+
+    /** @return array{0: \DOMDocument, 1: ?\DOMElement} */
+    private function parseFragment(string $html): array
+    {
+        $dom = new \DOMDocument();
+        $wrapped = '<!DOCTYPE html><html><body><div id="__root">' . $html . '</div></body></html>';
+        @$dom->loadHTML('<?xml encoding="utf-8">' . $wrapped, LIBXML_NOERROR | LIBXML_NOWARNING);
+
+        return [$dom, $dom->getElementById('__root')];
     }
 
     private static function isExternal(string $url): bool

@@ -33,6 +33,7 @@ class AuthController
         private readonly string $hostname,
         private readonly SmtpConnectionFactory $smtpConnectionFactory,
         private readonly string $appName,
+        private readonly ListConfig $defaultSmtpConfig,
         private readonly bool $oidcEnabled = false,
         private readonly ?OpenIdConnectService $openIdConnect = null,
     ) {
@@ -219,14 +220,26 @@ class AuthController
         $lastname = $member->attributes['lastname'] ?? '';
         $name = trim("$firstname $lastname") ?: $to;
 
+        // A login mail is a system-level action, not a per-list one — prefer the
+        // config.yml root's own SMTP identity (mail-user/mail-host, resolved
+        // independent of any list-provider/list override, see 'app.default-smtp-
+        // config' in container.php) so it doesn't appear to come from whichever
+        // list the member happens to be matched against. Falls back to the
+        // matched list's own SMTP config only if no root-level default exists at
+        // all (smtp-host/mail-host never set anywhere at the config.yml root).
+        $useDefault = $this->defaultSmtpConfig->smtpHost !== '';
+        $senderList = $useDefault ? $this->defaultSmtpConfig : $list;
+        $fromAddress = $useDefault ? $this->defaultSmtpConfig->smtpUser : $list->mail;
+        $fromName = $useDefault ? $this->appName : $list->displayName;
+
         $email = new Email();
-        $email->from(new Address($list->mail, $list->displayName));
+        $email->from(new Address($fromAddress, $fromName));
         $email->to(new Address($to));
         $email->subject($this->translator->trans('auth.login_mail.subject', ['%app_name%' => $this->appName]));
         $email->text($this->translator->trans('auth.login_mail.body', ['%link%' => $link, '%name%' => $name]));
         $email->html($this->translator->trans('auth.login_mail.body_html', ['%link%' => $link, '%name%' => $name]));
 
-        $transport = $this->smtpConnectionFactory->getTransport($list);
+        $transport = $this->smtpConnectionFactory->getTransport($senderList);
         $mailer = new Mailer($transport);
         $mailer->send($email);
     }
