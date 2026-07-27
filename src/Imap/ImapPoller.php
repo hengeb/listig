@@ -87,12 +87,27 @@ class ImapPoller
         }
     }
 
-    public function markSeen(string $listName, int $uid, int $uidValidity): void
+    /**
+     * Marks a processed mail seen two ways: the imap_seen DB row (load-bearing —
+     * this, not the IMAP \Seen flag, is what poll() actually dedupes against, see
+     * above) and, best-effort, the IMAP \Seen flag itself on the mailbox — purely
+     * for an operator glancing at the mailbox through a normal mail client; poll()
+     * never looks at it. A flag-setting failure (connection hiccup, ...) is logged
+     * and otherwise ignored — it must never affect the DB row, which is the one
+     * that actually prevents reprocessing the mail next cycle.
+     */
+    public function markSeen(ListConfig $list, int $uid, int $uidValidity): void
     {
         $stmt = $this->db->prepare(
             'INSERT IGNORE INTO imap_seen (list_cn, imap_uid, imap_uidvalidity, seen_at) VALUES (:list, :uid, :validity, NOW())'
         );
-        $stmt->execute(['list' => $listName, 'uid' => $uid, 'validity' => $uidValidity]);
+        $stmt->execute(['list' => $list->name, 'uid' => $uid, 'validity' => $uidValidity]);
+
+        try {
+            $this->mailboxFactory->getMailbox($list)->markMailAsRead($uid);
+        } catch (\Throwable $e) {
+            error_log("Listig: Failed to set \\Seen flag for UID $uid on list {$list->name}: " . $e->getMessage());
+        }
     }
 
     private function getSeenUids(string $listName, int $uidValidity): array

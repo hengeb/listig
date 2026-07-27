@@ -13,7 +13,7 @@ namespace Hengeb\Listig\Variable;
  * ResolutionPurpose, and must return string|null.
  *
  * A key may be followed by a |filter:args pipeline, e.g.
- * {pronoun|match:he=>Lieber,she=>Liebe,default=>Hallo} or {firstname|lowercase},
+ * {pronoun|match:he=>Lieber,she=>Liebe|default:Hallo} or {firstname|lowercase},
  * applied in order to the resolved value — see VariableFilter. Filters are not
  * part of key lookup/cycle-detection: those operate on the key alone.
  *

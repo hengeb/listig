@@ -35,32 +35,47 @@ if (file_exists($envFile)) {
 
 $container = require __DIR__ . '/../config/container.php';
 
-$listProvider              = $container->get(ListProvider::class);
-$imapPoller                = $container->get(ImapPoller::class);
-$imapArchiver               = $container->get(ImapArchiver::class);
-$archiveIndexer             = $container->get(ArchiveIndexer::class);
-$imapMailboxFactory         = $container->get(ImapMailboxFactory::class);
-$mailFilter                 = $container->get(IncomingMailFilter::class);
-$headerFilter               = $container->get(HeaderFilter::class);
-$mailProcessor              = $container->get(MailProcessor::class);
-$moderationMailer           = $container->get(ModerationMailer::class);
-$moderationChecker          = $container->get(ModerationChecker::class);
-$moderationResponseHandler  = $container->get(ModerationResponseHandler::class);
-$bounceHandler              = $container->get(BounceHandler::class);
-$rejectionNotifier          = $container->get(RejectionNotifier::class);
-$queueSender                = $container->get(QueueSender::class);
-$db                         = $container->get(PDO::class);
+// config.yml is parsed lazily, on first access to any container entry that needs
+// it (ConfigResolver's own constructor, triggered by the very first ->get() below)
+// — so a config error (invalid YAML, a $VAR referenced in config.yml with no
+// matching environment variable, an invalid `filters:` regex, ...) surfaces here,
+// not at "$container = require ...". Catching it turns what would otherwise be an
+// uncaught-exception fatal error (a raw stack trace on stderr) into one clear,
+// actionable log line — still fails fast (same philosophy as the error itself:
+// don't start against broken config), just without the noise. supervisord's
+// [program:worker] autorestart=true still retries afterwards, same as it would for
+// an uncaught fatal error; that retry loop is expected until the config is fixed.
+try {
+    $listProvider              = $container->get(ListProvider::class);
+    $imapPoller                = $container->get(ImapPoller::class);
+    $imapArchiver               = $container->get(ImapArchiver::class);
+    $archiveIndexer             = $container->get(ArchiveIndexer::class);
+    $imapMailboxFactory         = $container->get(ImapMailboxFactory::class);
+    $mailFilter                 = $container->get(IncomingMailFilter::class);
+    $headerFilter               = $container->get(HeaderFilter::class);
+    $mailProcessor              = $container->get(MailProcessor::class);
+    $moderationMailer           = $container->get(ModerationMailer::class);
+    $moderationChecker          = $container->get(ModerationChecker::class);
+    $moderationResponseHandler  = $container->get(ModerationResponseHandler::class);
+    $bounceHandler              = $container->get(BounceHandler::class);
+    $rejectionNotifier          = $container->get(RejectionNotifier::class);
+    $queueSender                = $container->get(QueueSender::class);
+    $db                         = $container->get(PDO::class);
 
-$sleepSeconds = $container->get('worker.sleep-seconds');
-$batchSize    = $container->get('worker.batch-size');
+    $sleepSeconds = $container->get('worker.sleep-seconds');
+    $batchSize    = $container->get('worker.batch-size');
 
-if ($container->get('app.hostname.resolved') === '') {
-    error_log(
-        "Listig: WARNING: 'hostname' is not set in config.yml — falling back to gethostname() "
-        . "('" . (gethostname() ?: 'localhost') . "'), which is almost always wrong in a "
-        . "containerized deployment behind a reverse proxy. Set 'hostname: your-public-domain.example.org' "
-        . "explicitly (see CLAUDE.md)."
-    );
+    if ($container->get('app.hostname.resolved') === '') {
+        error_log(
+            "Listig: WARNING: 'hostname' is not set in config.yml — falling back to gethostname() "
+            . "('" . (gethostname() ?: 'localhost') . "'), which is almost always wrong in a "
+            . "containerized deployment behind a reverse proxy. Set 'hostname: your-public-domain.example.org' "
+            . "explicitly (see CLAUDE.md)."
+        );
+    }
+} catch (\Throwable $e) {
+    error_log('Listig: FATAL: could not start worker, config.yml is invalid: ' . $e->getMessage());
+    exit(1);
 }
 
 // Watched so a change to config.yml on disk (edited in place, or a fresh
@@ -103,7 +118,7 @@ while (true) {
                 // Owner replies to +accept-{token}/+reject-{token} — handled separately,
                 // never subject to the normal incoming-mail filter chain.
                 if ($moderationResponseHandler->handle($mail, $list)) {
-                    $imapPoller->markSeen($list->name, $uid, $uidValidity);
+                    $imapPoller->markSeen($list, $uid, $uidValidity);
                     continue;
                 }
 
@@ -111,33 +126,33 @@ while (true) {
                 $result      = $mailFilter->filter($mail, $list, $rawMime, $authResults);
 
                 if ($result->isDiscard) {
-                    $imapPoller->markSeen($list->name, $uid, $uidValidity);
+                    $imapPoller->markSeen($list, $uid, $uidValidity);
                     continue;
                 }
 
                 if ($result->isBounce) {
                     $bounceHandler->handle($list, $mail, $rawMime);
-                    $imapPoller->markSeen($list->name, $uid, $uidValidity);
+                    $imapPoller->markSeen($list, $uid, $uidValidity);
                     $imapArchiver->archiveOrDelete($list, $uid);
                     continue;
                 }
 
                 if ($result->isReject) {
                     $rejectionNotifier->notify($list, $mail->fromAddress ?? '', $result->reason);
-                    $imapPoller->markSeen($list->name, $uid, $uidValidity);
+                    $imapPoller->markSeen($list, $uid, $uidValidity);
                     $imapArchiver->archiveOrDelete($list, $uid);
                     continue;
                 }
 
                 if ($result->isModeration) {
                     $moderationMailer->send($list, $uid, $uidValidity, $rawMime);
-                    $imapPoller->markSeen($list->name, $uid, $uidValidity);
+                    $imapPoller->markSeen($list, $uid, $uidValidity);
                     continue;
                 }
 
                 if ($result->isDistribute) {
                     $mailProcessor->process($mail, $rawMime, $list);
-                    $imapPoller->markSeen($list->name, $uid, $uidValidity);
+                    $imapPoller->markSeen($list, $uid, $uidValidity);
                     $imapArchiver->archiveOrDelete($list, $uid);
                     $archiveIndexer->index($list, $mail);
                 }

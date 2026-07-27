@@ -601,14 +601,17 @@ A variable may be followed by a `|filter:args` pipeline, applied to the resolved
 
 | Filter | Args | Example |
 |---|---|---|
-| `match` | comma-separated `pattern=>replacement` pairs; `default=>...` is the fallback, not a pattern to match | `{pronoun\|match:er=>Lieber,sie=>Liebe,default=>Hallo}` |
+| `match` | comma-separated `pattern=>replacement` pairs | `{pronoun\|match:er=>Lieber,sie=>Liebe}` |
+| `default` | a single fallback value | `{pronoun\|default:Hallo}` |
 | `lowercase` | — | `{firstname\|lowercase}` |
 | `uppercase` | — | `{firstname\|uppercase}` |
 
-- `match` does exact, case-sensitive comparison against the resolved value. No match and no `default` → empty string (a `match` filter always replaces, it does not pass the original value through).
+- `match` does exact, case-sensitive comparison against the resolved value. No match → empty string (a `match` filter always replaces, it does not pass the original value through) — `match` has no fallback value of its own; chain `|default:...` afterwards for one, e.g. `{pronoun|match:er=>Lieber,sie=>Liebe|default:Hallo}`. (Earlier versions accepted a `default=>...` pair directly inside `match:` for this; that's gone — use the chained `|default:` filter instead, it composes with anything, not just `match`.)
+- `default` passes its input through unchanged unless it's empty, in which case its arg is used verbatim — works after any filter (or with none), e.g. `{firstname|default:Listenmitglied}` for a member with no `firstname` at all.
 - Commas and `=>` cannot appear literally inside a `match` pattern or replacement — no escaping is implemented; not needed for short salutation-style words.
 - An unknown filter name logs an error and passes the value through unfiltered, rather than leaving the whole placeholder literal — this keeps a template typo from leaking raw `{key|filter:...}` syntax into a sent mail.
-- Nested `{}` inside filter args (e.g. a `{}` variable inside a `match` replacement) is not supported — the outer `{...}` regex stops at the first `}`. Use a custom variable alias instead if a filter's output needs to itself contain a variable.
+- Nested `{}` inside filter args (e.g. a `{}` variable inside a `match` replacement or a `default` fallback) is not supported — the outer `{...}` regex stops at the first `}`. Use a custom variable alias instead if a filter's output needs to itself contain a variable.
+- Filters chain freely, applied left to right, each seeing the previous one's output — not just `match` then `default`; any combination/order works (e.g. `{firstname|lowercase|default:unbekannt}`).
 
 #### Member attributes — fully dynamic
 
@@ -631,7 +634,7 @@ A member with its own explicit attribute value therefore always takes precedence
 
 ##### Example: pronoun-based salutation
 
-Turn a short code like `he`/`she` into a language-appropriate greeting via the `match` filter (see "Filters"): `personalize: pronoun,firstname` plus body text `{pronoun|match:he=>Lieber,she=>Liebe,default=>Hallo} {firstname}`. For `type: database`/`csv`/`inline`, populate a `pronoun` column/key directly. For `type: ldap`, map it from whatever attribute the directory actually has, e.g. `pronoun: "{businessCategory}"`.
+Turn a short code like `he`/`she` into a language-appropriate greeting via the `match` filter, chained with `default` for anyone with no pronoun set (see "Filters"): `personalize: pronoun,firstname` plus body text `{pronoun|match:he=>Lieber,she=>Liebe|default:Hallo} {firstname}`. For `type: database`/`csv`/`inline`, populate a `pronoun` column/key directly. For `type: ldap`, map it from whatever attribute the directory actually has, e.g. `pronoun: "{businessCategory}"`.
 
 ##### Privacy-preserving `username`
 
@@ -735,7 +738,7 @@ Routes (`Http/Controller/ArchiveController.php`), all registered outside the bla
 
 `{id}` is `archived_mail.id` (surrogate PK), not an IMAP UID. `ArchiveController::checkAccess()` (single method, all 4 actions): `Off`/`Hidden` → 404 for everyone including the owner; `Public` → always allowed; `Members`/`Owners` → requires a session (else a translated "please log in" page, HTTP 401 — no return-URL redirect-back, since the magic-link login flow has no "next" concept to hook into) and `isMember()`/`isOwnedBy()`.
 
-**Index (`archived_mail` table, `migrations/001_initial.sql`)** — populated by `Archive/ArchiveIndexer.php`, called *alongside*, not from within, `ImapArchiver::archiveOrDelete()` — only at the 3 call sites representing a successful distribute (`bin/worker.php`'s `isDistribute` branch, `ModerationController::accept()`, `ModerationResponseHandler::processAccept()`). Deliberately not inside `archiveOrDelete()` itself: that method also runs for bounce/reject outcomes, which were never sent to the list and must not appear in a member-facing archive. Keyed by `message_id` (not `imap_uid`/`imap_uidvalidity` like `moderation_queue`/`imap_seen`) — an IMAP UID is scoped per folder, and archiving moves the mail from INBOX into `Archive`, where it gets a new UID `ImapArchiver` never learns; `Message-ID` is the only stable key. `Archive/ArchiveMailLocator.php` re-locates the actual body/attachments on demand (`switchMailbox('Archive')` + `SEARCH HEADER Message-ID`) whenever a single message is opened — the index table only ever serves the list/thread view, never mail content, and IMAP failures degrade to "mail unavailable" (try/catch, mirroring `ImapPoller::fetchByUid()`) rather than a 500.
+**Index (`archived_mail` table, `migrations/001_initial.sql`)** — populated by `Archive/ArchiveIndexer.php`, called *alongside*, not from within, `ImapArchiver::archiveOrDelete()` — only at the 3 call sites representing a successful distribute (`bin/worker.php`'s `isDistribute` branch, `ModerationController::accept()`, `ModerationResponseHandler::processAccept()`). Deliberately not inside `archiveOrDelete()` itself: that method also runs for bounce/reject outcomes, which were never sent to the list and must not appear in a member-facing archive. Keyed by `message_id` (not `imap_uid`/`imap_uidvalidity` like `moderation_queue`/`imap_seen`) — an IMAP UID is scoped per folder, and archiving moves the mail from INBOX into the archive folder, where it gets a new UID `ImapArchiver` never learns; `Message-ID` is the only stable key. `ArchiveIndexer::normalize()` strips the value's `<>` before storing it, so `archived_mail.message_id` is always the bare id. `Archive/ArchiveMailLocator.php` re-locates the actual body/attachments on demand (`switchMailbox($list->archiveFolder)` + `SEARCH HEADER Message-ID "<...>"` — the stored bare id is re-wrapped in `<>` first, matching the real header value exactly rather than relying on the IMAP server's substring matching for a bracket-less fragment) whenever a single message is opened — the index table only ever serves the list/thread view, never mail content. Both a genuinely missing message (empty search result — logged) and an IMAP-level failure (exception — also logged) degrade to "mail unavailable" (try/catch, mirroring `ImapPoller::fetchByUid()`) rather than a 500.
 
 `in_reply_to`/`references` are not parsed by php-imap — `HeaderFilter::readHeader()` (generalized from the extraction `MailProcessor` already did for outgoing threading headers) pulls them from `headersRaw` via unfold+regex, same as everywhere else in this codebase. `thread_root` = first Message-ID in `References`, else `in_reply_to`, else the message's own id (see "Archive index" above) — a grouping key, not necessarily an archived row itself.
 
@@ -1835,7 +1838,7 @@ surrounding subject/body) using `$list->language` at send time.
 
 - Default `$imapSearchOption` is `SE_UID`, so `searchMailbox()` returns UIDs (not sequence numbers) and all other methods that take a `$mailId` expect UIDs.
 - **UIDVALIDITY**: use `$mailbox->statusMailbox()->uidvalidity` — **not** `getMailboxInfo()`, which returns `imap_mailboxmsginfo()` (no `uidvalidity` property).
-- `getRawMail($uid, false)` — pass `false` to avoid marking the message as seen in IMAP. Listig tracks "seen" in the `imap_seen` DB table, not via the IMAP \Seen flag.
+- `getRawMail($uid, false)`/`getMail($uid, false)` — pass `false` for the `$markAsSeen` parameter everywhere a mail is *read* without having been fully processed yet (`ImapPoller::poll()`/`fetchByUid()`/`fetchMailByUid()`), so an in-progress or about-to-be-retried mail doesn't look "seen" to an operator's own mail client before Listig has actually finished with it. The dedupe mechanism that decides whether to reprocess a mail next cycle is always the `imap_seen` DB table (`ImapPoller::markSeen()`), never the IMAP `\Seen` flag — but `markSeen()` *also* sets the IMAP `\Seen` flag itself (`Mailbox::markMailAsRead()`), best-effort or only for an operator glancing at the mailbox through a normal mail client; a failure to set it (logged, not thrown) never affects the DB row.
 - `getMail($uid, false)` — returns a parsed `PhpImap\IncomingMail` object. Key properties:
   - `$mail->fromAddress`, `$mail->fromName` — sender info
   - `$mail->subject`, `$mail->to`, `$mail->cc` — standard headers

@@ -71,7 +71,7 @@ class ModerationController
             }
 
             $this->mailProcessor->process($incomingMail, $rawMime, $list);
-            $this->imapPoller->markSeen($list->name, $uid, $uidValidity);
+            $this->imapPoller->markSeen($list, $uid, $uidValidity);
             $this->imapArchiver->archiveOrDelete($list, $uid);
             $this->archiveIndexer->index($list, $incomingMail);
         }

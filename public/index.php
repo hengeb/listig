@@ -56,8 +56,27 @@ $app->get('/_/login/verify', [AuthController::class, 'verifyToken']);
 // api-token gate) — both the login-initiation *and* callback (its own redirect_uri)
 // leg of the flow share this one route, distinguished by AuthController::loginOidc()
 // via the presence of ?code/?error, matching the reference this was modeled on.
-if ($container->get('oidc.enabled')) {
-    $app->get('/_/login/oidc', [AuthController::class, 'loginOidc']);
+//
+// This is also the earliest point in the request that touches the container —
+// 'oidc.enabled' needs ConfigResolver, whose constructor eagerly parses and
+// $VAR-substitutes the *entire* config.yml (every block, provider, and filter,
+// not just OIDC-related keys, see ConfigResolver::__construct()), so a config
+// error anywhere (an unset $VAR, invalid YAML, a bad `filters:` regex, ...)
+// surfaces right here, for every single request, regardless of which list or
+// feature is actually broken. Uncaught, that's a raw fatal error outside Slim's
+// own request pipeline entirely (addErrorMiddleware only wraps $app->run(),
+// which hasn't started yet) — catch it here instead and fail the same way
+// public/index.php's own /_/health route already does for a broken LDAP config:
+// logged clearly, degrading to a clean response rather than a stack trace on
+// stderr with nothing sent to the client.
+try {
+    if ($container->get('oidc.enabled')) {
+        $app->get('/_/login/oidc', [AuthController::class, 'loginOidc']);
+    }
+} catch (\Throwable $e) {
+    error_log('Listig: FATAL: could not handle request, config.yml is invalid: ' . $e->getMessage());
+    http_response_code(500);
+    exit;
 }
 
 $app->get('/{listname}/unsubscribe', [UnsubscribeController::class, 'unsubscribe']);

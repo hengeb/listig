@@ -19,16 +19,22 @@ final class VariableFilter
             'lowercase' => mb_strtolower($value),
             'uppercase' => mb_strtoupper($value),
             'match' => self::match($value, $args),
+            // default:Standardwert — passes $value through unchanged unless it's
+            // empty (e.g. a member with no pronoun, or a match filter earlier in
+            // the pipeline that didn't match), in which case $args is used as-is.
+            'default' => $value !== '' ? $value : $args,
             default => self::unknown($name, $value),
         };
     }
 
     /**
-     * match:he=>Lieber,she=>Liebe,default=>Hallo — exact, case-sensitive match of
-     * $value against the left side of each pair; "default" is not a value to match
-     * but the fallback used when nothing else matches (including when $value is
-     * empty). No default and no match -> empty string, not the original $value —
-     * a match filter is expected to always replace, not pass through.
+     * match:he=>Lieber,she=>Liebe — exact, case-sensitive match of $value against
+     * the left side of each pair. No match (including when $value is empty) ->
+     * empty string, not the original $value — a match filter is expected to always
+     * replace, not pass through. Chain with |default:... (applied after, on the
+     * pipeline's already-resolved value — see VariableResolver) for a fallback,
+     * e.g. {pronoun|match:he=>Lieber,she=>Liebe|default:Hallo} — match() itself has
+     * no notion of a fallback value of its own.
      *
      * Commas and "=>" cannot appear literally inside a pattern or replacement —
      * not needed for short salutation-style words, so no escaping is implemented.
@@ -36,19 +42,14 @@ final class VariableFilter
     private static function match(string $value, string $args): string
     {
         $replacements = [];
-        $default = '';
         foreach (explode(',', $args) as $pair) {
             if (!str_contains($pair, '=>')) {
                 continue;
             }
             [$from, $to] = array_map('trim', explode('=>', $pair, 2));
-            if ($from === 'default') {
-                $default = $to;
-            } else {
-                $replacements[$from] = $to;
-            }
+            $replacements[$from] = $to;
         }
-        return $replacements[$value] ?? $default;
+        return $replacements[$value] ?? '';
     }
 
     private static function unknown(string $name, string $value): string

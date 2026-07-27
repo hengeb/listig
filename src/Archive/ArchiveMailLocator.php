@@ -43,11 +43,17 @@ class ArchiveMailLocator
 
             // Strip quotes from attacker-influenced content (the Message-ID ultimately
             // comes from an external sender's header) before interpolating into the
-            // IMAP SEARCH command string.
-            $needle = str_replace('"', '', $messageId);
+            // IMAP SEARCH command string. $messageId itself arrives without its angle
+            // brackets (ArchiveIndexer::normalize() strips them before storing it in
+            // archived_mail) — rebuild the canonical "<...>" form here so the search
+            // string matches the real header value exactly, rather than relying on
+            // every IMAP server's HEADER search to do "contains" substring matching
+            // consistently for a bracket-less fragment.
+            $needle = '<' . str_replace('"', '', trim($messageId, '<> ')) . '>';
             $uids = $mailbox->searchMailbox('HEADER Message-ID "' . $needle . '"');
 
             if (empty($uids)) {
+                error_log("Listig: ArchiveMailLocator found no IMAP message for Message-ID $messageId in {$list->archiveFolder} for list {$list->name}");
                 return null;
             }
 
