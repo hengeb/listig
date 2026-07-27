@@ -62,16 +62,23 @@ class ArchiveHtmlSanitizer
         $this->purifier = new HTMLPurifier($config);
     }
 
-    /** @param IncomingMailAttachment[] $attachments */
+    /**
+     * @param IncomingMailAttachment[] $attachments
+     * @param string $attachmentToken appended as a `?token=` query string to every
+     *        cid:-rewritten URL — see ArchiveController::frame()'s comment on why
+     *        the sandboxed viewer frame needs this (its own <img> requests carry
+     *        no session cookie at all).
+     */
     public function render(
         ?string $textHtml,
         ?string $textPlain,
         array $attachments,
         string $attachmentBaseUrl,
         bool $loadImages,
+        string $attachmentToken = '',
     ): string {
         if (($textHtml ?? '') !== '') {
-            $html = $this->rewriteCidReferences($textHtml, $attachments, $attachmentBaseUrl);
+            $html = $this->rewriteCidReferences($textHtml, $attachments, $attachmentBaseUrl, $attachmentToken);
             $html = $this->purifier->purify($html);
         } else {
             $html = $this->renderPlainText($textPlain ?? '');
@@ -96,12 +103,14 @@ class ArchiveHtmlSanitizer
      * rewrite is simpler and just as correct.
      */
     /** @param IncomingMailAttachment[] $attachments */
-    private function rewriteCidReferences(string $html, array $attachments, string $attachmentBaseUrl): string
+    private function rewriteCidReferences(string $html, array $attachments, string $attachmentBaseUrl, string $attachmentToken): string
     {
+        $tokenSuffix = $attachmentToken !== '' ? '?token=' . urlencode($attachmentToken) : '';
+
         $urlByContentId = [];
         foreach ($attachments as $index => $attachment) {
             if ($attachment->disposition === 'inline' && ($attachment->contentId ?? '') !== '') {
-                $urlByContentId[$attachment->contentId] = "{$attachmentBaseUrl}/{$index}";
+                $urlByContentId[$attachment->contentId] = "{$attachmentBaseUrl}/{$index}{$tokenSuffix}";
             }
         }
         if (empty($urlByContentId)) {

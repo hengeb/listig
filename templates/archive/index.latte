@@ -155,7 +155,7 @@ function applyFilter(value) {
             data-sender="{mb_strtolower($row['sender_name'] ?? '')}"
             data-thread-root="{$row['thread_root']}"
             data-depth="{$row['depth']}"
-            data-date="{str_replace(' ', 'T', $row['mail_date'])}"
+            data-date="{str_replace(' ', 'T', $row['mail_date'])}Z"
             data-is-thread-start="{if $row['is_thread_start']}1{else}0{/if}"
         >
             <td class="subject">
@@ -176,7 +176,7 @@ function applyFilter(value) {
                 {/if}
             </td>
             <td>{($row['sender_name'] ?? $translator->trans('archive.unknown_sender'))|escapeHtml}</td>
-            <td>{$row['mail_date']|escapeHtml}</td>
+            <td data-utc="{str_replace(' ', 'T', $row['mail_date'])}Z">{$row['mail_date']|escapeHtml}</td>
         </tr>
     {/foreach}
     </tbody>

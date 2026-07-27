@@ -464,6 +464,7 @@ $builder->addDefinitions([
             $c->get(ArchiveHtmlSanitizer::class),
             $c->get(TranslatorInterface::class),
             $c->get('app.name'),
+            $c->get(TokenService::class),
         );
     },
 

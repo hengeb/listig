@@ -21,7 +21,7 @@ function loadImages(btn) {
     <h1>{($row['subject'] ?? '')|escapeHtml}</h1>
     <table>
         <tr><th>{$translator->trans('list.manage.sender')}</th><td>{($row['sender_name'] ?? $translator->trans('archive.unknown_sender'))|escapeHtml}</td></tr>
-        <tr><th>{$translator->trans('list.manage.timestamp')}</th><td>{$row['mail_date']|escapeHtml}</td></tr>
+        <tr><th>{$translator->trans('list.manage.timestamp')}</th><td data-utc="{str_replace(' ', 'T', $row['mail_date'])}Z">{$row['mail_date']|escapeHtml}</td></tr>
     </table>
 </div>
 

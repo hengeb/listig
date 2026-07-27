@@ -7,6 +7,7 @@ namespace Hengeb\Listig\Archive;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Imap\ImapMailboxFactory;
 use PhpImap\IncomingMail;
+use PhpImap\Mailbox;
 
 /**
  * Re-locates an archived mail by Message-ID inside the list's IMAP archive
@@ -41,33 +42,45 @@ class ArchiveMailLocator
             $mailbox = $this->mailboxFactory->getMailbox($list);
             $mailbox->switchMailbox($list->archiveFolder);
 
-            // Strip quotes from attacker-influenced content (the Message-ID ultimately
-            // comes from an external sender's header) before interpolating into the
-            // IMAP SEARCH command string. $messageId itself arrives without its angle
-            // brackets (ArchiveIndexer::normalize() strips them before storing it in
-            // archived_mail) — rebuild the canonical "<...>" form here so the search
-            // string matches the real header value exactly, rather than relying on
-            // every IMAP server's HEADER search to do "contains" substring matching
-            // consistently for a bracket-less fragment.
-            $needle = '<' . str_replace('"', '', trim($messageId, '<> ')) . '>';
-            // $disableServerEncoding = true: skips passing a CHARSET argument to
-            // imap_search() (PhpImap\Mailbox::searchMailbox()'s $charset defaults to
-            // the server's own encoding otherwise). A Message-ID is always plain
-            // ASCII, so no charset negotiation is ever needed here — and some IMAP
-            // servers reject/fail a SEARCH that includes a CHARSET they don't like
-            // outright ("Could not search mailbox!"), even for an otherwise-valid
-            // criteria string.
-            $uids = $mailbox->searchMailbox('HEADER Message-ID "' . $needle . '"', true);
+            $uid = $this->findUidByMessageId($mailbox, trim($messageId, '<> '));
 
-            if (empty($uids)) {
+            if ($uid === null) {
                 error_log("Listig: ArchiveMailLocator found no IMAP message for Message-ID $messageId in {$list->archiveFolder} for list {$list->name}");
                 return null;
             }
 
-            return $mailbox->getMail((int) $uids[0], false);
+            return $mailbox->getMail($uid, false);
         } catch (\Throwable $e) {
             error_log("Listig: ArchiveMailLocator failed to find Message-ID $messageId for list {$list->name}: " . $e->getMessage());
             return null;
         }
+    }
+
+    /**
+     * Scans every message's overview (IMAP FETCH) for a matching Message-ID,
+     * rather than IMAP SEARCH's HEADER key. Confirmed against a real deployment:
+     * some servers (mail.hengeb.de among them) don't implement the HEADER search
+     * key at all — "Unknown search criterion: HEADER" — even though it's part of
+     * the base IMAP4rev1 spec (RFC 3501); the search fails outright regardless of
+     * whether the message exists. `SEARCH ALL` + `FETCH OVERVIEW` (whose
+     * `message_id` field is exactly the header value, brackets included) are far
+     * more fundamental operations every server actually implements, and this is
+     * only ever called for a single-message lookup (opening one archived mail in
+     * the web viewer), not a bulk operation — the linear scan is cheap in practice.
+     */
+    private function findUidByMessageId(Mailbox $mailbox, string $needle): ?int
+    {
+        $allUids = $mailbox->searchMailbox('ALL', true);
+        if (empty($allUids)) {
+            return null;
+        }
+
+        foreach ($mailbox->getMailsInfo($allUids) as $info) {
+            if (trim($info->message_id ?? '', '<> ') === $needle) {
+                return (int) $info->uid;
+            }
+        }
+
+        return null;
     }
 }

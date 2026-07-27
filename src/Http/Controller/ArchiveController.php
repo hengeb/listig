@@ -10,6 +10,7 @@ use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Provider\ListProvider;
+use Hengeb\Listig\Token\TokenService;
 use Latte\Engine;
 use PDO;
 use PhpImap\IncomingMailAttachment;
@@ -25,6 +26,13 @@ class ArchiveController
     /** MIME types ever eligible for inline (non-download) delivery — never svg, it can carry scripts. */
     private const INLINE_SAFE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
+    /**
+     * Deliberately short — this token only needs to survive one page load's worth
+     * of <img> requests from inside the sandboxed frame (see attachment() /
+     * ARCHIVE_ATTACHMENT_TOKEN purpose below), not act as a lasting credential.
+     */
+    private const ARCHIVE_ATTACHMENT_TOKEN_MAX_AGE = 10 * 60;
+
     public function __construct(
         private readonly Engine $latte,
         private readonly PDO $db,
@@ -34,6 +42,7 @@ class ArchiveController
         private readonly ArchiveHtmlSanitizer $sanitizer,
         private readonly TranslatorInterface $translator,
         private readonly string $appName,
+        private readonly TokenService $tokenService,
     ) {
     }
 
@@ -91,10 +100,11 @@ class ArchiveController
 
         // Attachments actually referenced inline in the body (rewritten to cid: URLs
         // by ArchiveHtmlSanitizer) are not listed again as separate downloads —
-        // array_filter preserves the original numeric keys, which is exactly the
-        // {index} the attachment/frame routes expect.
+        // array_filter preserves the positional keys assigned by
+        // indexAttachmentsByPosition(), which is exactly the {index} the
+        // attachment/frame routes expect (see that method's docblock for why).
         $attachments = $mail !== null
-            ? array_filter($mail->getAttachments(), fn(IncomingMailAttachment $a) => !self::isEmbeddedInline($a))
+            ? array_filter(self::indexAttachmentsByPosition($mail->getAttachments()), fn(IncomingMailAttachment $a) => !self::isEmbeddedInline($a))
             : [];
 
         $this->translator->setLocale($list->language);
@@ -133,10 +143,19 @@ class ArchiveController
         $loadImages  = ($request->getQueryParams()['loadImages'] ?? '') === '1';
         $baseUrl     = "/{$list->name}/archive/{$args['id']}/attachment";
 
+        // The <img> tags this produces (cid: rewrites) are fetched by the browser
+        // from *inside* the sandboxed iframe below — sandbox with no
+        // allow-same-origin gives that content a unique opaque origin, so those
+        // requests carry no session cookie at all, regardless of the viewer's own
+        // login. attachment() accepts this signed, mail-scoped token as a fallback
+        // grant for exactly that case (see attachment()) — checkAccess() above
+        // already confirmed access once for this same request.
+        $attachmentToken = $this->tokenService->sign('archive-attachment', $list->name, (string) $row['id']);
+
         $bodyHtml = null;
         if ($mail !== null) {
             try {
-                $bodyHtml = $this->sanitizer->render($mail->textHtml, $mail->textPlain, $mail->getAttachments(), $baseUrl, $loadImages);
+                $bodyHtml = $this->sanitizer->render($mail->textHtml, $mail->textPlain, self::indexAttachmentsByPosition($mail->getAttachments()), $baseUrl, $loadImages, $attachmentToken);
             } catch (\Throwable $e) {
                 error_log("Listig: failed to render archived mail {$row['id']} for list {$list->name}: " . $e->getMessage());
             }
@@ -152,10 +171,16 @@ class ArchiveController
 
         // Own strict CSP, independent of the outer page — the sandboxed iframe (see
         // templates/archive/show.latte) already blocks scripts via the `sandbox`
-        // attribute; this is defense-in-depth for the response itself.
+        // attribute; this is defense-in-depth for the response itself. img-src only
+        // widens beyond 'self' (our own cid:-rewritten attachment URLs) when the
+        // viewer has explicitly opted into loading external images for this mail —
+        // ArchiveHtmlSanitizer::stripExternalResources() is what actually removes
+        // off-origin img[src]/srcset otherwise, but a same-origin-only CSP was
+        // blocking them outright even when that step correctly left them in place.
+        $imgSrc = $loadImages ? "img-src 'self' https: http:" : "img-src 'self'";
         return $response
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
-            ->withHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'")
+            ->withHeader('Content-Security-Policy', "default-src 'none'; {$imgSrc}; style-src 'unsafe-inline'; frame-ancestors 'self'")
             ->withHeader('X-Frame-Options', 'SAMEORIGIN');
     }
 
@@ -167,7 +192,15 @@ class ArchiveController
         }
         $denied = $this->checkAccess($request, $list);
         if ($denied !== null) {
-            return $denied;
+            // Session-based access failed — this is also the endpoint <img> tags
+            // inside the sandboxed archive/frame.latte iframe fetch for cid:
+            // attachments, and those requests never carry a session cookie (see
+            // frame()'s $attachmentToken comment). Accept a valid token for this
+            // exact list+mail as an alternative grant before giving up.
+            $token = $request->getQueryParams()['token'] ?? '';
+            if (!$this->isValidAttachmentToken($token, $list->name, $args['id'] ?? '')) {
+                return $denied;
+            }
         }
 
         $row = $this->fetchRow($list->name, (int) $args['id']);
@@ -180,7 +213,7 @@ class ArchiveController
             return $response->withStatus(404);
         }
 
-        $attachments = $mail->getAttachments();
+        $attachments = self::indexAttachmentsByPosition($mail->getAttachments());
         $index = (int) $args['index'];
         if (!isset($attachments[$index])) {
             return $response->withStatus(404);
@@ -192,7 +225,7 @@ class ArchiveController
             error_log("Listig: failed to fetch attachment $index for archived mail {$row['id']} on list {$list->name}: " . $e->getMessage());
             return $response->withStatus(502);
         }
-        $mimeType = $attachment->getMimeType() ?: 'application/octet-stream';
+        $mimeType = $attachment->mimeType ?: 'application/octet-stream';
 
         $response = $response->withHeader('X-Content-Type-Options', 'nosniff');
 
@@ -209,6 +242,24 @@ class ArchiveController
 
         $response->getBody()->write($contents);
         return $response;
+    }
+
+    /** @see frame()'s $attachmentToken comment for why this fallback exists. */
+    private function isValidAttachmentToken(string $token, string $listCn, string $archivedMailId): bool
+    {
+        if ($token === '') {
+            return false;
+        }
+        try {
+            [$tokenListCn, $tokenMailId] = $this->tokenService->verify(
+                $token,
+                'archive-attachment',
+                self::ARCHIVE_ATTACHMENT_TOKEN_MAX_AGE,
+            );
+        } catch (\InvalidArgumentException) {
+            return false;
+        }
+        return $tokenListCn === $listCn && $tokenMailId === $archivedMailId;
     }
 
     /**
@@ -286,6 +337,33 @@ class ArchiveController
         $stmt->execute(['id' => $id, 'list' => $listName]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
+    }
+
+    /**
+     * IncomingMail::getAttachments() is keyed by IncomingMailAttachment::$id —
+     * PhpImap\Mailbox generates this fresh with bin2hex(random_bytes(20)) on
+     * *every* parse, so it is never the same twice for the same message, let alone
+     * stable across the separate HTTP requests this app's routes are split across
+     * (show()'s attachment links and frame()'s cid: rewrites are rendered from one
+     * getMail() call; clicking them or loading the resulting <img> triggers a
+     * second, independent getMail() call in attachment(), via ArchiveMailLocator —
+     * see its own docblock on why nothing here is cached across requests). Using
+     * that random id as the {index} in a URL therefore can never work: by the time
+     * attachment() looks it up, the id it's holding no longer exists anywhere.
+     *
+     * The MIME part order php-imap parses attachments in, by contrast, is fully
+     * determined by the message's own (unchanging) byte structure — parsing the
+     * same raw mail twice always encounters its attachments in the same order.
+     * Re-keying by that position instead of the random id gives every caller
+     * (show(), frame(), attachment()) a stable identifier that actually survives
+     * from one request to the next.
+     *
+     * @param IncomingMailAttachment[] $attachments
+     * @return array<int, IncomingMailAttachment>
+     */
+    private static function indexAttachmentsByPosition(array $attachments): array
+    {
+        return array_values($attachments);
     }
 
     /** An attachment rewritten to a cid: reference in the body by ArchiveHtmlSanitizer — not listed as a separate download. */
