@@ -177,6 +177,12 @@ class QueueSender
         );
         $stmt->execute(['qid' => $queueId]);
         if ((int) $stmt->fetchColumn() === 0) {
+            // queue_recipients.mail_queue_id is a FOREIGN KEY with no ON DELETE
+            // CASCADE — the (all-'sent') child rows must be deleted first, or this
+            // fails with a constraint violation ("Cannot delete or update a parent
+            // row"), same as purgeStaleFailedEntries() already does for its own
+            // 'failed' rows below.
+            $this->db->prepare('DELETE FROM queue_recipients WHERE mail_queue_id = :id')->execute(['id' => $queueId]);
             $this->db->prepare('DELETE FROM mail_queue WHERE id = :id')->execute(['id' => $queueId]);
         }
     }

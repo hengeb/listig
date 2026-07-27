@@ -50,7 +50,14 @@ class ArchiveMailLocator
             // every IMAP server's HEADER search to do "contains" substring matching
             // consistently for a bracket-less fragment.
             $needle = '<' . str_replace('"', '', trim($messageId, '<> ')) . '>';
-            $uids = $mailbox->searchMailbox('HEADER Message-ID "' . $needle . '"');
+            // $disableServerEncoding = true: skips passing a CHARSET argument to
+            // imap_search() (PhpImap\Mailbox::searchMailbox()'s $charset defaults to
+            // the server's own encoding otherwise). A Message-ID is always plain
+            // ASCII, so no charset negotiation is ever needed here — and some IMAP
+            // servers reject/fail a SEARCH that includes a CHARSET they don't like
+            // outright ("Could not search mailbox!"), even for an otherwise-valid
+            // criteria string.
+            $uids = $mailbox->searchMailbox('HEADER Message-ID "' . $needle . '"', true);
 
             if (empty($uids)) {
                 error_log("Listig: ArchiveMailLocator found no IMAP message for Message-ID $messageId in {$list->archiveFolder} for list {$list->name}");
