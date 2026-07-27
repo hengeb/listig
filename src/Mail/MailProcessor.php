@@ -16,6 +16,7 @@ use Hengeb\Listig\Variable\VariableResolver;
 use PhpImap\IncomingMail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Part\DataPart;
 
 class MailProcessor
 {
@@ -97,13 +98,26 @@ class MailProcessor
             $email->text($mail->textPlain);
         }
 
-        // Attachments
+        // Attachments. $mail->textHtml is copied into the outgoing body verbatim
+        // above — any cid: references it contains are never rewritten — so an
+        // attachment that's actually an embedded image (Content-Disposition:
+        // inline with a Content-ID, matching such a cid: reference) must keep
+        // both on the outgoing copy, or the reference resolves to nothing once
+        // the recipient's mail client looks for it. Email::attach() always
+        // creates a plain Content-Disposition: attachment part with no Content-ID
+        // at all, silently breaking every embedded image on every distributed
+        // mail; DataPart::asInline()/setContentId() (the same two primitives
+        // Email::embed() itself calls, just without a way to pin a *specific*
+        // pre-existing id) preserve the original inline part faithfully.
         foreach ($mail->getAttachments() as $attachment) {
-            $email->attach(
-                $attachment->getContents(),
-                $attachment->name,
-                $attachment->mimeType ?? 'application/octet-stream'
-            );
+            $contentType = $attachment->mimeType ?? 'application/octet-stream';
+            if ($attachment->disposition === 'inline' && ($attachment->contentId ?? '') !== '') {
+                $part = new DataPart($attachment->getContents(), $attachment->name, $contentType);
+                $part->asInline()->setContentId($attachment->contentId);
+                $email->addPart($part);
+            } else {
+                $email->attach($attachment->getContents(), $attachment->name, $contentType);
+            }
         }
 
         // Threading and identification headers worth preserving. symfony/mime enforces

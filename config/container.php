@@ -172,6 +172,10 @@ $builder->addDefinitions([
         // (unlike e.g. Twig) — used for URL query parameters, e.g. dashboard.latte's
         // unsubscribe link.
         $latte->addFilter('rawurlencode', rawurlencode(...));
+        // archive/show.latte's per-attachment sizes — same formatting rule
+        // ArchiveController uses for the collapsed-summary "%size%" param, see
+        // Archive\ByteFormatter's docblock.
+        $latte->addFilter('formatBytes', \Hengeb\Listig\Archive\ByteFormatter::format(...));
         return $latte;
     },
 

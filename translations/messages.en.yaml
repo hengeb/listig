@@ -130,11 +130,16 @@ archive:
     next: "Next"
   show:
     back_to_list: "Back to archive"
-    load_images: "Load images"
+    load_images: "Allow"
+    external_content_notice: "To protect your privacy, external content has been blocked."
     mail_frame_title: "Mail content"
     mail_unavailable: "This mail is no longer available."
     attachments_heading: "Attachments"
+    attachments_summary: "%count% attachments (%size%)"
+    attachment_previews: "Preview"
     unnamed_attachment: "Attachment"
+    view_html: "HTML"
+    view_text: "Plain text"
   login_required:
     heading: "Login required"
     message: "You need to be logged in to view this list's archive."

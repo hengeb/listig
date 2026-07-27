@@ -68,6 +68,10 @@ class ArchiveHtmlSanitizer
      *        cid:-rewritten URL — see ArchiveController::frame()'s comment on why
      *        the sandboxed viewer frame needs this (its own <img> requests carry
      *        no session cookie at all).
+     * @param string $view 'text' forces the plaintext part even when $textHtml is
+     *        present (archive/show.latte's HTML/plain-text toggle, only shown when
+     *        both actually exist); anything else keeps the original default of
+     *        HTML-if-present.
      */
     public function render(
         ?string $textHtml,
@@ -76,8 +80,9 @@ class ArchiveHtmlSanitizer
         string $attachmentBaseUrl,
         bool $loadImages,
         string $attachmentToken = '',
+        string $view = 'html',
     ): string {
-        if (($textHtml ?? '') !== '') {
+        if ($view !== 'text' && ($textHtml ?? '') !== '') {
             $html = $this->rewriteCidReferences($textHtml, $attachments, $attachmentBaseUrl, $attachmentToken);
             $html = $this->purifier->purify($html);
         } else {

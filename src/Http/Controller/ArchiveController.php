@@ -7,6 +7,7 @@ namespace Hengeb\Listig\Http\Controller;
 use Hengeb\Listig\Archive\ArchiveHtmlSanitizer;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
 use Hengeb\Listig\Archive\ArchiveThreader;
+use Hengeb\Listig\Archive\ByteFormatter;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Provider\ListProvider;
@@ -23,8 +24,13 @@ class ArchiveController
 {
     private const PER_PAGE = 1000;
 
-    /** MIME types ever eligible for inline (non-download) delivery — never svg, it can carry scripts. */
-    private const INLINE_SAFE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+    /**
+     * MIME types ever eligible for inline (browser-rendered, open-in-new-tab)
+     * delivery instead of a forced download — never svg, it can carry scripts.
+     * Every one of these the browser can display natively; anything else falls
+     * back to a download regardless of what the mail itself claims.
+     */
+    private const INLINE_SAFE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'];
 
     /**
      * Deliberately short — this token only needs to survive one page load's worth
@@ -107,17 +113,30 @@ class ArchiveController
             ? array_filter(self::indexAttachmentsByPosition($mail->getAttachments()), fn(IncomingMailAttachment $a) => !self::isEmbeddedInline($a))
             : [];
 
+        // Shown a second time below the mail body as a thumbnail gallery — the
+        // claimed MIME type is fine for this (a UI hint, not a security decision;
+        // attachment() independently verifies actual bytes before ever serving one
+        // inline — see isSafeInlineContent()).
+        $imageAttachments = array_filter($attachments, fn(IncomingMailAttachment $a) => str_starts_with($a->mimeType ?? '', 'image/'));
+
+        $totalAttachmentSize = array_sum(array_map(fn(IncomingMailAttachment $a) => $a->sizeInBytes ?? 0, $attachments));
+
         $this->translator->setLocale($list->language);
 
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/archive/show.latte', [
-            'user'        => $request->getAttribute('user'),
-            'list'        => $list,
-            'row'         => $row,
-            'mailMissing' => $mail === null,
-            'attachments' => $attachments,
-            'language'    => $list->language,
-            'translator'  => $this->translator,
-            'appName'     => $this->appName,
+            'user'                 => $request->getAttribute('user'),
+            'list'                 => $list,
+            'row'                  => $row,
+            'mailMissing'          => $mail === null,
+            'attachments'          => $attachments,
+            'imageAttachments'     => $imageAttachments,
+            'totalAttachmentSize'  => ByteFormatter::format($totalAttachmentSize),
+            // Only meaningful when both exist — a mail with only one part has
+            // nothing to switch between, so the toggle button stays hidden for it.
+            'hasPlainAlternative'  => $mail !== null && ($mail->textHtml ?? '') !== '' && ($mail->textPlain ?? '') !== '',
+            'language'             => $list->language,
+            'translator'           => $this->translator,
+            'appName'              => $this->appName,
         ]);
         $response->getBody()->write($html);
         return $response;
@@ -141,6 +160,11 @@ class ArchiveController
 
         $mail        = $this->mailLocator->find($list, $row['message_id']);
         $loadImages  = ($request->getQueryParams()['loadImages'] ?? '') === '1';
+        // 'text' forces the plaintext part even when textHtml exists — the
+        // show.latte toggle button (only shown when both parts exist, see show())
+        // reloads the iframe with this param. Anything else (including absent)
+        // keeps the existing default: HTML if present, plaintext otherwise.
+        $view        = ($request->getQueryParams()['view'] ?? '') === 'text' ? 'text' : 'html';
         $baseUrl     = "/{$list->name}/archive/{$args['id']}/attachment";
 
         // The <img> tags this produces (cid: rewrites) are fetched by the browser
@@ -155,7 +179,7 @@ class ArchiveController
         $bodyHtml = null;
         if ($mail !== null) {
             try {
-                $bodyHtml = $this->sanitizer->render($mail->textHtml, $mail->textPlain, self::indexAttachmentsByPosition($mail->getAttachments()), $baseUrl, $loadImages, $attachmentToken);
+                $bodyHtml = $this->sanitizer->render($mail->textHtml, $mail->textPlain, self::indexAttachmentsByPosition($mail->getAttachments()), $baseUrl, $loadImages, $attachmentToken, $view);
             } catch (\Throwable $e) {
                 error_log("Listig: failed to render archived mail {$row['id']} for list {$list->name}: " . $e->getMessage());
             }
@@ -229,7 +253,13 @@ class ArchiveController
 
         $response = $response->withHeader('X-Content-Type-Options', 'nosniff');
 
-        if (self::isEmbeddedInline($attachment) && self::isSafeInlineImage($contents, $mimeType)) {
+        // Inline (browser-rendered) whenever the content is a verified, safe type
+        // — deliberately regardless of the mail's own claimed disposition: a
+        // regular (non-cid) image or PDF attachment gets the same "open in a new
+        // tab" treatment as an embedded one, since the browser can display either
+        // just as safely either way (see show.latte's attachment links, which all
+        // carry target="_blank" for exactly this).
+        if (self::isSafeInlineContent($contents, $mimeType)) {
             $response = $response
                 ->withHeader('Content-Type', $mimeType)
                 ->withHeader('Content-Disposition', 'inline');
@@ -375,13 +405,23 @@ class ArchiveController
     /**
      * Trusting a mail's own Content-Disposition/MIME claim to decide "safe to serve
      * inline" would let a mislabeled attachment ride along; verify the actual bytes
-     * decode as one of the whitelisted image types before honoring the claim.
+     * decode as one of the whitelisted types before honoring the claim. Images are
+     * verified via getimagesizefromstring() (decodes and reports the real format);
+     * PDF has no equivalent lightweight PHP decoder, so its magic-bytes header is
+     * checked instead — a lighter guarantee, but %PDF- is specific enough that a
+     * mislabeled non-PDF attachment couldn't plausibly start with it by accident.
      */
-    private static function isSafeInlineImage(string $contents, string $claimedMimeType): bool
+    private static function isSafeInlineContent(string $contents, string $claimedMimeType): bool
     {
-        if (!in_array(strtolower($claimedMimeType), self::INLINE_SAFE_MIME_TYPES, true)) {
+        $claimedMimeType = strtolower($claimedMimeType);
+        if (!in_array($claimedMimeType, self::INLINE_SAFE_MIME_TYPES, true)) {
             return false;
         }
+
+        if ($claimedMimeType === 'application/pdf') {
+            return str_starts_with($contents, '%PDF-');
+        }
+
         $info = @getimagesizefromstring($contents);
         return $info !== false
             && isset($info['mime'])

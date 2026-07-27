@@ -8,7 +8,9 @@
     .archive-toolbar { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
     .archive-toolbar input[type=text] { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
     #archive-table td.subject { display: flex; align-items: center; gap: 0.35rem; }
-    .thread-toggle-icon { cursor: pointer; background: none; border: none; font-size: 1rem; padding: 0; line-height: 1; }
+    .thread-toggle-icon { cursor: pointer; background: none; border: none; font-size: 1rem; padding: 0; line-height: 1; display: inline-flex; align-items: center; }
+    .chevron { transition: transform .15s ease; color: #888; }
+    .thread-expand[aria-expanded="true"] .chevron { transform: rotate(90deg); }
     .thread-indent { display: inline-block; flex-shrink: 0; }
     tr.reply-row { display: none; }
     tr.reply-row.expanded { display: table-row; }
@@ -51,7 +53,6 @@ function toggleThreading() {
         tbody.querySelectorAll('.thread-expand').forEach(el => {
             el.style.display = '';
             el.setAttribute('aria-expanded', 'false');
-            el.textContent = '▶';
         });
         tbody.querySelectorAll('[data-reply-count]').forEach(el => { el.style.display = ''; });
     }
@@ -67,7 +68,6 @@ function toggleThread(btn) {
         r.classList.toggle('expanded', !expanded);
     });
     btn.setAttribute('aria-expanded', String(!expanded));
-    btn.textContent = expanded ? '▶' : '▼';
 }
 
 function filterArchive(value) {
@@ -161,7 +161,9 @@ function applyFilter(value) {
             <td class="subject">
                 <span class="thread-indent" style="width:{($row['depth'] * 1.25)|noescape}em"></span>
                 {if $row['is_thread_start'] && $row['thread_size'] > 1}
-                    <button type="button" class="thread-toggle-icon thread-expand" onclick="toggleThread(this)" aria-expanded="false">&#9654;</button>
+                    <button type="button" class="thread-toggle-icon thread-expand" onclick="toggleThread(this)" aria-expanded="false">
+                        <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 1 L7.5 5 L2.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
                 {/if}
                 <a href="/{$list->name}/archive/{$row['id']}">{($row['subject'] ?? '')|escapeHtml}</a>
                 {if $row['has_attachments']}<span class="paperclip" title="{$translator->trans('archive.index.has_attachments')}">&#128206;</span>{/if}

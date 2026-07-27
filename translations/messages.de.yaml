@@ -130,11 +130,16 @@ archive:
     next: "Weiter"
   show:
     back_to_list: "Zurück zum Archiv"
-    load_images: "Bilder laden"
+    load_images: "Erlauben"
+    external_content_notice: "Um deine Privatsphäre zu schützen, wurden externe Inhalte blockiert."
     mail_frame_title: "Mail-Inhalt"
     mail_unavailable: "Diese Mail ist nicht mehr verfügbar."
     attachments_heading: "Anhänge"
+    attachments_summary: "%count% Anhänge (%size%)"
+    attachment_previews: "Vorschau"
     unnamed_attachment: "Anhang"
+    view_html: "HTML"
+    view_text: "Nur Text"
   login_required:
     heading: "Anmeldung erforderlich"
     message: "Du musst angemeldet sein, um das Archiv dieser Liste anzusehen."
