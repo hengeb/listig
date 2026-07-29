@@ -3,28 +3,28 @@
 {block title}{$translator->trans('login.title', ['%app_name%' => $appName])}{/block}
 
 {block content}
-<div style="max-width:420px;margin:4rem auto">
+<div class="narrow-page-sm">
     <div class="card">
-        <h1 style="text-align:center;font-size:1.5rem">{$translator->trans('login.heading')}</h1>
+        <h1 class="centered-heading">{$translator->trans('login.heading')}</h1>
 
         <div class="flash" n:if="isset($flash) && $flash">{$flash|escapeHtml}</div>
 
         {if $oidcEnabled}
-            <a href="/_/login/oidc" class="btn btn-primary" style="display:block;width:100%;padding:.65rem;text-align:center;box-sizing:border-box;margin-bottom:1.25rem">{$translator->trans('auth.oidc_login_button')}</a>
-            <div style="text-align:center;color:#999;font-size:.85rem;margin-bottom:1.25rem">{$translator->trans('auth.oidc_divider')}</div>
+            <a href="/_/login/oidc" class="btn btn-primary btn-block oidc-login-btn">{$translator->trans('auth.oidc_login_button')}</a>
+            <div class="login-divider">{$translator->trans('auth.oidc_divider')}</div>
         {/if}
 
         <form method="post" action="/_/login">
-            <label style="display:block;margin-bottom:.5rem;font-weight:600" for="email">{$translator->trans('login.email_label')}</label>
+            <label class="form-label" for="email">{$translator->trans('login.email_label')}</label>
             <input
                 type="email"
                 id="email"
                 name="email"
                 required
                 autofocus
-                style="width:100%;padding:.6rem .75rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;margin-bottom:1rem"
+                class="form-input"
             >
-            <button type="submit" class="btn btn-primary" style="width:100%;padding:.65rem">{$translator->trans('login.submit')}</button>
+            <button type="submit" class="btn btn-primary btn-block">{$translator->trans('login.submit')}</button>
         </form>
     </div>
 </div>

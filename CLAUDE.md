@@ -94,7 +94,13 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 ├── config/
 │   └── container.php                 # DI container (PHP-DI or similar); config.yml itself is gitignored, copied here from deploy/config.yml.example for a repo checkout
 ├── public/
-│   └── index.php                     # Slim HTTP entry point
+│   ├── index.php                     # Slim HTTP entry point
+│   └── assets/                       # served directly by nginx, never routed through Slim — see "Static assets"
+│       ├── style.css                 # the one global stylesheet — see "CSS/JS: one global stylesheet, per-page scripts"
+│       ├── script.js                 # shared JS: getCsrfToken(), listigLogout(), [data-utc] localization — loaded on every page
+│       ├── archive-index.js          # templates/archive/index.latte only: thread toggle, quick filter
+│       ├── archive-show.js           # templates/archive/show.latte only: load-images / HTML-vs-text view toggle
+│       └── list-manage.js            # templates/list/manage.latte only: moderation accept/reject
 ├── src/
 │   ├── Imap/
 │   │   ├── ImapPoller.php            # Polls IMAP via PhpImap\Mailbox; checks UIDVALIDITY; returns (uid, uidvalidity, mime, mail: IncomingMail) tuples
@@ -508,7 +514,7 @@ oidc-logout-url: "https://sso.example.org/logout?rd=https%3A%2F%2Flists.example.
 ```
 
 - Discovery-only: no separate authorization/token/userinfo endpoint keys — `jumbojett/openid-connect-php` fetches them all from `oidc-provider-url`'s `/.well-known/openid-configuration`.
-- Authorization Code flow with PKCE (`S256`), scopes `openid profile email`.
+- Authorization Code flow with PKCE (`S256`), scopes `openid email` — `openid` is added unconditionally by the underlying `jumbojett/openid-connect-php` client itself, `email` is the only scope Listig requests on top of it. Nothing beyond `email` (`AuthController::loginOidc()`'s sole `getUserInfo()` call) is ever read, so `profile` (name/given_name/family_name/preferred_username/...) is deliberately not requested — no code path consumes it, and asking for more identity data than is actually used has no upside.
 - All five keys are in `VariableResolver::BLOCKED_KEYS` (see "Blocked variables") — same treatment as `ldap-host`/`ldap-bind-dn`/`ldap-bind-password`, resolved under `ResolutionPurpose::Trusted` only at the one point they're actually consumed (`OpenIdConnectService::class` in `config/container.php`).
 - `oidc-public-provider-url` is used two ways in `OpenIdConnectService`: its host is spoofed into the `Host`/`X-Forwarded-Proto` headers of every backend→IdP request (so the IdP's discovery document — and the ID token's `iss` claim — reflect the public identity, not the internal address this backend actually connects to), and the token/jwks/userinfo endpoints discovery returns (now necessarily public-host-based too) are rewritten back onto `oidc-provider-url`, since only `authorization_endpoint` is ever browser-facing.
 - `oidc-logout-url` — see "Authentication (OIDC)" for the full logout flow (`OpenIdConnectService::getLogoutUrl()`, `AuthController::logout()`).
@@ -763,7 +769,9 @@ An earlier version of this cache used `$_SESSION` (keyed the same way, but stori
 
 `in_reply_to`/`references` are not parsed by php-imap — `HeaderFilter::readHeader()` (generalized from the extraction `MailProcessor` already did for outgoing threading headers) pulls them from `headersRaw` via unfold+regex, same as everywhere else in this codebase. `thread_root` = first Message-ID in `References`, else `in_reply_to`, else the message's own id (see "Archive index" above) — a grouping key, not necessarily an archived row itself.
 
-**Threading (`Archive/ArchiveThreader.php`, pure PHP, no DB access)** — annotates an already-SQL-sorted page with `depth`/`thread_size`/`is_thread_start`. The list query anchors each thread's position by its *most recent* message (`ORDER BY MAX(mail_date) per thread_root DESC, mail_date ASC within`), so a thread with a new reply bubbles toward the top of the newest-first page, and pagination only ever cuts a thread at its edges (never splits it internally within one page's boundary maths). `depth` is resolved by matching `in_reply_to` against `message_id` of other rows **on the same page only** — a row whose parent isn't present there is simply depth 0 (still grouped under the same `thread_root`), not an error. The table/thread-toggle/quick-filter/per-thread-collapse interactions in `templates/archive/index.latte` are all client-side vanilla JS over `data-*` attributes on each `<tr>` — zero network round-trips, consistent with the app's existing minimal-JS house style (`templates/list/manage.latte`). The per-thread expand/collapse control is an inline SVG chevron (`.chevron`), not a swapped-text character (▶/▼) — CSS alone rotates it 90° via `.thread-expand[aria-expanded="true"] .chevron`, so `toggleThread()`/`toggleThreading()` only ever need to flip the `aria-expanded` attribute, not also keep a second, redundant text glyph in sync with it.
+**Threading (`Archive/ArchiveThreader.php`, pure PHP, no DB access)** — annotates an already-SQL-sorted page with `depth`/`thread_size`/`is_thread_start`. The list query anchors each thread's position by its *most recent* message (`ORDER BY MAX(mail_date) per thread_root DESC, mail_date ASC within`), so a thread with a new reply bubbles toward the top of the newest-first page, and pagination only ever cuts a thread at its edges (never splits it internally within one page's boundary maths). `depth` is resolved by matching `in_reply_to` against `message_id` of other rows **on the same page only** — a row whose parent isn't present there is simply depth 0 (still grouped under the same `thread_root`), not an error. The table/thread-toggle/quick-filter/per-thread-collapse interactions (`public/assets/archive-index.js`, loaded from `templates/archive/index.latte`'s `{block head}` — see "CSS/JS: one global stylesheet, per-page scripts") are all client-side vanilla JS over `data-*` attributes on each `<tr>` — zero network round-trips, consistent with the app's existing minimal-JS house style (`templates/list/manage.latte`). The header's own thread/flat-view toggle button (`#thread-toggle`) renders a small hand-drawn "directory tree" SVG (a trunk with three branch lines, stroke `currentColor`, same visual language as the per-row `.chevron`) rather than an emoji — the original 🧵 (spool-of-thread, `&#129525;`) read as a sewing/textile icon, not a hierarchy/threading one. The per-thread expand/collapse control is an inline SVG chevron (`.chevron`), not a swapped-text character (▶/▼) — CSS alone rotates it 90° via `.thread-expand[aria-expanded="true"] .chevron`, so `toggleThread()`/`toggleThreading()` only ever need to flip the `aria-expanded` attribute, not also keep a second, redundant text glyph in sync with it. `applyFilter()` originally violated this itself — it set `btn.textContent = '▶'/'▼'` when auto-expanding/collapsing a thread on filter match, which overwrites (and permanently destroys, since it's a DOM mutation, not a re-render) the button's `<svg class="chevron">` child with a plain-text glyph; toggling the filter box once was enough to replace every visible chevron with ▶/▼ for the rest of the page's lifetime. Fixed by dropping both `textContent` assignments — `aria-expanded` plus the existing CSS rule is already sufficient, exactly as the paragraph above assumes.
+
+The toggle button (header) and each row's chevron (body) live in their own dedicated first `<th>`/`<td class="thread-col">` (fixed `width: 1.75rem`), separate from the subject `<td>` — not inline before the subject link within one flex cell. A thread-starting row with `thread_size > 1` renders a chevron in this column; every other row (single mails, and any row that isn't itself a thread start) renders an empty `<td class="thread-col">`. This is what makes top-level subjects line up flush under the "Betreff" heading regardless of whether a given mail has a thread — with the chevron inline before the subject (the original layout), a thread-starting row's subject was pushed right by the button's own width relative to a plain single mail's subject, which had no button at all to push it. `depth`-based indentation (`.thread-indent`) still lives inside the subject `<td>` and still only matters for expanded child rows (depth ≥ 1) — top-level rows are always depth 0, so this indent is 0-width there independent of the chevron-column fix.
 
 **Rendering (`Archive/ArchiveHtmlSanitizer.php`)** — `ezyang/htmlpurifier` (`Cache.DefinitionImpl = null`, no new writable dir beyond the existing `/tmp/latte` precedent) with a fixed small tag/attribute allowlist (`HTML.Allowed`) — `<script>`, `<style>`, `<iframe>`, `<form>`, event handlers, `javascript:` URIs, `srcset`, and `<source>`/`<video>`/`<audio>`/`<picture>` are simply absent from it, so they're stripped outright with no separate blocklist to maintain; `style` is allowed only with a small safe CSS property allowlist (`CSS.AllowedProperties`). `cid:` references are rewritten to the attachment endpoint *before* purification (HTMLPurifier has no built-in "cid" URI scheme, and a pre-processing rewrite is simpler than teaching it one) — always, regardless of the images toggle below, since they're part of the mail's own MIME structure we host, not a third-party fetch. The result is rendered inside `<iframe sandbox>` (bare `sandbox`, no `allow-same-origin`/`allow-scripts`) at the `/frame` route, which also carries its own strict `Content-Security-Policy` header independent of the outer page. Because the sandbox has no `allow-scripts`, "load external images" (off by default — only `img[src]` survives the allowlist to begin with, so nothing else needs gating) cannot be a script-driven DOM mutation: the **outer** (trusted) page's plain button changes the iframe's `src` to add `?loadImages=1`, triggering a full server re-render — no JS ever runs inside the sandboxed content boundary. `frame()`'s CSP `img-src` is *not* a fixed `'self'` — it widens to `'self' https: http:` exactly when `$loadImages` is true, matching what `stripExternalResources()` actually left in the HTML; a fixed `'self'` here silently blocked every off-origin image the "load images" button was supposed to unlock, independent of `stripExternalResources()` correctly leaving them in place.
 
@@ -1774,6 +1782,45 @@ directly under `public/` instead — served the same way, via the `location /` f
 finding the real file before it ever reaches `index.php`, so no nginx change was needed for them either.
 Only `index.php` itself is ever passed to php-fpm (`location = /index.php`); any other `.php` request
 is rejected with `404` (`location ~ \.php$ { return 404; }`).
+
+### CSS/JS: one global stylesheet, per-page scripts
+
+All CSS lives in `public/assets/style.css` — one file, loaded once from `templates/layout.latte`'s
+`<head>` via `<link rel="stylesheet">` and shared by every page that extends it (`{layout
+'../templates/layout.latte'}`). No template carries its own `<style>` block or a `style="..."` attribute
+for anything decorative — every color/spacing/layout rule that used to be inline or in a page-specific
+`{block head}` `<style>` tag (the archive index/show pages both had their own) is now a class in this one
+file instead, including small utility classes (`.text-muted`, `.text-danger`, `.text-center`, `.mt-1`,
+`.nowrap`, `.empty-state`, ...) reused across otherwise-unrelated pages that happened to want the same
+gray-text/red-text/centered-card look. The **one** exception is genuinely data-driven inline style —
+`archive/index.latte`'s `<span class="thread-indent" style="width:{$row['depth'] * 1.25}em">`, computed
+per row from `$row['depth']`, which cannot be a static class since the value differs per mail. `templates/archive/frame.latte`
+keeps its own tiny inline `<style>` block deliberately: it's a standalone document (does *not* extend
+`layout.latte`) rendered inside a sandboxed `<iframe>` under its own strict CSP
+(`style-src 'unsafe-inline'` — see "Archive viewer"), which allows an inline `<style>` tag but not an
+external stylesheet request (that would need `style-src 'self'`, which the CSP deliberately doesn't grant).
+
+JS follows the same split, one file per concern rather than one bundle: `public/assets/script.js` (shared
+helpers — `getCsrfToken()`, `listigLogout()`, the `[data-utc]` timestamp-localization pass, loaded on
+every page) plus `archive-index.js`, `archive-show.js`, `list-manage.js` (one page's worth of behavior
+each, loaded only from that page's own `{block head}`). All are loaded with `<script src="..." defer>`
+rather than inline — deferred scripts execute in the *document* order they're declared in, not load
+order, so `layout.latte`'s `<script src="/assets/script.js" defer>` is placed ahead of `{block head}`
+in the compiled HTML specifically so a page-specific script declared inside that block can rely on
+`script.js`'s functions already being defined by the time it runs, with no explicit dependency
+management needed beyond "declare script.js's tag first."
+
+`list-manage.js` is the one page-specific script that would, before this split, have needed
+server-rendered translated strings inside a `<script>` block (`list.manage.js_error_prefix`/
+`js_error_generic`, shown in an `alert()` on a failed accept/reject API call) — impossible for a static
+`.js` file, which is served byte-identical to every request with no PHP/Latte involved. `list/manage.latte`
+threads them through instead via a hidden `<div id="list-manage-i18n" data-error-prefix="..."
+data-error-generic="...">`; `list-manage.js` reads `document.getElementById('list-manage-i18n')?.dataset`
+once at load. Same reasoning as `ResolutionPurpose`/`personalize:` elsewhere in this codebase for keeping
+server-rendered content out of anywhere it doesn't need to be — here the constraint is technical
+(a static asset can't run `TranslatorInterface::trans()`) rather than a trust boundary, but the fix
+pattern (render into a `data-*` attribute, read it from JS) is the same one Latte itself already forces
+for CSP/script-in-attribute reasons elsewhere in the codebase.
 
 ### Member dashboard (`/`)
 

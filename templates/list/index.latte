@@ -4,6 +4,6 @@
 
 {block content}
 <h1>{$list->displayName|escapeHtml}</h1>
-<p style="color:#666">{$list->mail|escapeHtml}</p>
+<p class="text-muted">{$list->mail|escapeHtml}</p>
 <p n:if="$list->description">{$list->description|escapeHtml}</p>
 {/block}

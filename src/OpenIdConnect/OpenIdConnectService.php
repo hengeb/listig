@@ -95,8 +95,11 @@ class OpenIdConnectService
             }
         };
         $this->client->setRedirectURL($redirectUrl);
-        // jumbojett always appends the mandatory "openid" scope itself
-        $this->client->addScope(['profile', 'email']);
+        // jumbojett always appends the mandatory "openid" scope itself. Only "email"
+        // is requested beyond that — it's the only claim getUserInfo() ever reads
+        // (AuthController::loginOidc()); no code path consumes anything "profile"
+        // would add (name, given_name, family_name, preferred_username, ...).
+        $this->client->addScope(['email']);
         $this->client->setCodeChallengeMethod('S256');
     }
 

@@ -6,20 +6,20 @@
 <h1>{$translator->trans('dashboard.heading')}</h1>
 
 <div class="card" n:if="count($lists) === 0">
-    <p style="color:#777;margin:0">{$translator->trans('dashboard.empty')}</p>
+    <p class="empty-state">{$translator->trans('dashboard.empty')}</p>
 </div>
 
 <div class="card" n:foreach="$lists as $list">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div class="list-summary">
         <div>
-            <strong style="font-size:1.05rem">{$list->displayName|escapeHtml}</strong>
-            <span style="color:#888;margin-left:.5rem;font-size:.9rem">&lt;{$list->mail|escapeHtml}&gt;</span>
-            <p style="color:#555;margin:.4rem 0 0" n:if="$list->description">{$list->description|escapeHtml}</p>
-            <p style="margin:.4rem 0 0" n:if="$list->archive->value === 'members' || $list->archive->value === 'public'">
+            <strong class="list-summary-name">{$list->displayName|escapeHtml}</strong>
+            <span class="list-summary-mail">&lt;{$list->mail|escapeHtml}&gt;</span>
+            <p class="list-summary-description" n:if="$list->description">{$list->description|escapeHtml}</p>
+            <p class="list-summary-archive-link" n:if="$list->archive->value === 'members' || $list->archive->value === 'public'">
                 <a href="/{$list->name}/archive">{$translator->trans('archive.index.heading')}</a>
             </p>
         </div>
-        <a n:if="isset($unsubscribeLinks[$list->name])" href="{$unsubscribeLinks[$list->name]|escapeHtml}" class="btn btn-secondary" style="white-space:nowrap">{$translator->trans('dashboard.unsubscribe_button')}</a>
+        <a n:if="isset($unsubscribeLinks[$list->name])" href="{$unsubscribeLinks[$list->name]|escapeHtml}" class="btn btn-secondary nowrap">{$translator->trans('dashboard.unsubscribe_button')}</a>
     </div>
 </div>
 {/block}

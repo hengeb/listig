@@ -3,39 +3,7 @@
 {block title}{$row['subject']|escapeHtml} – {$list->displayName|escapeHtml} – {$appName}{/block}
 
 {block head}
-<style>
-    .notice { display: flex; align-items: center; gap: .75rem; background: #fff3cd; color: #856404; border: 1px solid #ffe69c; border-radius: 6px; padding: .6rem .9rem; margin-bottom: .75rem; font-size: .9rem; }
-    .notice .notice-icon { font-size: 1.1rem; flex-shrink: 0; }
-    .notice .btn { margin-left: auto; flex-shrink: 0; }
-    .view-toggle { display: flex; gap: .4rem; margin-bottom: .75rem; }
-    .view-toggle .btn { padding: .3rem .7rem; font-size: .8rem; }
-    .thumbnail-gallery { display: flex; flex-wrap: wrap; gap: .75rem; }
-    .thumbnail-box { display: block; width: 140px; border: 1px solid #eee; border-radius: 6px; padding: .5rem; text-decoration: none; color: #333; text-align: center; }
-    .thumbnail-box:hover { border-color: #ccc; background: #fafafa; }
-    .thumbnail-box img { max-width: 100%; max-height: 100px; object-fit: contain; display: block; margin: 0 auto .4rem; }
-    .thumbnail-box .thumbnail-name { display: block; font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .attachment-list { margin: .5rem 0 0; padding-left: 1.25rem; }
-</style>
-<script>
-function loadImages(btn) {
-    const frame = document.getElementById('archive-frame');
-    const url = new URL(frame.src, location.origin);
-    url.searchParams.set('loadImages', '1');
-    frame.src = url.toString();
-    btn.closest('.notice').remove();
-}
-
-function setView(view) {
-    const frame = document.getElementById('archive-frame');
-    const url = new URL(frame.src, location.origin);
-    url.searchParams.set('view', view);
-    frame.src = url.toString();
-    document.getElementById('view-html-btn').classList.toggle('btn-primary', view === 'html');
-    document.getElementById('view-html-btn').classList.toggle('btn-secondary', view !== 'html');
-    document.getElementById('view-text-btn').classList.toggle('btn-primary', view === 'text');
-    document.getElementById('view-text-btn').classList.toggle('btn-secondary', view !== 'text');
-}
-</script>
+<script src="/assets/archive-show.js" defer></script>
 {/block}
 
 {block content}
@@ -54,7 +22,7 @@ function setView(view) {
     {if count($attachments) === 1}
         {foreach $attachments as $index => $attachment}
             <a href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))|escapeHtml}</a>
-            <span style="color:#888;font-size:.85em"> ({$attachment->sizeInBytes|formatBytes})</span>
+            <span class="attachment-size"> ({$attachment->sizeInBytes|formatBytes})</span>
         {/foreach}
     {else}
         <details>
@@ -62,7 +30,7 @@ function setView(view) {
             <ul class="attachment-list">
                 <li n:foreach="$attachments as $index => $attachment">
                     <a href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))|escapeHtml}</a>
-                    <span style="color:#888;font-size:.85em"> ({$attachment->sizeInBytes|formatBytes})</span>
+                    <span class="attachment-size"> ({$attachment->sizeInBytes|formatBytes})</span>
                 </li>
             </ul>
         </details>
@@ -84,8 +52,7 @@ function setView(view) {
         <button type="button" class="btn btn-primary" id="view-html-btn" onclick="setView('html')">{$translator->trans('archive.show.view_html')}</button>
         <button type="button" class="btn btn-secondary" id="view-text-btn" onclick="setView('text')">{$translator->trans('archive.show.view_text')}</button>
     </div>
-    <iframe n:if="!$mailMissing" id="archive-frame" src="/{$list->name}/archive/{$row['id']}/frame" sandbox
-        style="width:100%;min-height:400px;border:1px solid #eee;border-radius:6px;background:#fff"
+    <iframe n:if="!$mailMissing" id="archive-frame" class="archive-frame" src="/{$list->name}/archive/{$row['id']}/frame" sandbox
         title="{$translator->trans('archive.show.mail_frame_title')}"></iframe>
 </div>
 

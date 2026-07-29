@@ -1,0 +1,96 @@
+/* Listig — global stylesheet, served directly by nginx (docker/nginx.conf's
+   /assets/ location), loaded once from templates/layout.latte's <head> and
+   shared by every page that extends it. See CLAUDE.md "Static assets". */
+
+*, *::before, *::after { box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #f5f5f5; color: #333; }
+.container { max-width: 960px; margin: 0 auto; padding: 1rem 1.5rem; }
+header { background: #1a1a2e; color: #fff; padding: 0.75rem 0; }
+header .container { display: flex; justify-content: space-between; align-items: center; }
+header a { color: #fff; text-decoration: none; font-weight: 600; font-size: 1.25rem; }
+header a.brand { display: flex; align-items: center; gap: .5rem; }
+header a.brand img { height: 1.6rem; width: 1.6rem; display: block; }
+nav a { color: #ccc; text-decoration: none; margin-left: 1rem; font-size: 0.9rem; }
+nav a:hover { color: #fff; }
+main { padding: 2rem 0; }
+.card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 1.5rem; }
+h1 { margin-top: 0; }
+h2 { margin-top: 0; font-size: 1.1rem; color: #555; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #f9f9f9; font-weight: 600; }
+.btn { display: inline-block; padding: 0.4rem 0.9rem; border-radius: 4px; border: none; cursor: pointer; font-size: 0.875rem; text-decoration: none; }
+.btn-primary { background: #1a1a2e; color: #fff; }
+.btn-danger { background: #c0392b; color: #fff; }
+.btn-success { background: #27ae60; color: #fff; }
+.btn-secondary { background: #7f8c8d; color: #fff; }
+.btn-block { display: block; width: 100%; padding: .65rem; text-align: center; box-sizing: border-box; }
+.flash { padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; background: #d5e8d4; border: 1px solid #82b366; }
+.badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.75rem; }
+.badge-ok { background: #d5e8d4; color: #27ae60; }
+.badge-warn { background: #fff3cd; color: #856404; }
+.badge-err { background: #f8d7da; color: #842029; }
+
+/* Generic utilities — used across several pages instead of one-off inline styles */
+.text-muted { color: #777; }
+.text-danger { color: #c0392b; }
+.text-center { text-align: center; }
+.nowrap { white-space: nowrap; }
+.mt-1 { margin-top: 1rem; }
+.empty-state { color: #777; margin: 0; }
+
+/* header (templates/layout.latte) */
+.header-user-email { color: #ccc; font-size: .85rem; }
+
+/* narrow centered card pages: login.latte, unsubscribe.latte, subscribe-confirm.latte */
+.narrow-page { max-width: 480px; margin: 4rem auto; }
+.narrow-page-sm { max-width: 420px; margin: 4rem auto; }
+.centered-heading { text-align: center; font-size: 1.5rem; }
+.result-icon { font-size: 2rem; margin-bottom: 1rem; }
+
+/* login.latte */
+.oidc-login-btn { margin-bottom: 1.25rem; }
+.login-divider { text-align: center; color: #999; font-size: .85rem; margin-bottom: 1.25rem; }
+.form-label { display: block; margin-bottom: .5rem; font-weight: 600; }
+.form-input { width: 100%; padding: .6rem .75rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; margin-bottom: 1rem; }
+
+/* dashboard.latte */
+.list-summary { display: flex; justify-content: space-between; align-items: flex-start; }
+.list-summary-name { font-size: 1.05rem; }
+.list-summary-mail { color: #888; margin-left: .5rem; font-size: .9rem; }
+.list-summary-description { color: #555; margin: .4rem 0 0; }
+.list-summary-archive-link { margin: .4rem 0 0; }
+
+/* list/manage.latte */
+.list-mail-subtitle { font-size: .6em; color: #777; }
+
+/* Archive index (templates/archive/index.latte) */
+.visually-hidden { position: absolute; left: -9999px; }
+.archive-toolbar { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
+.archive-toolbar input[type=text] { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
+#archive-table th.thread-col, #archive-table td.thread-col { width: 1.75rem; padding-left: 0.75rem; padding-right: 0; }
+#archive-table td.subject { display: flex; align-items: center; gap: 0.35rem; }
+.thread-toggle-icon { cursor: pointer; background: none; border: none; font-size: 1rem; padding: 0; line-height: 1; display: inline-flex; align-items: center; }
+.chevron { transition: transform .15s ease; color: #888; }
+.thread-expand[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+.thread-indent { display: inline-block; flex-shrink: 0; }
+tr.reply-row { display: none; }
+tr.reply-row.expanded { display: table-row; }
+.paperclip { margin-left: 0.15rem; }
+.reply-count { color: #888; font-size: 0.85em; margin-left: 0.4rem; white-space: nowrap; }
+.pagination { margin-top: 1rem; }
+
+/* Archive show (templates/archive/show.latte) */
+.notice { display: flex; align-items: center; gap: .75rem; background: #fff3cd; color: #856404; border: 1px solid #ffe69c; border-radius: 6px; padding: .6rem .9rem; margin-bottom: .75rem; font-size: .9rem; }
+.notice .notice-icon { font-size: 1.1rem; flex-shrink: 0; }
+.notice .btn { margin-left: auto; flex-shrink: 0; }
+.view-toggle { display: flex; gap: .4rem; margin-bottom: .75rem; }
+.view-toggle .btn { padding: .3rem .7rem; font-size: .8rem; }
+.thumbnail-gallery { display: flex; flex-wrap: wrap; gap: .75rem; }
+.thumbnail-box { display: block; width: 140px; border: 1px solid #eee; border-radius: 6px; padding: .5rem; text-decoration: none; color: #333; text-align: center; }
+.thumbnail-box:hover { border-color: #ccc; background: #fafafa; }
+.thumbnail-box img { max-width: 100%; max-height: 100px; object-fit: contain; display: block; margin: 0 auto .4rem; }
+.thumbnail-box .thumbnail-name { display: block; font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-list { margin: .5rem 0 0; padding-left: 1.25rem; }
+.attachment-size { color: #888; font-size: .85em; }
+.archive-frame { width: 100%; min-height: 400px; border: 1px solid #eee; border-radius: 6px; background: #fff; }

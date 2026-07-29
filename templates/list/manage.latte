@@ -3,23 +3,20 @@
 {block title}{$translator->trans('list.manage.title_prefix')}: {$list->displayName|escapeHtml} – {$appName}{/block}
 
 {block head}
-<script>
-const csrf = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('PHPSESSID='))?.split('=')[1] ?? '';
-async function apiPost(url) {
-    const r = await fetch(url, { method: 'POST', headers: { 'X-CSRF-Token': csrf } });
-    if (!r.ok) { alert({$translator->trans('list.manage.js_error_prefix')} + (await r.json()).error); return; }
-    location.reload();
-}
-async function apiDelete(url) {
-    const r = await fetch(url, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf } });
-    if (!r.ok) { alert({$translator->trans('list.manage.js_error_generic')}); return; }
-    location.reload();
-}
-</script>
+{* list-manage.js needs script.js's getCsrfToken() to already be defined — see
+   the ordering comment on templates/layout.latte's own <script src> tag. *}
+<script src="/assets/list-manage.js" defer></script>
 {/block}
 
 {block content}
-<h1>{$list->displayName|escapeHtml} <small style="font-size:.6em;color:#777">{$list->mail|escapeHtml}</small></h1>
+{* Translated strings for list-manage.js — a static file can't itself contain
+   server-rendered translations, so they're threaded through via data
+   attributes instead. See CLAUDE.md "Internationalization". *}
+<div id="list-manage-i18n" hidden
+    data-error-prefix="{$translator->trans('list.manage.js_error_prefix')}"
+    data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
+></div>
+<h1>{$list->displayName|escapeHtml} <small class="list-mail-subtitle">{$list->mail|escapeHtml}</small></h1>
 
 <p n:if="$list->archive->value !== 'off' && $list->archive->value !== 'hidden'">
     <a href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a>
@@ -66,7 +63,7 @@ async function apiDelete(url) {
     <h2>{$translator->trans('list.manage.queue_status')}</h2>
     <p>
         {$translator->trans('list.manage.sent')}: <strong>{$queueStatus['sent']}</strong> /
-        {$translator->trans('list.manage.failed')}: <strong style="color:#c0392b">{$queueStatus['failed']}</strong> /
+        {$translator->trans('list.manage.failed')}: <strong class="text-danger">{$queueStatus['failed']}</strong> /
         {$translator->trans('list.manage.total')}: <strong>{$queueStatus['total']}</strong>
     </p>
 </div>
