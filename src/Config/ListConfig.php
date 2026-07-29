@@ -318,19 +318,39 @@ class ListConfig
             if ($raw === 'off' || $raw === '') {
                 return ['list-url'];
             }
-            return array_merge(['list-url'], array_map('trim', explode(',', $raw)));
+            return array_merge(['list-url'], self::splitCommaList($raw));
         }
     }
 
     /** Extra reserved subaddresses beyond the built-in bounce/accept-/reject- set (comma-separated, like `personalize`). */
     public array $reservedSubaddresses {
         get {
-            $raw = trim((string) ($this->raw['reserved-subaddresses'] ?? ''));
-            if ($raw === '') {
-                return [];
-            }
-            return array_map(fn($v) => strtolower(trim($v)), explode(',', $raw));
+            $raw = (string) ($this->raw['reserved-subaddresses'] ?? '');
+            return array_map('strtolower', self::splitCommaList($raw));
         }
+    }
+
+    /**
+     * Splits a comma-separated config value (`personalize`, `reserved-subaddresses`)
+     * into trimmed, non-empty entries. `preg_split` on a run of commas and/or
+     * whitespace, rather than plain `explode(',', ...)` (each entry individually
+     * trimmed afterwards either way) — so `key1, key2, key3` and `key1,key2,key3`
+     * always produce the identical array, and a doubled/stray separator
+     * (`key1,, key2`, a trailing comma, ...) can never leave a spurious
+     * empty-string entry in the result the way plain `explode()` would.
+     *
+     * @return string[]
+     */
+    private static function splitCommaList(string $raw): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+        return array_values(array_filter(
+            array_map('trim', preg_split('/[,\s]+/', $raw)),
+            fn(string $v) => $v !== '',
+        ));
     }
 
     /**

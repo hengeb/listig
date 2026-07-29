@@ -49,8 +49,7 @@ function setView(view) {
     </table>
 </div>
 
-{if count($attachments) > 0}
-<div class="card">
+<div class="card" n:if="count($attachments) > 0">
     <h2>{$translator->trans('archive.show.attachments_heading')}</h2>
     {if count($attachments) === 1}
         {foreach $attachments as $index => $attachment}
@@ -61,52 +60,42 @@ function setView(view) {
         <details>
             <summary>{$translator->trans('archive.show.attachments_summary', ['%count%' => count($attachments), '%size%' => $totalAttachmentSize])}</summary>
             <ul class="attachment-list">
-                {foreach $attachments as $index => $attachment}
-                    <li>
-                        <a href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))|escapeHtml}</a>
-                        <span style="color:#888;font-size:.85em"> ({$attachment->sizeInBytes|formatBytes})</span>
-                    </li>
-                {/foreach}
+                <li n:foreach="$attachments as $index => $attachment">
+                    <a href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))|escapeHtml}</a>
+                    <span style="color:#888;font-size:.85em"> ({$attachment->sizeInBytes|formatBytes})</span>
+                </li>
             </ul>
         </details>
     {/if}
 </div>
-{/if}
 
 <div class="card">
-    {if $mailMissing}
-        <p>{$translator->trans('archive.show.mail_unavailable')}</p>
-    {else}
-        {if $hasExternalContent}
-        <div class="notice">
-            <span class="notice-icon">&#9888;</span>
-            <span>{$translator->trans('archive.show.external_content_notice')}</span>
-            <button class="btn btn-secondary" onclick="loadImages(this)">{$translator->trans('archive.show.load_images')}</button>
-        </div>
-        {/if}
-        {if $hasPlainAlternative}
-        <div class="view-toggle">
-            <button type="button" class="btn btn-primary" id="view-html-btn" onclick="setView('html')">{$translator->trans('archive.show.view_html')}</button>
-            <button type="button" class="btn btn-secondary" id="view-text-btn" onclick="setView('text')">{$translator->trans('archive.show.view_text')}</button>
-        </div>
-        {/if}
-        <iframe id="archive-frame" src="/{$list->name}/archive/{$row['id']}/frame" sandbox
-            style="width:100%;min-height:400px;border:1px solid #eee;border-radius:6px;background:#fff"
-            title="{$translator->trans('archive.show.mail_frame_title')}"></iframe>
-    {/if}
+    <p n:if="$mailMissing">{$translator->trans('archive.show.mail_unavailable')}</p>
+
+    {* $hasExternalContent/$hasPlainAlternative are already false whenever
+       $mailMissing is true (ArchiveController::show() only computes them for a
+       resolved mail), so neither needs a separate !$mailMissing check here. *}
+    <div class="notice" n:if="$hasExternalContent">
+        <span class="notice-icon">&#9888;</span>
+        <span>{$translator->trans('archive.show.external_content_notice')}</span>
+        <button class="btn btn-secondary" onclick="loadImages(this)">{$translator->trans('archive.show.load_images')}</button>
+    </div>
+    <div class="view-toggle" n:if="$hasPlainAlternative">
+        <button type="button" class="btn btn-primary" id="view-html-btn" onclick="setView('html')">{$translator->trans('archive.show.view_html')}</button>
+        <button type="button" class="btn btn-secondary" id="view-text-btn" onclick="setView('text')">{$translator->trans('archive.show.view_text')}</button>
+    </div>
+    <iframe n:if="!$mailMissing" id="archive-frame" src="/{$list->name}/archive/{$row['id']}/frame" sandbox
+        style="width:100%;min-height:400px;border:1px solid #eee;border-radius:6px;background:#fff"
+        title="{$translator->trans('archive.show.mail_frame_title')}"></iframe>
 </div>
 
-{if count($imageAttachments) > 0}
-<div class="card">
+<div class="card" n:if="count($imageAttachments) > 0">
     <h2>{$translator->trans('archive.show.attachment_previews')}</h2>
     <div class="thumbnail-gallery">
-        {foreach $imageAttachments as $index => $attachment}
-            <a class="thumbnail-box" href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">
-                <img src="/{$list->name}/archive/{$row['id']}/attachment/{$index}" alt="">
-                <span class="thumbnail-name">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))|escapeHtml}</span>
-            </a>
-        {/foreach}
+        <a n:foreach="$imageAttachments as $index => $attachment" class="thumbnail-box" href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">
+            <img src="/{$list->name}/archive/{$row['id']}/attachment/{$index}" alt="">
+            <span class="thumbnail-name">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))|escapeHtml}</span>
+        </a>
     </div>
 </div>
-{/if}
 {/block}

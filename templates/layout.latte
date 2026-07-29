@@ -34,8 +34,22 @@
         .badge-err { background: #f8d7da; color: #842029; }
     </style>
     {block head}{/block}
-    {if isset($user)}
-    <script>
+    {*
+        Optional operator customization — see CLAUDE.md "Custom layout" for the
+        full mechanism. /app/config/custom.latte is never baked into the image;
+        an operator mounts it as a read-only volume (same convention as
+        config.yml/filters.yml) and defines any subset of five named blocks
+        with {define blockname}...{/define}. Nothing here fails if the file
+        isn't mounted at all, or defines only some of the five.
+    *}
+    {var $customLayoutFile = '/app/config/custom.latte'}
+    {if file_exists($customLayoutFile)}
+        {import $customLayoutFile}
+    {/if}
+    {ifset #custom_head}
+        {include #custom_head}
+    {/ifset}
+    <script n:if="isset($user)">
     async function listigLogout(event) {
         event.preventDefault();
         const csrf = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('PHPSESSID='))?.split('=')[1] ?? '';
@@ -46,9 +60,14 @@
         location.href = data.redirectUrl || '/_/login';
     }
     </script>
-    {/if}
 </head>
 <body>
+{ifset #custom_body_start}
+    {include #custom_body_start}
+{/ifset}
+{ifset #custom_header}
+    {include #custom_header}
+{else}
 <header>
     <div class="container">
         <a href="/" class="brand"><img src="/logo-mark.svg" alt=""> {$appName ?? 'Listig'}</a>
@@ -60,11 +79,18 @@
         </nav>
     </div>
 </header>
+{/ifset}
+{ifset #custom_after_header}
+    {include #custom_after_header}
+{/ifset}
 <main>
     <div class="container">
         {block content}{/block}
     </div>
 </main>
+{ifset #custom_body_end}
+    {include #custom_body_end}
+{/ifset}
 <script>
 // Server-rendered timestamps (archived_mail.mail_date etc.) are always UTC —
 // converted here to the viewer's own local timezone/locale, since the server has

@@ -106,11 +106,14 @@ class VariableResolver
 
             [$value, $recursable] = self::lookupWithSource($key, $contexts, $purpose);
             if ($value === null) {
+                // Falls through to the filter pipeline below (e.g. |default:...)
+                // instead of returning early — a member simply not having a given
+                // attribute is exactly the case VariableFilter's 'default' filter
+                // documents itself as handling (see its docblock), so an absent
+                // key must still reach it, not bypass filters entirely.
                 error_log("Listig: Variable '$key' not found, substituting empty string");
-                return '';
-            }
-
-            if ($recursable && str_contains($value, '{')) {
+                $value = '';
+            } elseif ($recursable && str_contains($value, '{')) {
                 $value = self::resolve($value, $contexts, $purpose, [...$visited, $key]);
             }
 

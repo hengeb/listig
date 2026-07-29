@@ -5,10 +5,13 @@ declare(strict_types=1);
 use DI\ContainerBuilder;
 use Hengeb\Listig\Archive\ArchiveHtmlSanitizer;
 use Hengeb\Listig\Archive\ArchiveIndexer;
+use Hengeb\Listig\Archive\ArchiveMailCache;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Logging\LogLevel;
+use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Crypto\KeyDerivation;
 use Hengeb\Listig\Crypto\PasswordCrypto;
 use Hengeb\Listig\Http\Controller\ArchiveController;
@@ -167,6 +170,21 @@ $builder->addDefinitions([
         return new ListConfig('_default-smtp', '', $cfg);
     },
 
+    // Global default log level — config.yml's 'log-level' root key (default
+    // 'info', see CLAUDE.md "Logging"); individual lists may override via
+    // ListConfig::$logLevel, passed per call to Logger::debug() below.
+    'app.log-level' => function (ContainerInterface $c): string {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $raw = $cfg['log-level'] ?? null;
+        return $raw !== null ? VariableResolver::resolve((string) $raw, [$cfg]) : 'info';
+    },
+
+    // Debug-level tracing (login requests/logins, IMAP mail discovery,
+    // per-recipient enqueue) — see CLAUDE.md "Debug logging".
+    Logger::class => function (ContainerInterface $c): Logger {
+        return new Logger(LogLevel::fromString($c->get('app.log-level')));
+    },
+
     // Translator — resolves keys from translations/messages.{locale}.yaml, falling
     // back to English for anything missing in the current locale.
     TranslatorInterface::class => function (ContainerInterface $c): TranslatorInterface {
@@ -298,6 +316,7 @@ $builder->addDefinitions([
             $c->get(QueueWriter::class),
             $c->get(TokenService::class),
             $c->get('app.hostname'),
+            $c->get(Logger::class),
         );
     },
 
@@ -323,7 +342,7 @@ $builder->addDefinitions([
         return new ImapMailboxFactory($c->get(PasswordCrypto::class));
     },
     ImapPoller::class => function (ContainerInterface $c): ImapPoller {
-        return new ImapPoller($c->get(PDO::class), $c->get(ImapMailboxFactory::class));
+        return new ImapPoller($c->get(PDO::class), $c->get(ImapMailboxFactory::class), $c->get(Logger::class));
     },
     ImapArchiver::class => function (ContainerInterface $c): ImapArchiver {
         return new ImapArchiver($c->get(ImapMailboxFactory::class));
@@ -341,6 +360,7 @@ $builder->addDefinitions([
     ArchiveMailLocator::class => function (ContainerInterface $c): ArchiveMailLocator {
         return new ArchiveMailLocator($c->get(ImapMailboxFactory::class));
     },
+    ArchiveMailCache::class => fn() => new ArchiveMailCache(),
     ArchiveHtmlSanitizer::class => fn() => new ArchiveHtmlSanitizer(),
 
     // Moderation
@@ -447,6 +467,7 @@ $builder->addDefinitions([
             $c->get(SmtpConnectionFactory::class),
             $c->get('app.name'),
             $c->get('app.default-smtp-config'),
+            $c->get(Logger::class),
             $c->get('oidc.enabled'),
             $c->get(OpenIdConnectService::class),
         );
@@ -480,6 +501,7 @@ $builder->addDefinitions([
             $c->get(ListProvider::class),
             $c->get(ArchiveThreader::class),
             $c->get(ArchiveMailLocator::class),
+            $c->get(ArchiveMailCache::class),
             $c->get(ArchiveHtmlSanitizer::class),
             $c->get(TranslatorInterface::class),
             $c->get('app.name'),

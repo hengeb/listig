@@ -21,6 +21,12 @@ use PhpImap\Mailbox;
  * folder — not a copy). Harmless within one HTTP request (nothing else needs
  * INBOX in an archive-viewer request), but do not assume a Mailbox obtained from
  * the factory is always on INBOX after this class has touched it.
+ *
+ * This class always does a full SEARCH ALL + FETCH OVERVIEW scan — it has no
+ * caching of its own. ArchiveController::locateMail() is the caller that
+ * actually avoids paying for this repeatedly (an APCu-backed cache of the fully
+ * rendered mail, see Archive\ArchiveMailCache), so a cache hit there means this
+ * class isn't even called at all for a given mail's second/third/... request.
  */
 class ArchiveMailLocator
 {
@@ -66,7 +72,10 @@ class ArchiveMailLocator
      * `message_id` field is exactly the header value, brackets included) are far
      * more fundamental operations every server actually implements, and this is
      * only ever called for a single-message lookup (opening one archived mail in
-     * the web viewer), not a bulk operation — the linear scan is cheap in practice.
+     * the web viewer), not a bulk operation — the linear scan is cheap in practice,
+     * though its cost does grow with the archive folder's total message count
+     * (see ArchiveController::locateMail()'s cache, which is what actually keeps
+     * this from being paid repeatedly for the same mail within one page view).
      */
     private function findUidByMessageId(Mailbox $mailbox, string $needle): ?int
     {

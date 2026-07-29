@@ -130,10 +130,9 @@ function applyFilter(value) {
     <input type="text" id="archive-filter" placeholder="{$translator->trans('archive.index.filter_placeholder')}" oninput="filterArchive(this.value)">
 </div>
 
-{if count($rows) === 0}
-<div class="card"><p style="color:#777;margin:0">{$translator->trans('archive.index.no_results')}</p></div>
-{else}
-<table id="archive-table">
+<div class="card" n:if="count($rows) === 0"><p style="color:#777;margin:0">{$translator->trans('archive.index.no_results')}</p></div>
+
+<table id="archive-table" n:if="count($rows) > 0">
     <thead>
         <tr>
             <th>
@@ -148,48 +147,40 @@ function applyFilter(value) {
         </tr>
     </thead>
     <tbody id="archive-tbody">
-    {foreach $rows as $row}
         <tr
+            n:foreach="$rows as $row"
             n:class="!$row['is_thread_start'] ? 'reply-row'"
             data-subject="{mb_strtolower($row['subject'] ?? '')}"
             data-sender="{mb_strtolower($row['sender_name'] ?? '')}"
             data-thread-root="{$row['thread_root']}"
             data-depth="{$row['depth']}"
             data-date="{str_replace(' ', 'T', $row['mail_date'])}Z"
-            data-is-thread-start="{if $row['is_thread_start']}1{else}0{/if}"
+            data-is-thread-start="{$row['is_thread_start'] ? 1 : 0}"
         >
             <td class="subject">
                 <span class="thread-indent" style="width:{($row['depth'] * 1.25)|noescape}em"></span>
-                {if $row['is_thread_start'] && $row['thread_size'] > 1}
-                    <button type="button" class="thread-toggle-icon thread-expand" onclick="toggleThread(this)" aria-expanded="false">
-                        <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 1 L7.5 5 L2.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    </button>
-                {/if}
+                <button n:if="$row['is_thread_start'] && $row['thread_size'] > 1" type="button" class="thread-toggle-icon thread-expand" onclick="toggleThread(this)" aria-expanded="false">
+                    <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 1 L7.5 5 L2.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
                 <a href="/{$list->name}/archive/{$row['id']}">{($row['subject'] ?? '')|escapeHtml}</a>
-                {if $row['has_attachments']}<span class="paperclip" title="{$translator->trans('archive.index.has_attachments')}">&#128206;</span>{/if}
-                {if $row['is_thread_start'] && $row['thread_size'] > 1}
-                    <span class="reply-count" data-reply-count>
-                        {if $row['thread_size'] - 1 === 1}
-                            {$translator->trans('archive.index.reply_one', ['%count%' => 1])}
-                        {else}
-                            {$translator->trans('archive.index.reply_many', ['%count%' => $row['thread_size'] - 1])}
-                        {/if}
-                    </span>
-                {/if}
+                <span n:if="$row['has_attachments']" class="paperclip" title="{$translator->trans('archive.index.has_attachments')}">&#128206;</span>
+                <span n:if="$row['is_thread_start'] && $row['thread_size'] > 1" class="reply-count" data-reply-count>
+                    {if $row['thread_size'] - 1 === 1}
+                        {$translator->trans('archive.index.reply_one', ['%count%' => 1])}
+                    {else}
+                        {$translator->trans('archive.index.reply_many', ['%count%' => $row['thread_size'] - 1])}
+                    {/if}
+                </span>
             </td>
             <td>{($row['sender_name'] ?? $translator->trans('archive.unknown_sender'))|escapeHtml}</td>
             <td data-utc="{str_replace(' ', 'T', $row['mail_date'])}Z">{$row['mail_date']|escapeHtml}</td>
         </tr>
-    {/foreach}
     </tbody>
 </table>
 
-{if $totalPages > 1}
-<p style="margin-top:1rem">
-    {if $page > 1}<a href="?page={$page - 1}">&laquo; {$translator->trans('archive.index.prev')}</a>{/if}
+<p style="margin-top:1rem" n:if="count($rows) > 0 && $totalPages > 1">
+    <a n:if="$page > 1" href="?page={$page - 1}">&laquo; {$translator->trans('archive.index.prev')}</a>
     &nbsp;{$page} / {$totalPages}&nbsp;
-    {if $page < $totalPages}<a href="?page={$page + 1}">{$translator->trans('archive.index.next')} &raquo;</a>{/if}
+    <a n:if="$page < $totalPages" href="?page={$page + 1}">{$translator->trans('archive.index.next')} &raquo;</a>
 </p>
-{/if}
-{/if}
 {/block}

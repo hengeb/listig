@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Imap;
 
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Logging\Logger;
 use PDO;
 use PhpImap\IncomingMail;
 
@@ -13,6 +14,7 @@ class ImapPoller
     public function __construct(
         private readonly PDO $db,
         private readonly ImapMailboxFactory $mailboxFactory,
+        private readonly Logger $logger,
     ) {
     }
 
@@ -41,12 +43,24 @@ class ImapPoller
         $seenUids = $this->getSeenUids($list->name, (int) $uidValidity);
         $unseenUids = array_diff($allUids, $seenUids);
 
+        if (!empty($unseenUids)) {
+            $this->logger->debug(
+                'Listig: found ' . count($unseenUids) . " unseen mail(s) in inbox for list {$list->name}: UID(s) " . implode(', ', $unseenUids),
+                $list->logLevel,
+            );
+        }
+
         $results = [];
         foreach ($unseenUids as $uid) {
             try {
                 $raw = $mailbox->getRawMail($uid, false);
                 $mail = $mailbox->getMail($uid, false);
                 if ($raw && $mail) {
+                    $messageId = trim($mail->messageId ?? '', '<> ');
+                    $this->logger->debug(
+                        "Listig: fetched mail UID $uid (Message-ID: $messageId) for list {$list->name}",
+                        $list->logLevel,
+                    );
                     $results[] = [
                         'uid'         => (int) $uid,
                         'uidvalidity' => (int) $uidValidity,

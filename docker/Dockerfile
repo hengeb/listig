@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y \
     supervisor \
     && printf '\n\n' | pecl install imap \
     && docker-php-ext-enable imap \
+    && pecl install apcu \
+    && docker-php-ext-enable apcu \
     && docker-php-ext-install \
         pdo \
         pdo_mysql \
@@ -54,6 +56,10 @@ RUN mkdir -p /tmp/latte && chmod 777 /tmp/latte
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/99-listig.ini
+# Sorts after the base image's own docker.conf/zz-docker.conf (see
+# docker/php-fpm-pool.conf's comment for why access.format needs overriding at
+# all), so this file's access.format directive is the one that actually applies.
+COPY docker/php-fpm-pool.conf /usr/local/etc/php-fpm.d/zz-listig.conf
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

@@ -5,7 +5,5 @@
 {block content}
 <h1>{$list->displayName|escapeHtml}</h1>
 <p style="color:#666">{$list->mail|escapeHtml}</p>
-{if $list->description}
-    <p>{$list->description|escapeHtml}</p>
-{/if}
+<p n:if="$list->description">{$list->description|escapeHtml}</p>
 {/block}

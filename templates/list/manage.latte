@@ -21,21 +21,21 @@ async function apiDelete(url) {
 {block content}
 <h1>{$list->displayName|escapeHtml} <small style="font-size:.6em;color:#777">{$list->mail|escapeHtml}</small></h1>
 
-{if $list->archive->value !== 'off' && $list->archive->value !== 'hidden'}
-<p><a href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a></p>
-{/if}
+<p n:if="$list->archive->value !== 'off' && $list->archive->value !== 'hidden'">
+    <a href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a>
+</p>
 
 <!-- Info -->
 <div class="card">
     <h2>{$translator->trans('list.manage.overview')}</h2>
     <table>
-        {if $list->description !== null && $list->description !== ''}
-        <tr><th>{$translator->trans('list.manage.description')}</th><td>{$list->description|escapeHtml}</td></tr>
-        {/if}
+        <tr n:if="$list->description !== null && $list->description !== ''">
+            <th>{$translator->trans('list.manage.description')}</th><td>{$list->description|escapeHtml}</td>
+        </tr>
         <tr><th>{$translator->trans('list.manage.members')}</th><td>{$memberCount}</td></tr>
         <tr><th>{$translator->trans('list.manage.owners')}</th><td>
             {foreach $list->getOwners() as $owner}
-                {($owner->attributes['firstname'] ?? '')|escapeHtml} {($owner->attributes['lastname'] ?? '')|escapeHtml}{if !$iterator->last}, {/if}
+                {($owner->attributes['firstname'] ?? '')|escapeHtml} {($owner->attributes['lastname'] ?? '')|escapeHtml}{sep}, {/sep}
             {/foreach}
         </td></tr>
         <tr><th>{$translator->trans('list.manage.reply_to')}</th><td>{$list->replyTo->value|escapeHtml}</td></tr>
@@ -45,25 +45,21 @@ async function apiDelete(url) {
 </div>
 
 <!-- Moderation queue -->
-{if count($moderationItems) > 0}
-<div class="card">
+<div class="card" n:if="count($moderationItems) > 0">
     <h2>{$translator->trans('list.manage.moderation_queue')} ({count($moderationItems)})</h2>
     <table>
         <thead><tr><th>{$translator->trans('list.manage.received')}</th><th>{$translator->trans('list.manage.actions')}</th></tr></thead>
         <tbody>
-        {foreach $moderationItems as $item}
-            <tr>
-                <td>{$item['created_at']|escapeHtml}</td>
-                <td>
-                    <button class="btn btn-success" onclick="apiPost('/_/api/moderation/{$item['id']}/accept')">{$translator->trans('list.manage.accept')}</button>
-                    <button class="btn btn-danger" onclick="apiPost('/_/api/moderation/{$item['id']}/reject')">{$translator->trans('list.manage.reject')}</button>
-                </td>
-            </tr>
-        {/foreach}
+        <tr n:foreach="$moderationItems as $item">
+            <td>{$item['created_at']|escapeHtml}</td>
+            <td>
+                <button class="btn btn-success" onclick="apiPost('/_/api/moderation/{$item['id']}/accept')">{$translator->trans('list.manage.accept')}</button>
+                <button class="btn btn-danger" onclick="apiPost('/_/api/moderation/{$item['id']}/reject')">{$translator->trans('list.manage.reject')}</button>
+            </td>
+        </tr>
         </tbody>
     </table>
 </div>
-{/if}
 
 <!-- Queue status -->
 <div class="card">
@@ -82,19 +78,15 @@ async function apiDelete(url) {
         {$translator->trans('list.manage.last_7_days')}: <strong>{$bounceStats['last7']}</strong> &nbsp;|&nbsp;
         {$translator->trans('list.manage.last_30_days')}: <strong>{$bounceStats['last30']}</strong>
     </p>
-    {if count($bounceStats['recent']) > 0}
-    <table>
+    <table n:if="count($bounceStats['recent']) > 0">
         <thead><tr><th>{$translator->trans('list.manage.sender')}</th><th>{$translator->trans('list.manage.subject')}</th><th>{$translator->trans('list.manage.timestamp')}</th></tr></thead>
         <tbody>
-        {foreach $bounceStats['recent'] as $bounce}
-            <tr>
-                <td>{$bounce['sender']|escapeHtml}</td>
-                <td>{$bounce['subject']|escapeHtml}</td>
-                <td>{$bounce['bounced_at']|escapeHtml}</td>
-            </tr>
-        {/foreach}
+        <tr n:foreach="$bounceStats['recent'] as $bounce">
+            <td>{$bounce['sender']|escapeHtml}</td>
+            <td>{$bounce['subject']|escapeHtml}</td>
+            <td>{$bounce['bounced_at']|escapeHtml}</td>
+        </tr>
         </tbody>
     </table>
-    {/if}
 </div>
 {/block}

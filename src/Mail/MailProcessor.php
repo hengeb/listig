@@ -7,6 +7,7 @@ namespace Hengeb\Listig\Mail;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Queue\QueueWriter;
 use Hengeb\Listig\Token\TokenService;
@@ -27,6 +28,7 @@ class MailProcessor
         private readonly QueueWriter $queueWriter,
         private readonly TokenService $tokenService,
         private readonly string $hostname,
+        private readonly Logger $logger,
     ) {
     }
 
@@ -62,6 +64,11 @@ class MailProcessor
         // one, so it stays constant regardless of per-recipient personalization.
         $batchId = hash('sha256', $list->name . ':' . $rawMime);
 
+        $this->logger->debug(
+            'Listig: distributing mail for list ' . $list->name . ' to ' . count($recipients) . " recipient(s) (batch $batchId)",
+            $list->logLevel,
+        );
+
         foreach ($recipients as $recipient) {
             // Full recipient context — not pre-filtered. BodyPersonalizer gates by personalizeKeys
             // at the top level; FooterAppender is operator content with no restriction.
@@ -80,6 +87,10 @@ class MailProcessor
             $recipientEmail->getHeaders()->addTextHeader('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click');
 
             $this->queueWriter->enqueue($list->name, $recipientEmail, $recipient->email, $batchId);
+            $this->logger->debug(
+                "Listig: enqueued mail for list {$list->name} to {$recipient->email} (batch $batchId)",
+                $list->logLevel,
+            );
         }
     }
 

@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Archive\ArchiveHtmlSanitizer;
+use Hengeb\Listig\Archive\ArchiveMailCache;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Archive\ByteFormatter;
+use Hengeb\Listig\Archive\CachedArchivedMail;
+use Hengeb\Listig\Archive\CachedAttachment;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Provider\ListProvider;
@@ -45,6 +48,7 @@ class ArchiveController
         private readonly ListProvider $listProvider,
         private readonly ArchiveThreader $threader,
         private readonly ArchiveMailLocator $mailLocator,
+        private readonly ArchiveMailCache $mailCache,
         private readonly ArchiveHtmlSanitizer $sanitizer,
         private readonly TranslatorInterface $translator,
         private readonly string $appName,
@@ -102,24 +106,24 @@ class ArchiveController
             return $response->withStatus(404);
         }
 
-        $mail = $this->mailLocator->find($list, $row['message_id']);
+        $mail = $this->locateMail($list, $row['message_id']);
 
         // Attachments actually referenced inline in the body (rewritten to cid: URLs
         // by ArchiveHtmlSanitizer) are not listed again as separate downloads —
-        // array_filter preserves the positional keys assigned by
-        // indexAttachmentsByPosition(), which is exactly the {index} the
-        // attachment/frame routes expect (see that method's docblock for why).
+        // array_filter preserves CachedArchivedMail::$attachments' positional
+        // keys, which is exactly the {index} the attachment/frame routes expect
+        // (see ArchiveController::indexAttachmentsByPosition()'s docblock for why).
         $attachments = $mail !== null
-            ? array_filter(self::indexAttachmentsByPosition($mail->getAttachments()), fn(IncomingMailAttachment $a) => !self::isEmbeddedInline($a))
+            ? array_filter($mail->attachments, fn(CachedAttachment $a) => !self::isEmbeddedInline($a))
             : [];
 
         // Shown a second time below the mail body as a thumbnail gallery — the
         // claimed MIME type is fine for this (a UI hint, not a security decision;
         // attachment() independently verifies actual bytes before ever serving one
         // inline — see isSafeInlineContent()).
-        $imageAttachments = array_filter($attachments, fn(IncomingMailAttachment $a) => str_starts_with($a->mimeType ?? '', 'image/'));
+        $imageAttachments = array_filter($attachments, fn(CachedAttachment $a) => str_starts_with($a->mimeType ?? '', 'image/'));
 
-        $totalAttachmentSize = array_sum(array_map(fn(IncomingMailAttachment $a) => $a->sizeInBytes ?? 0, $attachments));
+        $totalAttachmentSize = array_sum(array_map(fn(CachedAttachment $a) => $a->sizeInBytes ?? 0, $attachments));
 
         // The "external content blocked" notice (show.latte) should only appear
         // when there's actually something blocked — previously shown unconditionally
@@ -128,7 +132,7 @@ class ArchiveController
         $hasExternalContent = $mail !== null && $this->sanitizer->hasExternalResources(
             $mail->textHtml,
             $mail->textPlain,
-            self::indexAttachmentsByPosition($mail->getAttachments()),
+            $mail->attachments,
         );
 
         $this->translator->setLocale($list->language);
@@ -169,7 +173,7 @@ class ArchiveController
             return $response->withStatus(404);
         }
 
-        $mail        = $this->mailLocator->find($list, $row['message_id']);
+        $mail        = $this->locateMail($list, $row['message_id']);
         $loadImages  = ($request->getQueryParams()['loadImages'] ?? '') === '1';
         // 'text' forces the plaintext part even when textHtml exists — the
         // show.latte toggle button (only shown when both parts exist, see show())
@@ -190,7 +194,7 @@ class ArchiveController
         $bodyHtml = null;
         if ($mail !== null) {
             try {
-                $bodyHtml = $this->sanitizer->render($mail->textHtml, $mail->textPlain, self::indexAttachmentsByPosition($mail->getAttachments()), $baseUrl, $loadImages, $attachmentToken, $view);
+                $bodyHtml = $this->sanitizer->render($mail->textHtml, $mail->textPlain, $mail->attachments, $baseUrl, $loadImages, $attachmentToken, $view);
             } catch (\Throwable $e) {
                 error_log("Listig: failed to render archived mail {$row['id']} for list {$list->name}: " . $e->getMessage());
             }
@@ -243,21 +247,22 @@ class ArchiveController
             return $response->withStatus(404);
         }
 
-        $mail = $this->mailLocator->find($list, $row['message_id']);
+        $mail = $this->locateMail($list, $row['message_id']);
         if ($mail === null) {
             return $response->withStatus(404);
         }
 
-        $attachments = self::indexAttachmentsByPosition($mail->getAttachments());
         $index = (int) $args['index'];
-        if (!isset($attachments[$index])) {
+        if (!isset($mail->attachments[$index])) {
             return $response->withStatus(404);
         }
-        $attachment = $attachments[$index];
-        try {
-            $contents = $attachment->getContents();
-        } catch (\Throwable $e) {
-            error_log("Listig: failed to fetch attachment $index for archived mail {$row['id']} on list {$list->name}: " . $e->getMessage());
+        $attachment = $mail->attachments[$index];
+        $contents = $attachment->contents;
+        if ($contents === null) {
+            // Eager fetch failed while building the cached/located snapshot
+            // (see CachedAttachment::$contents' docblock) — same client-visible
+            // outcome as a live getContents() failure used to be.
+            error_log("Listig: attachment $index unavailable for archived mail {$row['id']} on list {$list->name}");
             return $response->withStatus(502);
         }
         $mimeType = $attachment->mimeType ?: 'application/octet-stream';
@@ -283,6 +288,61 @@ class ArchiveController
 
         $response->getBody()->write($contents);
         return $response;
+    }
+
+    /**
+     * Wraps ArchiveMailLocator::find() with ArchiveMailCache — a single "view
+     * this archived mail" page load fires several separate HTTP requests
+     * (show(), frame(), one attachment() request per embedded image), each of
+     * which would otherwise independently pay for ArchiveMailLocator's full
+     * IMAP connect + SEARCH ALL + FETCH OVERVIEW scan of the *entire* archive
+     * folder just to re-locate the same one message (measured live: ~550ms per
+     * call against a 20-message archive folder — see ArchiveMailCache's own
+     * docblock for the full reasoning, including why this returns a
+     * CachedArchivedMail snapshot rather than the IncomingMail object itself).
+     *
+     * On a cache miss, every attachment's contents is fetched eagerly right
+     * here — while the IMAP connection ArchiveMailLocator just opened is still
+     * live — rather than lazily on demand later (impossible for a cached
+     * snapshot anyway, see CachedAttachment). A single attachment failing to
+     * fetch doesn't discard the whole mail: it's cached with a null $contents,
+     * and attachment() surfaces that as the same 502 a live fetch failure
+     * would have produced.
+     */
+    private function locateMail(ListConfig $list, string $messageId): ?CachedArchivedMail
+    {
+        $cached = $this->mailCache->get($list->name, $messageId);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $mail = $this->mailLocator->find($list, $messageId);
+        if ($mail === null) {
+            return null;
+        }
+
+        $attachments = [];
+        foreach (self::indexAttachmentsByPosition($mail->getAttachments()) as $index => $attachment) {
+            try {
+                $contents = $attachment->getContents();
+            } catch (\Throwable $e) {
+                error_log("Listig: failed to eagerly fetch attachment $index for Message-ID $messageId on list {$list->name}: " . $e->getMessage());
+                $contents = null;
+            }
+            $attachments[$index] = new CachedAttachment(
+                $attachment->name,
+                $attachment->mimeType,
+                $attachment->sizeInBytes,
+                $attachment->disposition,
+                $attachment->contentId,
+                $contents,
+            );
+        }
+
+        $cached = new CachedArchivedMail($mail->textHtml, $mail->textPlain, $attachments);
+        $this->mailCache->set($list->name, $messageId, $cached);
+
+        return $cached;
     }
 
     /** @see frame()'s $attachmentToken comment for why this fallback exists. */
@@ -408,7 +468,7 @@ class ArchiveController
     }
 
     /** An attachment rewritten to a cid: reference in the body by ArchiveHtmlSanitizer — not listed as a separate download. */
-    private static function isEmbeddedInline(IncomingMailAttachment $attachment): bool
+    private static function isEmbeddedInline(CachedAttachment $attachment): bool
     {
         return ($attachment->disposition ?? '') === 'inline' && ($attachment->contentId ?? '') !== '';
     }

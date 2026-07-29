@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Member\AggregateMemberResolver;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\OpenIdConnect\OpenIdConnectService;
@@ -34,6 +35,7 @@ class AuthController
         private readonly SmtpConnectionFactory $smtpConnectionFactory,
         private readonly string $appName,
         private readonly ListConfig $defaultSmtpConfig,
+        private readonly Logger $logger,
         private readonly bool $oidcEnabled = false,
         private readonly ?OpenIdConnectService $openIdConnect = null,
     ) {
@@ -67,6 +69,8 @@ class AuthController
         $body = $request->getParsedBody();
         $email = strtolower(trim($body['email'] ?? ''));
 
+        $this->logger->debug("Listig: login requested for $email");
+
         $message = $this->translator->trans('auth.magic_link_sent');
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -85,10 +89,15 @@ class AuthController
                     $token = $this->tokenService->sign('login', $list->name, $member->attributes['username'] ?? $email);
                     $link = "https://{$this->hostname}/_/login/verify?token={$token}";
                     $this->sendLoginMail($list, $member, $email, $link);
+                    $this->logger->debug("Listig: login link sent to $email for list {$list->name}", $list->logLevel);
                 } catch (\Throwable $e) {
                     error_log("Listig: Failed to send magic link to $email: " . $e->getMessage());
                 }
+            } else {
+                $this->logger->debug("Listig: login requested for $email — no matching member found in any list");
             }
+        } else {
+            $this->logger->debug("Listig: login requested for $email — rate limit exceeded");
         }
 
         $_SESSION['flash'] = $message;
@@ -120,6 +129,8 @@ class AuthController
             'email' => $userCn,
             'listCn' => $listCn,
         ];
+
+        $this->logger->debug("Listig: login successful for $userCn (list $listCn)");
 
         return $response->withHeader('Location', '/')->withStatus(302);
     }
@@ -172,6 +183,7 @@ class AuthController
             'email' => $member->attributes['username'] ?? $member->email,
             'listCn' => $list->name,
         ];
+        $this->logger->debug("Listig: OIDC login successful for $email (list {$list->name})", $list->logLevel);
         // Saved so logout() can pass it back as id_token_hint for RP-initiated
         // logout — otherwise a Listig logout would leave the user silently
         // re-authenticated by the IdP's own still-valid session on next login.
