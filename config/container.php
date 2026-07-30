@@ -521,6 +521,7 @@ $builder->addDefinitions([
             $c->get('app.name'),
             $c->get(TokenService::class),
             $c->get(ArchiveSynchronizer::class),
+            $c->get('oidc.enabled'),
         );
     },
 

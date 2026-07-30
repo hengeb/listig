@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Http\Middleware;
 
+use Hengeb\Listig\Http\RequestPath;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -37,7 +38,7 @@ class AuthMiddleware implements MiddlewareInterface
             // magic-link flow has no equivalent "next" concept (see CLAUDE.md),
             // so the plain /_/login form is still the right target.
             if ($this->oidcEnabled) {
-                $next = urlencode(self::relativeTarget($request));
+                $next = urlencode(RequestPath::relativeTarget($request));
                 return $response->withHeader('Location', "/_/login/oidc?next={$next}")->withStatus(302);
             }
 
@@ -47,15 +48,5 @@ class AuthMiddleware implements MiddlewareInterface
         $request = $request->withAttribute('user', $user);
 
         return $handler->handle($request);
-    }
-
-    private static function relativeTarget(ServerRequestInterface $request): string
-    {
-        $uri = $request->getUri();
-        $target = $uri->getPath();
-        if ($uri->getQuery() !== '') {
-            $target .= '?' . $uri->getQuery();
-        }
-        return $target;
     }
 }

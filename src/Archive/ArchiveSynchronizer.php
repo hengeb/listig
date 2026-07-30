@@ -11,26 +11,34 @@ use PhpImap\Mailbox;
 
 /**
  * Reconciles archived_mail with the list's actual IMAP archive folder —
- * catches a mail added or removed directly on IMAP, outside Listig's own
- * distribute/delete paths (an operator moving or deleting a message by hand,
- * or another mail client touching the folder). Triggered from
- * ArchiveController::index() (opening the archive), throttled via session so
- * it runs at most once every ArchiveController::SYNC_INTERVAL_SECONDS per
- * list, not on every page load.
+ * catches a mail removed directly on IMAP, outside Listig's own delete paths
+ * (an operator or another mail client deleting a message by hand). Triggered
+ * from ArchiveController::index() (opening the archive), throttled via
+ * session so it runs at most once every ArchiveController::SYNC_INTERVAL_SECONDS
+ * per list, not on every page load.
+ *
+ * Deliberately one-directional — only removes archived_mail rows for
+ * Message-IDs no longer on IMAP, never adds one for a Message-ID found on
+ * IMAP but missing from the index. An earlier version of this class did both
+ * directions, and that was a real bug: bin/worker.php moves a bounced or
+ * rejected mail's raw MIME into the *same* archive folder as a distributed
+ * one (ImapArchiver::archiveOrDelete() runs for all three outcomes — see
+ * CLAUDE.md "IncomingMailFilter — check order"), but only ever calls
+ * ArchiveIndexer::index() for an actual distribute — bounce/reject mail is
+ * deliberately kept off the member-facing index (see ArchiveIndexer's own
+ * docblock). Nothing on the raw IMAP message distinguishes "this is a
+ * distribute Listig just hasn't indexed yet" from "this is a reject/bounce
+ * Listig never intended to index" — so add-missing necessarily misclassified
+ * every rejected/bounced mail as belonging in the archive the moment someone
+ * opened it, confirmed live. Remove-missing has no equivalent ambiguity: a
+ * Message-ID indexed but no longer on IMAP should always be removed,
+ * regardless of why it disappeared.
  *
  * Cost shape, why the throttle is enough: sync() always pays for one
  * SEARCH ALL + FETCH OVERVIEW scan of the archive folder (message_id per
  * message, no body) — the same operation ArchiveMailLocator uses to locate a
  * single mail, measured there at ~550ms for a 20-message folder and growing
- * with folder size (see its own docblock). That scan is unavoidable: it's the
- * only way to detect "one mail deleted, a different one added" (same total
- * count, so a cheap STATUS/COUNT comparison alone can't catch it — see the
- * conversation this class was built from). What it deliberately does *not* do
- * is fetch a full message for anything already correctly indexed — only
- * Message-IDs present on IMAP but missing from archived_mail get a full
- * getMail() fetch (to populate subject/sender/date/attachments via
- * ArchiveIndexer::index()); a Message-ID indexed but no longer on IMAP is
- * just removed (ArchiveIndexer::remove(), no fetch at all).
+ * with folder size (see its own docblock).
  */
 class ArchiveSynchronizer
 {
@@ -42,10 +50,10 @@ class ArchiveSynchronizer
     }
 
     /**
-     * @return int number of mails added + removed (0 = already in sync, or the
-     *         folder couldn't be read — a transient IMAP failure here must
-     *         degrade to "nothing to do" rather than touching the index, same
-     *         as ArchiveMailLocator's own failure handling).
+     * @return int number of archived_mail rows removed (0 = already in sync,
+     *         or the folder couldn't be read — a transient IMAP failure here
+     *         must degrade to "nothing to do" rather than touching the index,
+     *         same as ArchiveMailLocator's own failure handling).
      */
     public function sync(ListConfig $list): int
     {
@@ -65,25 +73,15 @@ class ArchiveSynchronizer
         $dbMessageIds = $this->fetchDbMessageIds($list->name);
 
         // Keys are Message-IDs on both sides — array_diff_key compares keys
-        // only, exactly the "present here but not there" set we need; the
-        // differing value types (uid vs. true) on each side don't matter.
-        $missingInDb    = array_diff_key($imapMessageIds, $dbMessageIds);
-        $missingInImap  = array_diff_key($dbMessageIds, $imapMessageIds);
-
-        foreach ($missingInDb as $messageId => $uid) {
-            try {
-                $mail = $mailbox->getMail($uid, false);
-                $this->indexer->index($list, $mail);
-            } catch (\Throwable $e) {
-                error_log("Listig: ArchiveSynchronizer failed to index Message-ID $messageId (UID $uid) for list {$list->name}: " . $e->getMessage());
-            }
-        }
+        // only, exactly the "indexed here but not present there" set we need;
+        // the differing value types (uid vs. true) on each side don't matter.
+        $missingInImap = array_diff_key($dbMessageIds, $imapMessageIds);
 
         foreach (array_keys($missingInImap) as $messageId) {
             $this->indexer->remove($list->name, $messageId);
         }
 
-        return count($missingInDb) + count($missingInImap);
+        return count($missingInImap);
     }
 
     /**

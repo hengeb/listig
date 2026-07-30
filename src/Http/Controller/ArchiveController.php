@@ -16,6 +16,7 @@ use Hengeb\Listig\Archive\CachedArchivedMail;
 use Hengeb\Listig\Archive\CachedAttachment;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Http\RequestPath;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\Token\TokenService;
 use Latte\Engine;
@@ -67,6 +68,7 @@ class ArchiveController
         private readonly string $appName,
         private readonly TokenService $tokenService,
         private readonly ArchiveSynchronizer $synchronizer,
+        private readonly bool $oidcEnabled = false,
     ) {
     }
 
@@ -484,6 +486,18 @@ class ArchiveController
         $user  = $request->getAttribute('user');
         $email = $user['email'] ?? null;
         if ($email === null) {
+            // Same deep-link-skips-the-form behavior as AuthMiddleware (see
+            // CLAUDE.md "Deep-link redirect-back") — archive routes just don't
+            // sit behind AuthMiddleware at all (OptionalAuthMiddleware never
+            // redirects, since whether login is even required depends on this
+            // list's own `archive` mode, not known until here), so that logic
+            // never ran for them. Without this, an OIDC-only deployment showed
+            // the "please log in" page + button here even though every other
+            // protected page in the app skipped straight to the IdP.
+            if ($this->oidcEnabled) {
+                $next = urlencode(RequestPath::relativeTarget($request));
+                return (new Response())->withHeader('Location', "/_/login/oidc?next={$next}")->withStatus(302);
+            }
             return $this->loginRequiredResponse($list);
         }
 
