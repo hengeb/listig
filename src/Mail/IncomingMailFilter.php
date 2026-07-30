@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Mail;
 
+use Hengeb\Listig\Config\Enum\ModerationMode;
+use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\RateLimit\RateLimiter;
 use PhpImap\IncomingMail;
@@ -69,7 +71,7 @@ class IncomingMailFilter
             return FilterResult::reject('reject.rate_limited');
         }
 
-        if ($list->moderation->value === 'on') {
+        if ($list->moderation === ModerationMode::On) {
             // A moderation item nobody can ever accept/reject is worse than an
             // outright rejection — without this, the mail would silently vanish
             // (ModerationMailer::send() logs and no-ops on empty owners) with no
@@ -125,17 +127,17 @@ class IncomingMailFilter
     {
         $postAccess = $list->postAccess;
 
-        if ($postAccess->value === 'all') {
+        if ($postAccess === PostAccess::Public) {
             return null;
         }
 
         $isMember = $list->isMember($senderEmail);
         $isOwner  = $list->isOwnedBy($senderEmail);
 
-        if ($postAccess->value === 'owners' && !$isOwner) {
+        if ($postAccess === PostAccess::Owners && !$isOwner) {
             return FilterResult::reject('reject.owners_only');
         }
-        if ($postAccess->value === 'members' && !$isMember && !$isOwner) {
+        if ($postAccess === PostAccess::Members && !$isMember && !$isOwner) {
             return FilterResult::reject('reject.members_only');
         }
 

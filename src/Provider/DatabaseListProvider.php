@@ -11,28 +11,24 @@ use Hengeb\Listig\Database\DatabaseConnectionFactory;
 use Hengeb\Listig\Member\MemberResolverFactory;
 use PDO;
 
-class DatabaseListProvider implements ListProvider
+class DatabaseListProvider extends AbstractListProvider
 {
-    private ?array $lists = null;
-    private ?array $resolvedConfig = null;
     private readonly MemberResolverFactory $memberResolverFactory;
 
     public function __construct(
-        private readonly string $name,
-        private readonly ConfigResolver $configResolver,
-        private readonly array $providerConfig,
+        string $name,
+        ConfigResolver $configResolver,
+        array $providerConfig,
         private readonly DatabaseConnectionFactory $dbFactory,
     ) {
+        parent::__construct($name, $configResolver, $providerConfig);
         $this->memberResolverFactory = new MemberResolverFactory($this->dbFactory);
     }
 
-    public function getLists(): array
+    /** @see AbstractListProvider::loadLists() */
+    protected function loadLists(): array
     {
-        if ($this->lists !== null) {
-            return $this->lists;
-        }
-
-        $this->lists = [];
+        $lists = [];
         $table = $this->providerConfig['config-table'] ?? 'list_config';
 
         $stmt = $this->db()->query("SELECT DISTINCT name FROM {$table}");
@@ -41,13 +37,19 @@ class DatabaseListProvider implements ListProvider
         foreach ($names as $name) {
             $list = $this->loadList($name, $table);
             if ($list !== null) {
-                $this->lists[$name] = $list;
+                $lists[$name] = $list;
             }
         }
 
-        return array_values($this->lists);
+        return $lists;
     }
 
+    /**
+     * Overrides AbstractListProvider's default (which would always call
+     * getLists() first, loading every list just to answer one lookup) — a
+     * single targeted row fetch is cheaper when $lists isn't already cached
+     * this cycle.
+     */
     public function getList(string $name): ?ListConfig
     {
         if ($this->lists !== null) {
@@ -82,7 +84,7 @@ class DatabaseListProvider implements ListProvider
 
         $memberResolver = $this->memberResolverFactory->create(
             $this->providerConfig['member-resolver'] ?? null,
-            $this->resolvedConfig(),
+            $this->resolvedProviderConfig(),
         );
 
         return new ListConfig($name, $mail, $raw, $memberResolver);
@@ -103,12 +105,6 @@ class DatabaseListProvider implements ListProvider
 
     private function db(): PDO
     {
-        return $this->dbFactory->getConnection($this->resolvedConfig());
-    }
-
-    /** Provider-level resolved config (no per-list overrides) — cached for reuse. */
-    private function resolvedConfig(): array
-    {
-        return $this->resolvedConfig ??= $this->configResolver->resolveListConfig($this->providerConfig);
+        return $this->dbFactory->getConnection($this->resolvedProviderConfig());
     }
 }

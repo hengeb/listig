@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Provider;
 
-use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\NullMemberResolver;
@@ -18,24 +17,12 @@ use Hengeb\Listig\Variable\VariableResolver;
  * resolved per incoming mail by MailProcessor. `owners:` uses the normal inline
  * mechanism unchanged, so post-access: owners works exactly like type: inline.
  */
-class SubaddressListProvider implements ListProvider
+class SubaddressListProvider extends AbstractListProvider
 {
-    private ?array $lists = null;
-
-    public function __construct(
-        private readonly string $name,
-        private readonly ConfigResolver $configResolver,
-        private readonly array $providerConfig,
-    ) {
-    }
-
-    public function getLists(): array
+    /** @see AbstractListProvider::loadLists() */
+    protected function loadLists(): array
     {
-        if ($this->lists !== null) {
-            return $this->lists;
-        }
-
-        $this->lists = [];
+        $lists = [];
         foreach ($this->providerConfig['lists'] ?? [] as $listName => $listDef) {
             $listOverrides = array_diff_key($listDef, array_flip(['members', 'owners']));
             $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
@@ -59,16 +46,10 @@ class SubaddressListProvider implements ListProvider
             $memberResolver  = new InlineMemberResolver([], $listDef['owners'] ?? null, new NullMemberResolver());
             $memberTemplates = $listDef['members'] ?? [];
 
-            $this->lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver, $memberTemplates);
+            $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver, $memberTemplates);
         }
 
-        return array_values($this->lists);
-    }
-
-    public function getList(string $name): ?ListConfig
-    {
-        $this->getLists();
-        return $this->lists[$name] ?? null;
+        return $lists;
     }
 
     public function setListConfigValue(string $listName, string $key, string $value): void

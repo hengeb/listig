@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Archive\ArchiveHtmlSanitizer;
+use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveMailCache;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
+use Hengeb\Listig\Archive\ArchiveMailNotFoundException;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Archive\ByteFormatter;
 use Hengeb\Listig\Archive\CachedArchivedMail;
@@ -49,6 +51,7 @@ class ArchiveController
         private readonly ArchiveThreader $threader,
         private readonly ArchiveMailLocator $mailLocator,
         private readonly ArchiveMailCache $mailCache,
+        private readonly ArchiveIndexer $archiveIndexer,
         private readonly ArchiveHtmlSanitizer $sanitizer,
         private readonly TranslatorInterface $translator,
         private readonly string $appName,
@@ -316,7 +319,16 @@ class ArchiveController
             return $cached;
         }
 
-        $mail = $this->mailLocator->find($list, $messageId);
+        try {
+            $mail = $this->mailLocator->find($list, $messageId);
+        } catch (ArchiveMailNotFoundException) {
+            // Confirmed gone from the IMAP archive folder (not a transient
+            // failure — see the exception's own docblock): the list archive
+            // must not keep listing a mail nobody can ever open again. Removed
+            // lazily, right here, rather than via a periodic sync job.
+            $this->archiveIndexer->remove($list->name, $messageId);
+            return null;
+        }
         if ($mail === null) {
             return null;
         }

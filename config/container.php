@@ -291,6 +291,12 @@ $builder->addDefinitions([
                 }
                 throw new \RuntimeException("List '$listName' not found");
             }
+
+            public function reset(): void {
+                foreach ($this->providers as $p) {
+                    $p->reset();
+                }
+            }
         };
     },
 
@@ -504,6 +510,7 @@ $builder->addDefinitions([
             $c->get(ArchiveThreader::class),
             $c->get(ArchiveMailLocator::class),
             $c->get(ArchiveMailCache::class),
+            $c->get(ArchiveIndexer::class),
             $c->get(ArchiveHtmlSanitizer::class),
             $c->get(TranslatorInterface::class),
             $c->get('app.name'),

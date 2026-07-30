@@ -12,31 +12,27 @@ use Hengeb\Listig\Member\MemberResolverFactory;
 use Hengeb\Listig\Variable\ResolutionPurpose;
 use Hengeb\Listig\Variable\VariableResolver;
 
-class InlineListProvider implements ListProvider
+class InlineListProvider extends AbstractListProvider
 {
-    private ?array $lists = null;
-    private ?array $resolvedConfig = null;
     private readonly MemberResolverFactory $memberResolverFactory;
 
     public function __construct(
-        private readonly string $name,
-        private readonly ConfigResolver $configResolver,
-        private readonly array $providerConfig,
+        string $name,
+        ConfigResolver $configResolver,
+        array $providerConfig,
         private readonly ?DatabaseConnectionFactory $dbFactory = null,
     ) {
+        parent::__construct($name, $configResolver, $providerConfig);
         $this->memberResolverFactory = new MemberResolverFactory($this->dbFactory);
     }
 
-    public function getLists(): array
+    /** @see AbstractListProvider::loadLists() */
+    protected function loadLists(): array
     {
-        if ($this->lists !== null) {
-            return $this->lists;
-        }
-
-        $this->lists = [];
+        $lists = [];
         $defaultMemberResolver = $this->memberResolverFactory->create(
             $this->providerConfig['member-resolver'] ?? null,
-            $this->resolvedConfig(),
+            $this->resolvedProviderConfig(),
         );
 
         foreach ($this->providerConfig['lists'] ?? [] as $listName => $listDef) {
@@ -72,25 +68,14 @@ class InlineListProvider implements ListProvider
                 $memberResolver = $defaultMemberResolver;
             }
 
-            $this->lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver);
+            $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver);
         }
 
-        return array_values($this->lists);
-    }
-
-    public function getList(string $name): ?ListConfig
-    {
-        $this->getLists();
-        return $this->lists[$name] ?? null;
+        return $lists;
     }
 
     public function setListConfigValue(string $listName, string $key, string $value): void
     {
         throw new \RuntimeException("Cannot modify an inline (config.yml) list at runtime (provider '{$this->name}').");
-    }
-
-    private function resolvedConfig(): array
-    {
-        return $this->resolvedConfig ??= $this->configResolver->resolveListConfig($this->providerConfig);
     }
 }

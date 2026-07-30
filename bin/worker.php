@@ -197,6 +197,14 @@ while (true) {
     // cycle starts fresh rather than risking a stale/dropped connection going unnoticed.
     $imapMailboxFactory->reset();
 
+    // Drop each list-provider's cached directory data (LDAP entries, DB
+    // config-table rows, a type: yaml file's contents, ...) too — without this,
+    // a provider that succeeded once would keep serving that same result for
+    // the worker's entire lifetime (see CLAUDE.md "Worker loop — config
+    // reload"), so e.g. an LDAP description[] edit would only ever take effect
+    // after a full process restart, not on the next cycle.
+    $listProvider->reset();
+
     // 5. Sleep
     $elapsed   = microtime(true) - $cycleStart;
     $remaining = $sleepSeconds - (int) $elapsed;

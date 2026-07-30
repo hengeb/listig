@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Config\Enum\AllowLeave;
+use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\Token\TokenService;
@@ -89,8 +90,8 @@ class ListController
         $userEmail = $user['email'];
         $isMember = $list->isMember($userEmail);
 
-        $showArchiveLink = $list->archive->value === 'public'
-            || ($list->archive->value === 'members' && $isMember);
+        $showArchiveLink = $list->archive === ArchiveMode::Public
+            || ($list->archive === ArchiveMode::Members && $isMember);
 
         $unsubscribeLink = null;
         if ($isMember && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {

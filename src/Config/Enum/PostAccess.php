@@ -8,5 +8,5 @@ enum PostAccess: string
 {
     case Members = 'members';
     case Owners = 'owners';
-    case All = 'all';
+    case Public = 'public';
 }

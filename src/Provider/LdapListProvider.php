@@ -4,63 +4,34 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Provider;
 
-use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Crypto\PasswordCrypto;
 use Hengeb\Listig\Member\LdapMemberResolver;
 use Symfony\Component\Ldap\Entry;
 use Symfony\Component\Ldap\Ldap;
 
-class LdapListProvider implements ListProvider
+class LdapListProvider extends AbstractListProvider
 {
     private ?Ldap $ldap = null;
-    private ?array $lists = null;
-    private ?array $resolvedProviderConfig = null;
 
-    public function __construct(
-        private readonly string $name,
-        private readonly ConfigResolver $configResolver,
-        private readonly array $providerConfig,
-    ) {
-    }
-
-    /**
-     * $providerConfig (the constructor arg) is the raw list-providers.{name} entry —
-     * if it sets ldap-host/ldap-base-dn/etc. via its own `use:` (e.g. `use: [ldap-config]`
-     * referencing a root-level named block) rather than as direct keys, those keys are
-     * simply absent from it; `use:` is only ever merged in by
-     * ConfigResolver::resolveListConfig(). Every method below that needs ldap-* reads
-     * this resolved config instead of $this->providerConfig directly — entryToListConfig()
-     * is the one exception, since it already calls resolveListConfig() itself (with
-     * per-list description[] overrides layered on top, which this cached, provider-level-only
-     * resolution deliberately excludes).
-     */
-    private function resolvedProviderConfig(): array
+    /** @see AbstractListProvider::loadLists() */
+    protected function loadLists(): ?array
     {
-        return $this->resolvedProviderConfig ??= $this->configResolver->resolveListConfig($this->providerConfig);
-    }
-
-    public function getLists(): array
-    {
-        if ($this->lists !== null) {
-            return array_values($this->lists);
-        }
-
         try {
             $entries = $this->queryLists();
         } catch (\Throwable $e) {
-            // LDAP unreachable: log, return empty, do NOT cache so the next cycle retries
+            // LDAP unreachable: log, return null (see loadLists()'s docblock —
+            // NOT cached, so the next call this cycle retries).
             error_log("Listig: LDAP connection failed for list provider '{$this->name}' ({$this->resolvedProviderConfig()['ldap-host']}): " . $e->getMessage());
-            return [];
+            return null;
         }
 
-        $this->lists = [];
-
+        $lists = [];
         foreach ($entries as $entry) {
             try {
                 $list = $this->entryToListConfig($entry);
                 if ($list !== null) {
-                    $this->lists[$list->name] = $list;
+                    $lists[$list->name] = $list;
                 }
             } catch (\Throwable $e) {
                 $listName = ($entry->getAttribute('cn') ?? [])[0] ?? 'unknown';
@@ -68,13 +39,7 @@ class LdapListProvider implements ListProvider
             }
         }
 
-        return array_values($this->lists);
-    }
-
-    public function getList(string $name): ?ListConfig
-    {
-        $this->getLists();
-        return $this->lists[$name] ?? null;
+        return $lists;
     }
 
     private function queryLists(): array

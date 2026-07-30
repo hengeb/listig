@@ -35,29 +35,44 @@ class ArchiveMailLocator
     ) {
     }
 
+    /**
+     * @throws ArchiveMailNotFoundException when a full, successful SEARCH ALL
+     *         scan completed without finding the Message-ID — i.e. the mail is
+     *         confirmed gone from the archive folder, not just unreachable
+     *         right now. A transient IMAP outage (connect/search/fetch failure)
+     *         degrades to a plain null return instead, same as before — mirrors
+     *         ImapPoller::fetchByUid()/fetchMailByUid()'s try/catch-and-log-null
+     *         pattern. The two are deliberately distinguished so the caller
+     *         (ArchiveController::locateMail()) can safely remove the
+     *         archived_mail index row on a confirmed miss without risking doing
+     *         so on a merely-temporary IMAP hiccup.
+     */
     public function find(ListConfig $list, string $messageId): ?IncomingMail
     {
         if (!$list->isImapConfigured) {
             return null;
         }
 
-        // A transient IMAP outage must degrade to "mail unavailable" (same as a
-        // message genuinely missing), not a 500 — mirrors ImapPoller::fetchByUid()/
-        // fetchMailByUid()'s try/catch-and-log-null pattern.
+        $needle = trim($messageId, '<> ');
+
         try {
             $mailbox = $this->mailboxFactory->getMailbox($list);
             $mailbox->switchMailbox($list->archiveFolder);
-
-            $uid = $this->findUidByMessageId($mailbox, trim($messageId, '<> '));
-
-            if ($uid === null) {
-                error_log("Listig: ArchiveMailLocator found no IMAP message for Message-ID $messageId in {$list->archiveFolder} for list {$list->name}");
-                return null;
-            }
-
-            return $mailbox->getMail($uid, false);
+            $uid = $this->findUidByMessageId($mailbox, $needle);
         } catch (\Throwable $e) {
             error_log("Listig: ArchiveMailLocator failed to find Message-ID $messageId for list {$list->name}: " . $e->getMessage());
+            return null;
+        }
+
+        if ($uid === null) {
+            error_log("Listig: ArchiveMailLocator found no IMAP message for Message-ID $messageId in {$list->archiveFolder} for list {$list->name} — removing from archive index");
+            throw new ArchiveMailNotFoundException($list->name, $messageId);
+        }
+
+        try {
+            return $mailbox->getMail($uid, false);
+        } catch (\Throwable $e) {
+            error_log("Listig: ArchiveMailLocator failed to fetch UID $uid (Message-ID $messageId) for list {$list->name}: " . $e->getMessage());
             return null;
         }
     }

@@ -73,6 +73,20 @@ class ArchiveIndexer
         ]);
     }
 
+    /**
+     * Removes an archived_mail row once ArchiveMailLocator has confirmed (via a
+     * full, successful IMAP search — see ArchiveMailNotFoundException) that the
+     * underlying mail no longer exists in the list's archive folder. Called
+     * lazily from ArchiveController::locateMail() when a viewer actually opens
+     * that mail, not proactively/periodically — a mail nobody re-opens simply
+     * keeps its stale index row until someone does.
+     */
+    public function remove(string $listCn, string $messageId): void
+    {
+        $stmt = $this->db->prepare('DELETE FROM archived_mail WHERE list_cn = :list AND message_id = :message_id');
+        $stmt->execute(['list' => $listCn, 'message_id' => $messageId]);
+    }
+
     private static function normalize(?string $value): ?string
     {
         if ($value === null) {
