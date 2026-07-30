@@ -90,7 +90,7 @@ class QueueSender
             $transport = $this->smtpFactory->getTransport($list);
             $mailer = new Mailer($transport);
 
-            $bounceFrom = "{$listCn}+bounce@{$list->domain}";
+            $bounceFrom = "{$list->localPart}+bounce@{$list->domain}";
 
             $mailer->send(
                 new RawMessage($mime),

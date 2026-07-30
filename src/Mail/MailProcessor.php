@@ -244,7 +244,7 @@ class MailProcessor
             : $list->displayName;
         $email->from(new Address($list->mail, $fromName));
 
-        $senderHeader = "{$list->name}+bounce@{$list->domain}";
+        $senderHeader = "{$list->localPart}+bounce@{$list->domain}";
         $headers->remove('sender');
         $headers->addMailboxHeader('Sender', new Address($senderHeader));
 

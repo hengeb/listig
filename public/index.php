@@ -203,6 +203,6 @@ $app->group('', function (RouteCollectorProxy $group): void {
         // since deleting must require a real session even for an `archive: public` list.
         $api->delete('/archive/{listname}/{id}', [ArchiveController::class, 'delete']);
     })->add(new CsrfMiddleware());
-})->add(new AuthMiddleware());
+})->add(new AuthMiddleware($container->get('oidc.enabled')));
 
 $app->run();

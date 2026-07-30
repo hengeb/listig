@@ -360,6 +360,19 @@ class ListConfig
         get => substr(strrchr($this->mail, '@'), 1);
     }
 
+    /**
+     * Local part of the list's mail address — e.g. "list" for "list@example.org".
+     * Used to build the bounce address ({$localPart}+bounce@{$domain}, see
+     * MailProcessor's Sender header and QueueSender's Envelope-From): it must be
+     * a subaddress of the list's own real mailbox, not of $name/{list-cn} — the
+     * two commonly differ (list name "it-team" but mail "it@example.org"), and a
+     * bounce address built from $name has no reason to be routable to any real
+     * mailbox at all, breaking bounce handling silently.
+     */
+    public string $localPart {
+        get => substr($this->mail, 0, strrpos($this->mail, '@'));
+    }
+
     /** @return string[] */
     public array $personalizeKeys {
         get {

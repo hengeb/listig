@@ -167,6 +167,32 @@ class AuthController
 
         // Initial request — not a callback yet: redirect the browser to the IdP.
         if ($redirectUrl !== null) {
+            // Stashed in the session (not e.g. a query param appended to
+            // $redirectUrl) because the IdP fully controls what it appends to
+            // its own redirect_uri callback — surviving the round trip only
+            // works via something Listig itself keeps, and the session cookie
+            // (same browser, same PHPSESSID) already does that for free. Only
+            // ever set here, from AuthMiddleware's own '?next=' when it sent an
+            // unauthenticated deep-link visitor straight here; a plain visit to
+            // /_/login/oidc with no '?next' at all leaves this unset, and the
+            // callback branch below falls back to '/' exactly as before.
+            $next = self::sanitizeNext($request->getQueryParams()['next'] ?? null);
+            if ($next !== null) {
+                // $this->openIdConnect->authenticate() above already closed the
+                // session — the underlying library's own requestAuthorization()
+                // calls commitSession()/session_write_close() right before its
+                // redirect, to release the session lock before the browser goes
+                // off to the IdP for a possibly-slow round trip. A plain
+                // $_SESSION write at this point would only touch the in-memory
+                // superglobal, never persist — confirmed live: the callback leg
+                // read back an empty 'oidc_next' without this. Reopen, write,
+                // close again so it's actually on disk for the callback to read.
+                if (session_status() === PHP_SESSION_NONE) {
+                    session_start();
+                }
+                $_SESSION['oidc_next'] = $next;
+                session_write_close();
+            }
             return $response->withHeader('Location', $redirectUrl)->withStatus(302);
         }
 
@@ -205,7 +231,36 @@ class AuthController
         // re-authenticated by the IdP's own still-valid session on next login.
         $_SESSION['oidcIdToken'] = $this->openIdConnect->getIdToken();
 
-        return $response->withHeader('Location', '/')->withStatus(302);
+        // Set above, before the redirect to the IdP, only when AuthMiddleware
+        // sent the visitor here from a deep link — a plain /_/login/oidc visit
+        // (the login page's own SSO button) never sets it, so this falls back
+        // to the dashboard exactly as before.
+        $next = $_SESSION['oidc_next'] ?? '/';
+        unset($_SESSION['oidc_next']);
+
+        return $response->withHeader('Location', $next)->withStatus(302);
+    }
+
+    /**
+     * Only a same-origin relative path is ever accepted as a post-login redirect
+     * target — 'next' ultimately originates from a query string an attacker
+     * fully controls (a crafted deep link pointing at this app), so anything
+     * that could make the browser leave this origin must be rejected outright
+     * rather than trusted: a full URL, or a scheme-relative "//evil.example"
+     * (browsers resolve that as https://evil.example, not a path).
+     */
+    private static function sanitizeNext(?string $next): ?string
+    {
+        if ($next === null || $next === '') {
+            return null;
+        }
+        if (!str_starts_with($next, '/') || str_starts_with($next, '//') || str_starts_with($next, '/\\')) {
+            return null;
+        }
+        if (parse_url($next, PHP_URL_SCHEME) !== null || parse_url($next, PHP_URL_HOST) !== null) {
+            return null;
+        }
+        return $next;
     }
 
     /**
