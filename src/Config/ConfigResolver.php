@@ -84,7 +84,7 @@ class ConfigResolver
         $merged = $this->mergeBlock($merged, $defaultDirect);
 
         // Level 3+4: provider config
-        $providerUses = $providerConfig['use'] ?? [];
+        $providerUses = self::normalizeUse($providerConfig['use'] ?? []);
         foreach ($providerUses as $blockName) {
             $block = $this->namedBlocks[$blockName] ?? [];
             // Provider use: blocks do NOT override direct default values
@@ -137,7 +137,7 @@ class ConfigResolver
                 continue;
             }
             if ($key === 'use') {
-                $defaultConfig['use'] = $value;
+                $defaultConfig['use'] = self::normalizeUse($value);
                 continue;
             }
             if (is_array($value)) {
@@ -172,6 +172,30 @@ class ConfigResolver
     {
         unset($config['use']);
         return $config;
+    }
+
+    /**
+     * `use:` is normally a YAML list (`use: [a, b]` or the `- a` / `- b` block form),
+     * but a bare string is also accepted — including more than one name in it
+     * (`use: mail-config, list-defaults`) — split the same way
+     * `ListConfig::splitCommaList()` handles `personalize:`/`reserved-subaddresses:`,
+     * on any run of commas/whitespace. Applied at every level `use:` is actually read
+     * (the config.yml root, and a list-provider's own `use:`) — named blocks may not
+     * contain their own `use:` at all (see "Configuration priority"), so there's no
+     * third place this needs to run.
+     */
+    private static function normalizeUse(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+        return array_values(array_filter(
+            array_map('trim', preg_split('/[,\s]+/', trim($value))),
+            fn(string $v) => $v !== '',
+        ));
     }
 
     private function substituteEnvVars(mixed $value): mixed

@@ -12,14 +12,21 @@
 <div class="card" n:foreach="$lists as $list">
     <div class="list-summary">
         <div>
-            <strong class="list-summary-name">{$list->displayName|escapeHtml}</strong>
+            <strong class="list-summary-name">
+                {if isset($listLinks[$list->name])}
+                    <a href="{$listLinks[$list->name]|escapeHtml}">{$list->displayName|escapeHtml}</a>
+                {else}
+                    {$list->displayName|escapeHtml}
+                {/if}
+            </strong>
             <span class="list-summary-mail">&lt;{$list->mail|escapeHtml}&gt;</span>
             <p class="list-summary-description" n:if="$list->description">{$list->description|escapeHtml}</p>
-            <p class="list-summary-archive-link" n:if="$list->archive->value === 'members' || $list->archive->value === 'public'">
-                <a href="/{$list->name}/archive">{$translator->trans('archive.index.heading')}</a>
-            </p>
         </div>
-        <a n:if="isset($unsubscribeLinks[$list->name])" href="{$unsubscribeLinks[$list->name]|escapeHtml}" class="btn btn-secondary nowrap">{$translator->trans('dashboard.unsubscribe_button')}</a>
+        <span class="list-summary-actions">
+            <a n:if="$list->archive->value === 'members' || $list->archive->value === 'public'" href="/{$list->name}/archive" class="btn btn-secondary nowrap">{$translator->trans('archive.index.heading')}</a>
+            <a n:if="isset($manageLinks[$list->name])" href="{$manageLinks[$list->name]|escapeHtml}" class="btn btn-secondary nowrap">{$translator->trans('dashboard.manage_button')}</a>
+            <a n:if="isset($unsubscribeLinks[$list->name])" href="{$unsubscribeLinks[$list->name]|escapeHtml}" class="btn btn-secondary nowrap">{$translator->trans('dashboard.unsubscribe_button')}</a>
+        </span>
     </div>
 </div>
 {/block}

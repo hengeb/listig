@@ -71,7 +71,7 @@ Configuration via `config.yml` (structure below) and `.env` for DB credentials a
 
 **Access logging (`docker logs`)** — nginx's own access log is the canonical one: `docker/nginx.conf` sets `access_log /dev/stdout combined if=$loggable;`, where a `map $request_uri $loggable { ~^/_/health 0; default 1; }` block (same file, http-level, since `docker/nginx.conf` is `include`d from inside the base image's `http {}` block) excludes Docker's own `HEALTHCHECK` (`/_/health`, hit every ~30s — see "Health check" below) from ever reaching it, so `docker logs` isn't dominated by routine, uninteresting `200`s. `docker/php-fpm-pool.conf` (copied to `/usr/local/etc/php-fpm.d/zz-listig.conf` — the `zz-` prefix sorts it after the base image's own `docker.conf`/`zz-docker.conf`, so its directive wins) disables php-fpm's *own* access log entirely (`access.log = /dev/null`, overriding `docker.conf`'s `access.log = /proc/self/fd/2`) so every request is logged exactly once, through nginx, not twice.
 
-This wasn't the first design tried. php-fpm's own access log was briefly the canonical one instead, with `docker/php-fpm-pool.conf` overriding just its `access.format`: the default format's `%r` specifier logs `SCRIPT_NAME`, which is always literally `/index.php` — every request funnels through `docker/nginx.conf`'s `try_files $uri /index.php$is_args$args`, so by the time php-fpm sees it that's genuinely the only script name there is, regardless of what the client actually requested; `%{REQUEST_URI}e` (reading the `REQUEST_URI` FastCGI param, set from nginx's `$request_uri` via `/etc/nginx/fastcgi_params` — unlike `$uri`/`SCRIPT_NAME`, never touched by the internal `try_files` rewrite) fixed that part. Excluding `/_/health` from *that* log was then attempted via php-fpm's own `access.suppress_path[]` pool directive — confirmed to compile and load without error, but empirically unreliable in live testing (suppressed some requests and not others with no consistent relationship to the configured path, including once suppressing a `/_/health` hit that should have matched and *not* suppressing a `/testliste/archive` hit under a config that should have matched everything). Given that, the whole approach was replaced with nginx's `map`/`access_log ... if=`, which is standard, long-established nginx behavior rather than a php-fpm mechanism with unclear-in-practice matching semantics.
+This wasn't the first design tried. php-fpm's own access log was briefly the canonical one instead, with `docker/php-fpm-pool.conf` overriding just its `access.format`: the default format's `%r` specifier logs `SCRIPT_NAME`, which is always literally `/index.php` — every request funnels through `docker/nginx.conf`'s `try_files $uri /index.php$is_args$args`, so by the time php-fpm sees it that's genuinely the only script name there is, regardless of what the client actually requested; `%{REQUEST_URI}e` (reading the `REQUEST_URI` FastCGI param, set from nginx's `$request_uri` via `/etc/nginx/fastcgi_params` — unlike `$uri`/`SCRIPT_NAME`, never touched by the internal `try_files` rewrite) fixed that part. Excluding `/_/health` from *that* log was then attempted via php-fpm's own `access.suppress_path[]` pool directive — confirmed to compile and load without error, but empirically unreliable in live testing (suppressed some requests and not others with no consistent relationship to the configured path, including once suppressing a `/_/health` hit that should have matched and *not* suppressing a `/testliste/archive` hit under a config that should have matched everything). Given that, the whole approach was replaced with nginx's `map`/`access_log ... if=`, which is standard, long-established nginx behavvior rather than a php-fpm mechanism with unclear-in-practice matching semantics.
 
 **Set `hostname` explicitly in config.yml.** It's used to build every link Listig generates (login, dashboard, manage page, unsubscribe, moderation) — see `{hostname}` above. Without it, `ListConfig`/`'app.hostname'` (`config/container.php`) fall back to PHP's `gethostname()`, which in a container returns the container's own internal hostname (a random ID or the compose service name) — never the public domain a reverse proxy actually exposes the app under, and there's no way to derive that automatically: the worker has no incoming request to read a `Host` header from at all, and even on the web side, deriving it from the request would make worker-generated links (unsubscribe, moderation) and web-generated links (login) disagree whenever the same instance is reachable under more than one name. `bin/worker.php` logs a warning at startup (`error_log`, not a hard failure) if `hostname` resolves to empty, precisely because this is easy to miss and the resulting links are silently wrong rather than erroring.
 
@@ -94,13 +94,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 ├── config/
 │   └── container.php                 # DI container (PHP-DI or similar); config.yml itself is gitignored, copied here from deploy/config.yml.example for a repo checkout
 ├── public/
-│   ├── index.php                     # Slim HTTP entry point
-│   └── assets/                       # served directly by nginx, never routed through Slim — see "Static assets"
-│       ├── style.css                 # the one global stylesheet — see "CSS/JS: one global stylesheet, per-page scripts"
-│       ├── script.js                 # shared JS: getCsrfToken(), listigLogout(), [data-utc] localization — loaded on every page
-│       ├── archive-index.js          # templates/archive/index.latte only: thread toggle, quick filter
-│       ├── archive-show.js           # templates/archive/show.latte only: load-images / HTML-vs-text view toggle
-│       └── list-manage.js            # templates/list/manage.latte only: moderation accept/reject
+│   └── index.php                     # Slim HTTP entry point
 ├── src/
 │   ├── Imap/
 │   │   ├── ImapPoller.php            # Polls IMAP via PhpImap\Mailbox; checks UIDVALIDITY; returns (uid, uidvalidity, mime, mail: IncomingMail) tuples
@@ -276,6 +270,13 @@ All other configuration lives in `config.yml`. The `db-*` and mail keys are read
 # Missing environment variables cause a hard error at startup.
 # Direct root key-values take priority over values pulled in via 'use:'.
 # Within 'use:', later entries override earlier ones.
+# 'use:' also accepts a bare string instead of a YAML list — a single block name
+# (use: mail-config), or several separated by commas/whitespace
+# (use: mail-config, list-defaults) — normalized into a list the same way
+# personalize:/reserved-subaddresses: are (see ConfigResolver::normalizeUse()).
+# This applies at both places 'use:' is read: the config.yml root (below) and a
+# list-provider's own 'use:' (see "list-providers" below) — not inside a named
+# block, which may not contain its own 'use:' at all (prevents cycles).
 language: de                        # 'de' | 'en' — global default, code-default is 'en' (see Internationalization)
 use:
   - mail-config
@@ -514,7 +515,7 @@ oidc-logout-url: "https://sso.example.org/logout?rd=https%3A%2F%2Flists.example.
 ```
 
 - Discovery-only: no separate authorization/token/userinfo endpoint keys — `jumbojett/openid-connect-php` fetches them all from `oidc-provider-url`'s `/.well-known/openid-configuration`.
-- Authorization Code flow with PKCE (`S256`), scopes `openid email` — `openid` is added unconditionally by the underlying `jumbojett/openid-connect-php` client itself, `email` is the only scope Listig requests on top of it. Nothing beyond `email` (`AuthController::loginOidc()`'s sole `getUserInfo()` call) is ever read, so `profile` (name/given_name/family_name/preferred_username/...) is deliberately not requested — no code path consumes it, and asking for more identity data than is actually used has no upside.
+- Authorization Code flow with PKCE (`S256`), scopes `openid profile email`.
 - All five keys are in `VariableResolver::BLOCKED_KEYS` (see "Blocked variables") — same treatment as `ldap-host`/`ldap-bind-dn`/`ldap-bind-password`, resolved under `ResolutionPurpose::Trusted` only at the one point they're actually consumed (`OpenIdConnectService::class` in `config/container.php`).
 - `oidc-public-provider-url` is used two ways in `OpenIdConnectService`: its host is spoofed into the `Host`/`X-Forwarded-Proto` headers of every backend→IdP request (so the IdP's discovery document — and the ID token's `iss` claim — reflect the public identity, not the internal address this backend actually connects to), and the token/jwks/userinfo endpoints discovery returns (now necessarily public-host-based too) are rewritten back onto `oidc-provider-url`, since only `authorization_endpoint` is ever browser-facing.
 - `oidc-logout-url` — see "Authentication (OIDC)" for the full logout flow (`OpenIdConnectService::getLogoutUrl()`, `AuthController::logout()`).
@@ -769,9 +770,7 @@ An earlier version of this cache used `$_SESSION` (keyed the same way, but stori
 
 `in_reply_to`/`references` are not parsed by php-imap — `HeaderFilter::readHeader()` (generalized from the extraction `MailProcessor` already did for outgoing threading headers) pulls them from `headersRaw` via unfold+regex, same as everywhere else in this codebase. `thread_root` = first Message-ID in `References`, else `in_reply_to`, else the message's own id (see "Archive index" above) — a grouping key, not necessarily an archived row itself.
 
-**Threading (`Archive/ArchiveThreader.php`, pure PHP, no DB access)** — annotates an already-SQL-sorted page with `depth`/`thread_size`/`is_thread_start`. The list query anchors each thread's position by its *most recent* message (`ORDER BY MAX(mail_date) per thread_root DESC, mail_date ASC within`), so a thread with a new reply bubbles toward the top of the newest-first page, and pagination only ever cuts a thread at its edges (never splits it internally within one page's boundary maths). `depth` is resolved by matching `in_reply_to` against `message_id` of other rows **on the same page only** — a row whose parent isn't present there is simply depth 0 (still grouped under the same `thread_root`), not an error. The table/thread-toggle/quick-filter/per-thread-collapse interactions (`public/assets/archive-index.js`, loaded from `templates/archive/index.latte`'s `{block head}` — see "CSS/JS: one global stylesheet, per-page scripts") are all client-side vanilla JS over `data-*` attributes on each `<tr>` — zero network round-trips, consistent with the app's existing minimal-JS house style (`templates/list/manage.latte`). The header's own thread/flat-view toggle button (`#thread-toggle`) renders a small hand-drawn "directory tree" SVG (a trunk with three branch lines, stroke `currentColor`, same visual language as the per-row `.chevron`) rather than an emoji — the original 🧵 (spool-of-thread, `&#129525;`) read as a sewing/textile icon, not a hierarchy/threading one. The per-thread expand/collapse control is an inline SVG chevron (`.chevron`), not a swapped-text character (▶/▼) — CSS alone rotates it 90° via `.thread-expand[aria-expanded="true"] .chevron`, so `toggleThread()`/`toggleThreading()` only ever need to flip the `aria-expanded` attribute, not also keep a second, redundant text glyph in sync with it. `applyFilter()` originally violated this itself — it set `btn.textContent = '▶'/'▼'` when auto-expanding/collapsing a thread on filter match, which overwrites (and permanently destroys, since it's a DOM mutation, not a re-render) the button's `<svg class="chevron">` child with a plain-text glyph; toggling the filter box once was enough to replace every visible chevron with ▶/▼ for the rest of the page's lifetime. Fixed by dropping both `textContent` assignments — `aria-expanded` plus the existing CSS rule is already sufficient, exactly as the paragraph above assumes.
-
-The toggle button (header) and each row's chevron (body) live in their own dedicated first `<th>`/`<td class="thread-col">` (fixed `width: 1.75rem`), separate from the subject `<td>` — not inline before the subject link within one flex cell. A thread-starting row with `thread_size > 1` renders a chevron in this column; every other row (single mails, and any row that isn't itself a thread start) renders an empty `<td class="thread-col">`. This is what makes top-level subjects line up flush under the "Betreff" heading regardless of whether a given mail has a thread — with the chevron inline before the subject (the original layout), a thread-starting row's subject was pushed right by the button's own width relative to a plain single mail's subject, which had no button at all to push it. `depth`-based indentation (`.thread-indent`) still lives inside the subject `<td>` and still only matters for expanded child rows (depth ≥ 1) — top-level rows are always depth 0, so this indent is 0-width there independent of the chevron-column fix.
+**Threading (`Archive/ArchiveThreader.php`, pure PHP, no DB access)** — annotates an already-SQL-sorted page with `depth`/`thread_size`/`is_thread_start`. The list query anchors each thread's position by its *most recent* message (`ORDER BY MAX(mail_date) per thread_root DESC, mail_date ASC within`), so a thread with a new reply bubbles toward the top of the newest-first page, and pagination only ever cuts a thread at its edges (never splits it internally within one page's boundary maths). `depth` is resolved by matching `in_reply_to` against `message_id` of other rows **on the same page only** — a row whose parent isn't present there is simply depth 0 (still grouped under the same `thread_root`), not an error. The table/thread-toggle/quick-filter/per-thread-collapse interactions in `templates/archive/index.latte` are all client-side vanilla JS over `data-*` attributes on each `<tr>` — zero network round-trips, consistent with the app's existing minimal-JS house style (`templates/list/manage.latte`). The per-thread expand/collapse control is an inline SVG chevron (`.chevron`), not a swapped-text character (▶/▼) — CSS alone rotates it 90° via `.thread-expand[aria-expanded="true"] .chevron`, so `toggleThread()`/`toggleThreading()` only ever need to flip the `aria-expanded` attribute, not also keep a second, redundant text glyph in sync with it.
 
 **Rendering (`Archive/ArchiveHtmlSanitizer.php`)** — `ezyang/htmlpurifier` (`Cache.DefinitionImpl = null`, no new writable dir beyond the existing `/tmp/latte` precedent) with a fixed small tag/attribute allowlist (`HTML.Allowed`) — `<script>`, `<style>`, `<iframe>`, `<form>`, event handlers, `javascript:` URIs, `srcset`, and `<source>`/`<video>`/`<audio>`/`<picture>` are simply absent from it, so they're stripped outright with no separate blocklist to maintain; `style` is allowed only with a small safe CSS property allowlist (`CSS.AllowedProperties`). `cid:` references are rewritten to the attachment endpoint *before* purification (HTMLPurifier has no built-in "cid" URI scheme, and a pre-processing rewrite is simpler than teaching it one) — always, regardless of the images toggle below, since they're part of the mail's own MIME structure we host, not a third-party fetch. The result is rendered inside `<iframe sandbox>` (bare `sandbox`, no `allow-same-origin`/`allow-scripts`) at the `/frame` route, which also carries its own strict `Content-Security-Policy` header independent of the outer page. Because the sandbox has no `allow-scripts`, "load external images" (off by default — only `img[src]` survives the allowlist to begin with, so nothing else needs gating) cannot be a script-driven DOM mutation: the **outer** (trusted) page's plain button changes the iframe's `src` to add `?loadImages=1`, triggering a full server re-render — no JS ever runs inside the sandboxed content boundary. `frame()`'s CSP `img-src` is *not* a fixed `'self'` — it widens to `'self' https: http:` exactly when `$loadImages` is true, matching what `stripExternalResources()` actually left in the HTML; a fixed `'self'` here silently blocked every off-origin image the "load images" button was supposed to unlock, independent of `stripExternalResources()` correctly leaving them in place.
 
@@ -1754,7 +1753,7 @@ segment — the only requirement is that no list is ever named `_` (enforced fai
 | GET | `/_/login/oidc` | — | OIDC login initiation + callback — only registered when configured, see "Authentication (OIDC)" |
 | POST | `/_/api/logout` | user | Destroy session |
 | GET | `/` | user | Dashboard: subscribed lists |
-| GET | `/{listname}` | owner | Manage page |
+| GET | `/{listname}` | user | Manage page (owner) or reduced info page (non-owner) — see "`/{listname}` — owner vs. non-owner view" |
 | POST | `/_/api/moderation/{id}/accept` | owner | Accept moderation item |
 | POST | `/_/api/moderation/{id}/reject` | owner | Reject moderation item |
 | GET | `/_/api/queue/{listname}` | owner | Queue status |
@@ -1783,57 +1782,22 @@ finding the real file before it ever reaches `index.php`, so no nginx change was
 Only `index.php` itself is ever passed to php-fpm (`location = /index.php`); any other `.php` request
 is rejected with `404` (`location ~ \.php$ { return 404; }`).
 
-### CSS/JS: one global stylesheet, per-page scripts
-
-All CSS lives in `public/assets/style.css` — one file, loaded once from `templates/layout.latte`'s
-`<head>` via `<link rel="stylesheet">` and shared by every page that extends it (`{layout
-'../templates/layout.latte'}`). No template carries its own `<style>` block or a `style="..."` attribute
-for anything decorative — every color/spacing/layout rule that used to be inline or in a page-specific
-`{block head}` `<style>` tag (the archive index/show pages both had their own) is now a class in this one
-file instead, including small utility classes (`.text-muted`, `.text-danger`, `.text-center`, `.mt-1`,
-`.nowrap`, `.empty-state`, ...) reused across otherwise-unrelated pages that happened to want the same
-gray-text/red-text/centered-card look. The **one** exception is genuinely data-driven inline style —
-`archive/index.latte`'s `<span class="thread-indent" style="width:{$row['depth'] * 1.25}em">`, computed
-per row from `$row['depth']`, which cannot be a static class since the value differs per mail. `templates/archive/frame.latte`
-keeps its own tiny inline `<style>` block deliberately: it's a standalone document (does *not* extend
-`layout.latte`) rendered inside a sandboxed `<iframe>` under its own strict CSP
-(`style-src 'unsafe-inline'` — see "Archive viewer"), which allows an inline `<style>` tag but not an
-external stylesheet request (that would need `style-src 'self'`, which the CSP deliberately doesn't grant).
-
-JS follows the same split, one file per concern rather than one bundle: `public/assets/script.js` (shared
-helpers — `getCsrfToken()`, `listigLogout()`, the `[data-utc]` timestamp-localization pass, loaded on
-every page) plus `archive-index.js`, `archive-show.js`, `list-manage.js` (one page's worth of behavior
-each, loaded only from that page's own `{block head}`). All are loaded with `<script src="..." defer>`
-rather than inline — deferred scripts execute in the *document* order they're declared in, not load
-order, so `layout.latte`'s `<script src="/assets/script.js" defer>` is placed ahead of `{block head}`
-in the compiled HTML specifically so a page-specific script declared inside that block can rely on
-`script.js`'s functions already being defined by the time it runs, with no explicit dependency
-management needed beyond "declare script.js's tag first."
-
-`list-manage.js` is the one page-specific script that would, before this split, have needed
-server-rendered translated strings inside a `<script>` block (`list.manage.js_error_prefix`/
-`js_error_generic`, shown in an `alert()` on a failed accept/reject API call) — impossible for a static
-`.js` file, which is served byte-identical to every request with no PHP/Latte involved. `list/manage.latte`
-threads them through instead via a hidden `<div id="list-manage-i18n" data-error-prefix="..."
-data-error-generic="...">`; `list-manage.js` reads `document.getElementById('list-manage-i18n')?.dataset`
-once at load. Same reasoning as `ResolutionPurpose`/`personalize:` elsewhere in this codebase for keeping
-server-rendered content out of anywhere it doesn't need to be — here the constraint is technical
-(a static asset can't run `TranslatorInterface::trans()`) rather than a trust boundary, but the fix
-pattern (render into a `data-*` attribute, read it from JS) is the same one Latte itself already forces
-for CSP/script-in-attribute reasons elsewhere in the codebase.
-
 ### Member dashboard (`/`)
 
 Per subscribed list: mail address, display name (`display-name` || `cn`), description (`text`), "Unsubscribe" button if `AllowLeave::Direct` **and** `ListConfig::$supportsUnsubscribe` — the latter hides the button for a list whose member store can't actually persist a removal (static inline config.yml members, or none configured), instead of showing a button that would previously "succeed" without doing anything.
 
-### Owner manage page (`/{listname}`)
+`DashboardController::index()` includes a list if the viewer is a member **or** an owner of it (`isMember() || isOwnedBy()`) — not just a member. An owner who isn't also a subscribed member (a valid setup — e.g. an LDAP group's `owner:` attribute need not overlap with its `member:` one) previously never appeared here at all, which meant `/{listname}` (the owner manage page) had no discoverable entry point anywhere in the UI for such an owner, not even via this dashboard — see "`/{listname}` — owner vs. non-owner view" below for the matching fix on the other end. Since that route now renders a reduced info page for a non-owner too rather than a 403 (see below), the card's own display name links to `/{listname}` for **every** list shown here (`$listLinks`), member or owner alike — not just owned ones (`$manageLinks`, the owner-only subset), which additionally gets a more prominent "Verwalten"/"Manage" button next to "Unsubscribe" (itself only offered when the viewer is actually a member — an owner-only entry has nothing to unsubscribe from). The archive link (when the list's archive mode makes it reachable at all) lives in the same button row as "Manage"/"Unsubscribe", not as a separate plain inline link.
 
-- List address, display name, description
-- Owners: `attributes['firstname']` + `attributes['lastname']` if set (no email — privacy; blank for providers/members with no such attribute, e.g. an unmapped LDAP entry)
-- Member count only (no addresses — privacy)
-- Moderation queue: sender, subject, timestamp, Accept/Reject buttons
-- Queue status: X/Y sent, M failed (retry/delete per entry)
-- Bounce stats: counts last 7/30 days; last N events (sender, subject, timestamp)
+### `/{listname}` — owner vs. non-owner view
+
+`ListConfig::createContext()`'s `{list-url}` (`https://{hostname}/{list-name}`) is embedded in **every** distributed mail via `list-label`/footer/etc. and reaches every recipient, not just owners — so `ListController::manage()` cannot simply 403 a non-owner the way it used to. It now branches on `isOwnedBy()`:
+
+- **Owner** → the full manage page (`templates/list/manage.latte`, unchanged): list address/display name/description, owners (firstname+lastname only, no email), member count only, moderation queue, queue status, bounce stats.
+- **Non-owner** (still requires a session — this route stays behind `AuthMiddleware`, only the ownership check inside it changed) → `renderInfo()` renders `templates/list/index.latte` instead: display name, mail, description, owners, an archive link (only if `archive: public`, or `archive: members` **and** the viewer is actually a member — a non-member must not be handed a link that 401s), and an "Unsubscribe" button (only if the viewer is a member **and** `AllowLeave::Direct` **and** `$supportsUnsubscribe` — the exact same three-part gate `DashboardController` already uses for the same list). No moderation/queue/bounce data is ever computed or passed to this branch at all, not just hidden in the template — `getModerationItems()`/`getQueueStatus()`/`getBounceStats()` are only ever called in the owner branch.
+
+Both views' owner listing renders `trim("$firstname $lastname") ?: ($owner->attributes['username'] ?? '')` per owner, not just `"$firstname $lastname"` — an LDAP-backed list with no `firstname`/`lastname` config alias set up (see "Member attributes — fully dynamic": LDAP has no built-in mapping to those names) would otherwise render nothing but a bare comma per extra owner, since both attributes are simply absent. Falling back to `username` (always populated for LDAP — see "Privacy-preserving `username`" — and commonly populated for other providers too) shows *something* recognizable instead of blank space.
+
+Both branches require `ListController`'s `TokenService`/`'app.hostname'` dependencies now (added for the non-owner branch's unsubscribe-token signing, mirroring `DashboardController`'s own).
 
 ### Health check (`/_/health`)
 
@@ -1933,11 +1897,11 @@ chain — no special-casing:
   `QueueSender::notifyOwnerOfFailure`, `UnsubscribeController::notifyOwners`): pass
   `$list->language` explicitly as `trans()`'s 4th (`$locale`) argument — stateless, no
   mutation of shared translator state.
-- **The one list-scoped page** (`templates/list/manage.latte`, rendered by
-  `ListController::manage()`): the controller calls
-  `$this->translator->setLocale($list->language)` once, right before rendering — safe
-  because each HTTP request runs in a fresh container (Slim, no long-running worker).
-  `templates/list/index.latte` is currently unrouted and has no static strings; ignore it.
+- **The list-scoped pages** (`templates/list/manage.latte` and `templates/list/index.latte`,
+  both rendered by `ListController::manage()` — see "`/{listname}` — owner vs. non-owner view"):
+  the controller calls `$this->translator->setLocale($list->language)` once, right before
+  rendering either one — safe because each HTTP request runs in a fresh container (Slim,
+  no long-running worker).
 
 ### Reject reasons are translation keys, not messages
 

@@ -69,6 +69,7 @@ dashboard:
   heading: "My lists"
   empty: "You are not a member of any mailing list."
   unsubscribe_button: "Unsubscribe"
+  manage_button: "Manage"
 
 unsubscribe_page:
   title: "Unsubscribe – %app_name%"

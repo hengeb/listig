@@ -59,7 +59,7 @@ th { background: #f9f9f9; font-weight: 600; }
 .list-summary-name { font-size: 1.05rem; }
 .list-summary-mail { color: #888; margin-left: .5rem; font-size: .9rem; }
 .list-summary-description { color: #555; margin: .4rem 0 0; }
-.list-summary-archive-link { margin: .4rem 0 0; }
+.list-summary-actions { display: flex; gap: .5rem; flex-shrink: 0; }
 
 /* list/manage.latte */
 .list-mail-subtitle { font-size: .6em; color: #777; }

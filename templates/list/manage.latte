@@ -32,7 +32,7 @@
         <tr><th>{$translator->trans('list.manage.members')}</th><td>{$memberCount}</td></tr>
         <tr><th>{$translator->trans('list.manage.owners')}</th><td>
             {foreach $list->getOwners() as $owner}
-                {($owner->attributes['firstname'] ?? '')|escapeHtml} {($owner->attributes['lastname'] ?? '')|escapeHtml}{sep}, {/sep}
+                {$list->resolveMemberDisplayName($owner)|escapeHtml}{sep}, {/sep}
             {/foreach}
         </td></tr>
         <tr><th>{$translator->trans('list.manage.reply_to')}</th><td>{$list->replyTo->value|escapeHtml}</td></tr>

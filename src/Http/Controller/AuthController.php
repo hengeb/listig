@@ -121,16 +121,27 @@ class AuthController
             return $response->withHeader('Location', '/_/login')->withStatus(302);
         }
 
-        // Payload shape set by sendMagicLink() above: [listCn, userCn]
-        [$listCn, $userCn] = $payload;
+        // Payload shape set by sendMagicLink() above: [listCn, userCn]. $userCn is
+        // the privacy-preserving identifier the link itself was signed with (see
+        // CLAUDE.md "Privacy-preserving username") — not necessarily a real email
+        // address (it's the LDAP cn for an LDAP-backed member) — so it must be
+        // resolved back to the actual Member here rather than stored as-is: every
+        // authorization check elsewhere ($list->isMember()/isOwnedBy(), ...) reads
+        // $_SESSION['user']['email'] expecting a real, comparable email address.
+        $found = $this->memberResolver->findMemberInListByUserCn($listCn, $userCn);
+        if ($found === null) {
+            $_SESSION['flash'] = $this->translator->trans('auth.link_invalid');
+            return $response->withHeader('Location', '/_/login')->withStatus(302);
+        }
+        ['list' => $list, 'member' => $member] = $found;
 
         session_regenerate_id(true);
         $_SESSION['user'] = [
-            'email' => $userCn,
-            'listCn' => $listCn,
+            'email' => $member->email,
+            'listCn' => $list->name,
         ];
 
-        $this->logger->debug("Listig: login successful for $userCn (list $listCn)");
+        $this->logger->debug("Listig: login successful for {$member->email} (list {$list->name})", $list->logLevel);
 
         return $response->withHeader('Location', '/')->withStatus(302);
     }
@@ -178,12 +189,17 @@ class AuthController
 
         ['list' => $list, 'member' => $member] = $found;
 
+        // $member->email, not $member->attributes['username'] — the session's
+        // 'email' key is read everywhere as a real, comparable email address
+        // (isMember()/isOwnedBy() etc.), unlike the token-embedded identifier
+        // used by the magic-link flow (see the analogous fix/comment in
+        // verifyToken() and CLAUDE.md "Privacy-preserving username").
         session_regenerate_id(true);
         $_SESSION['user'] = [
-            'email' => $member->attributes['username'] ?? $member->email,
+            'email' => $member->email,
             'listCn' => $list->name,
         ];
-        $this->logger->debug("Listig: OIDC login successful for $email (list {$list->name})", $list->logLevel);
+        $this->logger->debug("Listig: OIDC login successful for {$member->email} (list {$list->name})", $list->logLevel);
         // Saved so logout() can pass it back as id_token_hint for RP-initiated
         // logout — otherwise a Listig logout would leave the user silently
         // re-authenticated by the IdP's own still-valid session on next login.

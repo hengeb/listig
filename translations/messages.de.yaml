@@ -69,6 +69,7 @@ dashboard:
   heading: "Meine Listen"
   empty: "Du bist keiner Mailingliste zugeordnet."
   unsubscribe_button: "Abmelden"
+  manage_button: "Verwalten"
 
 unsubscribe_page:
   title: "Abmeldung – %app_name%"

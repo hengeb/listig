@@ -12,6 +12,7 @@ use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Member\MemberResolver;
 use Hengeb\Listig\Member\NullMemberResolver;
+use Hengeb\Listig\Variable\Literal;
 use Hengeb\Listig\Variable\ResolutionPurpose;
 use Hengeb\Listig\Variable\VariableResolver;
 
@@ -92,6 +93,55 @@ class ListConfig
     public function findMemberInList(string $email): ?Member
     {
         return self::matchEmail($email, $this->getMembers());
+    }
+
+    /**
+     * Resolves a member by the privacy-preserving identifier embedded in an
+     * unsubscribe token (see CLAUDE.md "Privacy-preserving username") — the
+     * inverse of how that identifier was derived when the token was signed
+     * ($recipient->attributes['username'] ?? $recipient->email, in
+     * MailProcessor::process() and DashboardController::index()).
+     * findMemberInList()/findMemberByEmail() only ever match against
+     * Member::$email, never a username, so they cannot reverse this lookup —
+     * for an LDAP-backed member, $userCn is the LDAP cn, not an email address,
+     * and searching `(mail=$userCn)` never matches anything.
+     */
+    public function findMemberInListByUserCn(string $userCn): ?Member
+    {
+        foreach ($this->getMembers() as $member) {
+            if (($member->attributes['username'] ?? $member->email) === $userCn) {
+                return $member;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolves a display name ("firstname lastname") for a member/owner shown in
+     * the web UI (list/manage.latte, list/index.latte) — {firstname}/{lastname}
+     * are ordinary config-key aliases (e.g. `firstname: "{givenName}"` for an
+     * LDAP-backed list with no dedicated firstname field of its own — see
+     * CLAUDE.md "Member attributes — fully dynamic"), so reading
+     * $member->attributes['firstname'] directly (as this method's callers used
+     * to) never resolves them: that key is only ever resolved lazily, through
+     * VariableResolver, against a context built from both this list's own
+     * config and the member's own attributes (which must come first, and be
+     * Literal-wrapped, exactly like MailProcessor::buildRecipientContext() —
+     * mail-derived member data must never be re-parsed as a further template,
+     * see "Untrusted input in {} templates"). Falls back to `username` (see
+     * "Privacy-preserving `username`") when both resolve empty — e.g. no
+     * firstname/lastname alias configured at all.
+     */
+    public function resolveMemberDisplayName(Member $member): string
+    {
+        $memberContext = array_map(fn(string $v) => new Literal($v), $member->attributes);
+        $memberContext['mail'] = new Literal($member->email);
+        $contexts = [$this->createContext(), $memberContext];
+
+        $firstname = VariableResolver::resolve('{firstname}', $contexts);
+        $lastname = VariableResolver::resolve('{lastname}', $contexts);
+
+        return trim("$firstname $lastname") ?: ($member->attributes['username'] ?? '');
     }
 
     /** Returns the matching entry from getOwners(), scoped to this list, or null. */

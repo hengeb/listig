@@ -56,8 +56,13 @@ class UnsubscribeController
             return $this->render($response, 'unsubscribe.list_not_found', [], false);
         }
 
-        // Resolve the actual email address from userCn (may be username or email)
-        $member = $list->findMemberByEmail($userCn);
+        // Resolve the actual email address from userCn (may be username or email —
+        // see CLAUDE.md "Privacy-preserving username"). findMemberByEmail() only
+        // ever matches Member::$email (an LDAP `(mail=$userCn)` search never finds
+        // anything when $userCn is actually the LDAP cn), so it cannot reverse this
+        // lookup — findMemberInListByUserCn() mirrors exactly how the token's
+        // identifier was derived when it was signed.
+        $member = $list->findMemberInListByUserCn($userCn);
         $memberEmail = $member?->email ?? $userCn;
 
         if ($list->allowLeave === AllowLeave::Moderated) {

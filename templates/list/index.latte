@@ -3,7 +3,19 @@
 {block title}{$list->displayName|escapeHtml} – {$appName ?? 'Listig'}{/block}
 
 {block content}
-<h1>{$list->displayName|escapeHtml}</h1>
-<p class="text-muted">{$list->mail|escapeHtml}</p>
-<p n:if="$list->description">{$list->description|escapeHtml}</p>
+<div class="card">
+    <h1>{$list->displayName|escapeHtml}</h1>
+    <p class="text-muted">{$list->mail|escapeHtml}</p>
+    <p n:if="$list->description">{$list->description|escapeHtml}</p>
+    <p n:if="count($list->getOwners()) > 0">
+        <strong>{$translator->trans('list.manage.owners')}:</strong>
+        {foreach $list->getOwners() as $owner}
+            {$list->resolveMemberDisplayName($owner)|escapeHtml}{sep}, {/sep}
+        {/foreach}
+    </p>
+    <p n:if="$showArchiveLink || $unsubscribeLink">
+        <a n:if="$showArchiveLink" href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a>
+        <a n:if="$unsubscribeLink" href="{$unsubscribeLink|escapeHtml}" class="btn btn-secondary">{$translator->trans('dashboard.unsubscribe_button')}</a>
+    </p>
+</div>
 {/block}

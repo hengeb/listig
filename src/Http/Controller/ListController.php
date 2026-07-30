@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Http\Controller;
 
+use Hengeb\Listig\Config\Enum\AllowLeave;
+use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Provider\ListProvider;
+use Hengeb\Listig\Token\TokenService;
 use Latte\Engine;
 use PDO;
 use Psr\Http\Message\ResponseInterface;
@@ -19,6 +22,8 @@ class ListController
         private readonly ListProvider $listProvider,
         private readonly PDO $db,
         private readonly TranslatorInterface $translator,
+        private readonly TokenService $tokenService,
+        private readonly string $hostname,
         private readonly string $appName,
     ) {
     }
@@ -33,9 +38,15 @@ class ListController
             return (new Response())->withStatus(404);
         }
 
-        // Check owner access
+        // {list-url} (https://{hostname}/{list-name}) is embedded in every
+        // distributed mail's footer/subject-label, sent to every recipient — not
+        // just owners — so a non-owner following that link must not get a bare
+        // 403. Show the same reduced, public-safe info the dashboard already
+        // shows for this list (name, description, archive link, unsubscribe)
+        // instead; only the owner-only management details below this point
+        // (moderation queue, delivery/bounce stats) require real ownership.
         if (!$list->isOwnedBy($user['email'])) {
-            return (new Response())->withStatus(403);
+            return $this->renderInfo($request, $response, $list);
         }
 
         $moderationItems = $this->getModerationItems($listName);
@@ -54,6 +65,51 @@ class ListController
             'queueStatus' => $queueStatus,
             'bounceStats' => $bounceStats,
             'memberCount' => count($list->getMembers()),
+            'language' => $list->language,
+            'translator' => $this->translator,
+            'appName' => $this->appName,
+        ]);
+
+        $response->getBody()->write($html);
+        return $response;
+    }
+
+    /**
+     * Reduced view for anyone who reaches {list-url} without being an owner —
+     * see the comment at its one call site in manage() above. Same building
+     * blocks DashboardController::index() already shows for this exact list
+     * when the viewer is a subscribed member; only the archive-link visibility
+     * differs, since here the viewer might not be a member at all (e.g. a
+     * former member revisiting an old mail's footer link after unsubscribing)
+     * and 'members'-mode archives must stay hidden from a non-member.
+     */
+    private function renderInfo(ServerRequestInterface $request, ResponseInterface $response, ListConfig $list): ResponseInterface
+    {
+        $user = $request->getAttribute('user');
+        $userEmail = $user['email'];
+        $isMember = $list->isMember($userEmail);
+
+        $showArchiveLink = $list->archive->value === 'public'
+            || ($list->archive->value === 'members' && $isMember);
+
+        $unsubscribeLink = null;
+        if ($isMember && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
+            $member = $list->findMemberInList($userEmail);
+            $token = $this->tokenService->sign(
+                'unsubscribe',
+                $list->name,
+                $member?->attributes['username'] ?? $userEmail,
+            );
+            $unsubscribeLink = "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}";
+        }
+
+        $this->translator->setLocale($list->language);
+
+        $html = $this->latte->renderToString(__DIR__ . '/../../../templates/list/index.latte', [
+            'user' => $user,
+            'list' => $list,
+            'showArchiveLink' => $showArchiveLink,
+            'unsubscribeLink' => $unsubscribeLink,
             'language' => $list->language,
             'translator' => $this->translator,
             'appName' => $this->appName,

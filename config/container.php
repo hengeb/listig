@@ -490,6 +490,8 @@ $builder->addDefinitions([
             $c->get(ListProvider::class),
             $c->get(PDO::class),
             $c->get(TranslatorInterface::class),
+            $c->get(TokenService::class),
+            $c->get('app.hostname'),
             $c->get('app.name'),
         );
     },

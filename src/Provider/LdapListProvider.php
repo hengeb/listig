@@ -15,12 +15,29 @@ class LdapListProvider implements ListProvider
 {
     private ?Ldap $ldap = null;
     private ?array $lists = null;
+    private ?array $resolvedProviderConfig = null;
 
     public function __construct(
         private readonly string $name,
         private readonly ConfigResolver $configResolver,
         private readonly array $providerConfig,
     ) {
+    }
+
+    /**
+     * $providerConfig (the constructor arg) is the raw list-providers.{name} entry —
+     * if it sets ldap-host/ldap-base-dn/etc. via its own `use:` (e.g. `use: [ldap-config]`
+     * referencing a root-level named block) rather than as direct keys, those keys are
+     * simply absent from it; `use:` is only ever merged in by
+     * ConfigResolver::resolveListConfig(). Every method below that needs ldap-* reads
+     * this resolved config instead of $this->providerConfig directly — entryToListConfig()
+     * is the one exception, since it already calls resolveListConfig() itself (with
+     * per-list description[] overrides layered on top, which this cached, provider-level-only
+     * resolution deliberately excludes).
+     */
+    private function resolvedProviderConfig(): array
+    {
+        return $this->resolvedProviderConfig ??= $this->configResolver->resolveListConfig($this->providerConfig);
     }
 
     public function getLists(): array
@@ -33,7 +50,7 @@ class LdapListProvider implements ListProvider
             $entries = $this->queryLists();
         } catch (\Throwable $e) {
             // LDAP unreachable: log, return empty, do NOT cache so the next cycle retries
-            error_log("Listig: LDAP connection failed for list provider '{$this->name}' ({$this->providerConfig['ldap-host']}): " . $e->getMessage());
+            error_log("Listig: LDAP connection failed for list provider '{$this->name}' ({$this->resolvedProviderConfig()['ldap-host']}): " . $e->getMessage());
             return [];
         }
 
@@ -63,8 +80,9 @@ class LdapListProvider implements ListProvider
     private function queryLists(): array
     {
         $ldap = $this->connect();
-        $listDn = $this->providerConfig['ldap-list-dn'] ?? $this->providerConfig['ldap-base-dn'];
-        $filter = $this->providerConfig['ldap-filter'] ?? '(objectClass=mailGroup)';
+        $config = $this->resolvedProviderConfig();
+        $listDn = $config['ldap-list-dn'] ?? $config['ldap-base-dn'];
+        $filter = $config['ldap-filter'] ?? '(objectClass=mailGroup)';
 
         return $ldap->query($listDn, $filter)->execute()->toArray();
     }
@@ -111,7 +129,8 @@ class LdapListProvider implements ListProvider
     public function setListConfigValue(string $listName, string $key, string $value): void
     {
         $ldap = $this->connect();
-        $listDn = $this->providerConfig['ldap-list-dn'] ?? $this->providerConfig['ldap-base-dn'];
+        $config = $this->resolvedProviderConfig();
+        $listDn = $config['ldap-list-dn'] ?? $config['ldap-base-dn'];
         $filter = "(&(objectClass=mailGroup)(cn={$this->escape($listName)}))";
 
         $entry = null;
@@ -145,23 +164,25 @@ class LdapListProvider implements ListProvider
 
     private function createMemberResolver(): LdapMemberResolver
     {
+        $config = $this->resolvedProviderConfig();
         return new LdapMemberResolver(
-            $this->providerConfig['ldap-host'],
-            $this->providerConfig['ldap-base-dn'],
-            $this->providerConfig['ldap-bind-dn'],
-            $this->providerConfig['ldap-bind-password'],
+            $config['ldap-host'],
+            $config['ldap-base-dn'],
+            $config['ldap-bind-dn'],
+            $config['ldap-bind-password'],
         );
     }
 
     private function connect(): Ldap
     {
         if ($this->ldap === null) {
+            $config = $this->resolvedProviderConfig();
             $this->ldap = Ldap::create('ext_ldap', [
-                'connection_string' => $this->providerConfig['ldap-host'],
+                'connection_string' => $config['ldap-host'],
             ]);
             $this->ldap->bind(
-                $this->providerConfig['ldap-bind-dn'],
-                $this->providerConfig['ldap-bind-password'],
+                $config['ldap-bind-dn'],
+                $config['ldap-bind-password'],
             );
         }
         return $this->ldap;

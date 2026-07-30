@@ -121,13 +121,33 @@ $app->group('', function (RouteCollectorProxy $group): void {
 function checkLdapReachability(ConfigResolver $configResolver): bool
 {
     $servers = [];
-    foreach ($configResolver->getListProviderConfigs() as $config) {
-        foreach ([$config, $config['member-resolver'] ?? []] as $ldapConfig) {
-            if (($ldapConfig['type'] ?? null) !== 'ldap') {
-                continue;
-            }
-            $key = $ldapConfig['ldap-host'] . '|' . $ldapConfig['ldap-bind-dn'];
-            $servers[$key] = $ldapConfig;
+    foreach ($configResolver->getListProviderConfigs() as $name => $config) {
+        // Mirrors config/container.php's own type resolution (ListProvider::class
+        // factory): a provider's `type` isn't necessarily a direct key — it may come
+        // from a `use:`-referenced block, or fall back to the provider's own map key
+        // (its name) entirely — see CLAUDE.md "list-providers — provider name as
+        // implicit type". Reading raw $config['type'] here (the pre-fix behavior)
+        // was always null for a provider like `ldap: { use: [ldap-config] }`, which
+        // silently skipped it — the loop below never ran and this function returned
+        // true without ever actually attempting a connection, regardless of whether
+        // LDAP was reachable at all.
+        $resolved = $configResolver->resolveListConfig($config);
+        $type = $resolved['type'] ?? '';
+        $type = $type !== '' ? $type : $name;
+
+        if ($type === 'ldap') {
+            $key = $resolved['ldap-host'] . '|' . $resolved['ldap-bind-dn'];
+            $servers[$key] = $resolved;
+        }
+
+        // member-resolver sub-configs are a self-contained nested block (no `use:`
+        // support at that nesting level — every *MemberResolver consumer reads them
+        // as raw keys, see e.g. InlineListProvider), so $config['member-resolver']
+        // needs no resolveListConfig() pass of its own.
+        $memberResolverConfig = $config['member-resolver'] ?? [];
+        if (($memberResolverConfig['type'] ?? null) === 'ldap') {
+            $key = $memberResolverConfig['ldap-host'] . '|' . $memberResolverConfig['ldap-bind-dn'];
+            $servers[$key] = $memberResolverConfig;
         }
     }
 

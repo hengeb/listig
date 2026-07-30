@@ -59,6 +59,36 @@ class AggregateMemberResolver implements MemberResolver
         return null;
     }
 
+    /**
+     * Resolves a member within a *specific* list from the identifier embedded in a
+     * login token — sendMagicLink() signs that token with
+     * $member->attributes['username'] ?? $member->email (see CLAUDE.md
+     * "Privacy-preserving username"), specifically so the emailed link doesn't
+     * carry a plaintext address for an LDAP-backed member. This is the inverse
+     * lookup verifyToken() needs once that token round-trips back: matches on
+     * username first, falling back to a plain email match for members with no
+     * username attribute — mirroring the same fallback used when the identifier
+     * was created — so the caller can recover the member's *real* email for the
+     * session (see AuthController::verifyToken()).
+     *
+     * @return array{list: ListConfig, member: Member}|null
+     */
+    public function findMemberInListByUserCn(string $listCn, string $userCn): ?array
+    {
+        $list = $this->listProvider->getList($listCn);
+        if ($list === null) {
+            return null;
+        }
+
+        foreach ([...$list->getMembers(), ...$list->getOwners()] as $member) {
+            if (($member->attributes['username'] ?? $member->email) === $userCn) {
+                return ['list' => $list, 'member' => $member];
+            }
+        }
+
+        return null;
+    }
+
     public function removeMember(string $listName, string $email): void
     {
         // Not applicable for aggregate resolver
