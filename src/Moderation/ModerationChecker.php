@@ -34,13 +34,15 @@ class ModerationChecker
             }
 
             $rawMime = $this->imapPoller->fetchByUid($list, (int) $row['imap_uid']);
-            if ($rawMime === null) {
+            $mail = $this->imapPoller->fetchMailByUid($list, (int) $row['imap_uid']);
+            if ($rawMime === null || $mail === null) {
                 error_log("Listig: Moderation reminder skipped for list {$row['list_cn']} UID {$row['imap_uid']}: mail no longer on IMAP");
                 continue;
             }
 
             $this->moderationMailer->send(
                 $list,
+                $mail,
                 (int) $row['imap_uid'],
                 (int) $row['imap_uidvalidity'],
                 $rawMime,

@@ -44,7 +44,7 @@
         <a href="/" class="brand"><img src="/logo-mark.svg" alt=""> {$appName ?? 'Listig'}</a>
         <nav>
             {if isset($user)}
-                <span class="header-user-email">{$user['email']|escapeHtml}</span>
+                <span class="header-user-email">{$user['email']}</span>
                 <a href="#" onclick="listigLogout(event)">{$translator->trans('auth.logout')}</a>
             {/if}
         </nav>

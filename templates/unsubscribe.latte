@@ -7,10 +7,10 @@
     <div class="card text-center">
         {if $success}
             <div class="result-icon">✓</div>
-            <p>{$message|escapeHtml}</p>
+            <p>{$message}</p>
         {else}
             <div class="result-icon">✗</div>
-            <p class="text-danger">{$message|escapeHtml}</p>
+            <p class="text-danger">{$message}</p>
         {/if}
         <a href="/" class="btn btn-secondary mt-1">{$translator->trans('unsubscribe_page.back_home')}</a>
     </div>

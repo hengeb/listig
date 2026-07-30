@@ -45,7 +45,7 @@ reject:
 moderation:
   mail:
     subject: "[Moderation] New mail pending for %list%"
-    body: "A mail to list %list% (%mail%) requires your approval.\n\nAccept: mailto:%accept%\nReject: mailto:%reject%\n"
+    body: "A mail to list %list% (%mail%) requires your approval.\n\nSubject: %subject%\nFrom: %sender%\nDate: %date%\n\nAccept: mailto:%accept%\nReject: mailto:%reject%\n"
 
 bounce:
   unknown: "unknown"

@@ -126,7 +126,20 @@ class ListController
             'SELECT * FROM moderation_queue WHERE list_cn = :list ORDER BY created_at DESC'
         );
         $stmt->execute(['list' => $listName]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($items as &$item) {
+            // "Name <mail>", or just the bare address when the sender set no
+            // display name — computed here, not in the template, both to match
+            // ModerationMailer's identical %sender% formatting for the request
+            // mail and because embedding literal '<'/'>' inside a Latte {...}
+            // expression confuses its tag parser (confirmed live — it silently
+            // mangles the output instead of erroring).
+            $senderName = $item['sender_name'] ?? '';
+            $item['sender_display'] = $senderName !== '' ? "{$senderName} <{$item['sender_mail']}>" : ($item['sender_mail'] ?? '');
+        }
+
+        return $items;
     }
 
     private function getQueueStatus(string $listName): array

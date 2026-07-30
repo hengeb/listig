@@ -45,7 +45,7 @@ reject:
 moderation:
   mail:
     subject: "[Moderation] Neue Mail wartet für %list%"
-    body: "Eine Mail an die Liste %list% (%mail%) erfordert deine Freigabe.\n\nAnnehmen: mailto:%accept%\nAblehnen: mailto:%reject%\n"
+    body: "Eine Mail an die Liste %list% (%mail%) erfordert deine Freigabe.\n\nBetreff: %subject%\nAbsender: %sender%\nZeitpunkt: %date%\n\nAnnehmen: mailto:%accept%\nAblehnen: mailto:%reject%\n"
 
 bounce:
   unknown: "unbekannt"

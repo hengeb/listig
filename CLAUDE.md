@@ -1125,6 +1125,19 @@ No `token` column: accept/reject tokens embed `list_cn`/`imap_uid`/`imap_uidvali
 and are HMAC-signed (see Token Format), so verifying a reply never needs a DB lookup.
 This table only tracks that an item is pending moderation and when it was created/reminded.
 
+`subject`/`sender_name`/`sender_mail`/`mail_date` (added by `migrations/002_moderation_queue_mail_metadata.sql`,
+not backfilled — `NULL` for any row queued before this migration ran) mirror `archived_mail`'s
+own subject/sender_name/mail_date columns: a snapshot of the moderated mail's own metadata,
+populated once by `ModerationMailer::send()` from the already-parsed `IncomingMail` at the point
+the item is first queued (and again, unchanged, on every overdue-reminder resend via
+`ModerationChecker::checkOverdue()`, which re-fetches the same `IncomingMail` by UID to pass
+through) — so both the moderation request mail's body and the manage page's moderation queue
+table (`ListController::getModerationItems()`, `templates/list/manage.latte`) can show subject/
+sender/timestamp without a live IMAP fetch per item. `sender_mail` is never displayed directly —
+`getModerationItems()` formats it into a `sender_display` field ("Name <mail>", or the bare
+address if the sender set no display name), matching `ModerationMailer`'s own `%sender%`
+formatting for the request mail.
+
 ```sql
 CREATE TABLE moderation_queue (
     id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -1133,6 +1146,10 @@ CREATE TABLE moderation_queue (
     imap_uidvalidity BIGINT UNSIGNED NOT NULL,
     created_at      DATETIME NOT NULL,
     reminded_at     DATETIME NULL,
+    subject         VARCHAR(500) NULL,
+    sender_name     VARCHAR(255) NULL,
+    sender_mail     VARCHAR(255) NULL,
+    mail_date       DATETIME NULL,
     UNIQUE KEY uq_list_uid (list_cn, imap_uid, imap_uidvalidity)
 );
 ```
@@ -1425,16 +1442,21 @@ Expand member list. Exclude addresses in original `To` or `Cc`. Normalize to low
 ### Flow
 
 1. Incoming mail from a sender whose `post-access-members`/`post-access-public` (whichever applies) is `PostAccess::Moderate` — see `IncomingMailFilter::requiresModeration()`; size check passes first
-2. `ModerationMailer` sends to all owners:
+2. `ModerationMailer::send(ListConfig $list, IncomingMail $mail, int $imapUid, int $uidValidity, string $rawMime)` sends to all owners:
    - `From`: list address; `Reply-To`: original sender
    - `Content-Type: multipart/mixed`:
-     - **Part 1** (`text/plain`): metadata + mailto links as plain text (**no HTML part** — prevents token leakage in replies):
+     - **Part 1** (`text/plain`): the moderated mail's own subject/sender/date, then metadata + mailto links as plain text (**no HTML part** — prevents token leakage in replies):
        ```
+       Subject: {subject}
+       From: {sender-name} <{sender-mail}>
+       Date: {date}
+
        Accept: mailto:{name}+accept-{TOKEN}@example.org
        Reject: mailto:{name}+reject-{TOKEN}@example.org
        ```
+       Sourced directly from the already-parsed `IncomingMail` passed in (`$mail->subject`/`$mail->fromName`/`$mail->fromAddress`/`$mail->date`), not re-read from `$rawMime` — same fields, and same `"{$senderName} <{$senderMail}>"` formatting, persisted to `moderation_queue`'s `subject`/`sender_name`/`sender_mail`/`mail_date` columns (see "Database Schema") so the manage page's moderation queue table can show the same information without a live IMAP fetch.
      - **Part 2** (`message/rfc822`): complete original mail
-3. `imap_uid` + `uidvalidity` stored in `moderation_queue` + `imap_seen` (the token itself is not persisted — it is self-describing, see Token Format)
+3. `imap_uid` + `uidvalidity` (and the mail metadata above) stored in `moderation_queue` + `imap_seen` (the token itself is not persisted — it is self-describing, see Token Format). `ModerationChecker::checkOverdue()`'s reminder resend re-fetches the same `IncomingMail` by UID (`ImapPoller::fetchMailByUid()`) to pass through the same `send()` call — the stored columns are written once at initial queueing and never updated by a reminder.
 4. Owner sends to accept/reject address
 5. Worker detects `+accept-` or `+reject-` in `To`:
    - Validate HMAC + expiry
@@ -1456,6 +1478,12 @@ Find rows where `created_at < NOW() - 7 days` and (`reminded_at IS NULL` or `rem
 - `POST /_/api/moderation/{id}/reject`
 
 Require valid session (owner of that list) + `X-CSRF-Token`.
+
+The manage page's moderation queue table (`ListController::getModerationItems()`,
+`templates/list/manage.latte`) shows Subject/Sender/Received columns alongside Accept/Reject,
+reading `moderation_queue`'s `subject`/`sender_display` (see "Database Schema")/`mail_date`
+columns directly — no live IMAP fetch. `mail_date` falls back to `created_at` for a row queued
+before the metadata columns existed (the migration doesn't backfill).
 
 ---
 
@@ -1698,6 +1726,12 @@ queued mail simply has nothing to send.
 ---
 
 ## Web UI (Slim + Latte)
+
+### HTML escaping — never use `|escapeHtml`
+
+Latte's `Engine` auto-escapes every `{...}` output expression for its surrounding context (HTML text, an attribute value, `<script>`, ...) by default — no explicit filter is ever needed for correctness, in any context, and none of these templates disable that behavior. `|escapeHtml` (`Latte\Essential\CoreExtension`, backed by `HtmlHelpers::escapeText()`) exists as a built-in filter, but it returns a **plain string**, not a value Latte's compiler recognizes as already-safe — so a value piped through it explicitly gets escaped twice: once by the filter, once again by the engine's own auto-escaping of the print expression. The result is corrupted double-encoded output (`&amp;lt;` instead of `&lt;`, rendering as the literal text `&lt;` in the browser instead of `<`) for any value containing `<`, `>`, `&`, `"`, or `'` — invisible for plain alphanumeric content, which is why ~43 pre-existing `{$value|escapeHtml}` call sites across every `.latte` template went unnoticed until the moderation queue table (see "Moderation via UI") started rendering real mail subjects/sender names, which routinely contain `&`.
+
+Fixed by removing `|escapeHtml` everywhere (confirmed via `Latte\Engine::compile()` on all 9 template files, plus targeted `renderToString()` tests with `<`/`>`/`&`-containing values in both text and attribute (`href="..."`) context) — write `{$value}`, not `{$value|escapeHtml}`. If a future template genuinely needs to bypass auto-escaping (rare — inserting pre-sanitized HTML, e.g. the archive viewer's sanitized mail body), that's `|noescape`, the opposite direction, not `|escapeHtml`.
 
 ### Custom layout
 

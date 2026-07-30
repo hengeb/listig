@@ -145,7 +145,7 @@ while (true) {
                 }
 
                 if ($result->isModeration) {
-                    $moderationMailer->send($list, $uid, $uidValidity, $rawMime);
+                    $moderationMailer->send($list, $mail, $uid, $uidValidity, $rawMime);
                     $imapPoller->markSeen($list, $uid, $uidValidity);
                     continue;
                 }

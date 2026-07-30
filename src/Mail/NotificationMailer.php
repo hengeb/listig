@@ -9,6 +9,7 @@ use Hengeb\Listig\Smtp\SmtpConnectionFactory;
 use Symfony\Component\Mailer\Mailer;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Part\DataPart;
 
 /**
  * Sends short plain-text operational notifications (delivery failures, bounces,
@@ -52,7 +53,16 @@ class NotificationMailer
             $email->text($text);
 
             if ($attachmentContent !== null) {
-                $email->attach($attachmentContent, $attachmentName, $attachmentMimeType);
+                // message/rfc822 per RFC 2046 only allows 7bit/8bit/binary transfer
+                // encoding, never quoted-printable/base64 — Email::attach() has no
+                // encoding parameter and DataPart defaults to base64 for a null
+                // charset, which made mail clients refuse to display the attached
+                // original mail at all (see ModerationMailer for the same fix).
+                if ($attachmentMimeType === 'message/rfc822') {
+                    $email->addPart(new DataPart($attachmentContent, $attachmentName, $attachmentMimeType, '8bit'));
+                } else {
+                    $email->attach($attachmentContent, $attachmentName, $attachmentMimeType);
+                }
             }
 
             $mailer->send($email);

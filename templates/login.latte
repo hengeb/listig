@@ -7,7 +7,7 @@
     <div class="card">
         <h1 class="centered-heading">{$translator->trans('login.heading')}</h1>
 
-        <div class="flash" n:if="isset($flash) && $flash">{$flash|escapeHtml}</div>
+        <div class="flash" n:if="isset($flash) && $flash">{$flash}</div>
 
         {if $oidcEnabled}
             <a href="/_/login/oidc" class="btn btn-primary btn-block oidc-login-btn">{$translator->trans('auth.oidc_login_button')}</a>
