@@ -716,7 +716,7 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `smtp-from-name` | string | Display name in From header; may contain mail-context variables e.g. `{sender-name} (via {display-name})` |
 | `display-name` | string | Human-readable list name for UI (falls back to `cn`); used in `List-Id` header |
 | `description` | string | Optional list description shown in UI. Renamed to `list-description` on ingest by `ConfigResolver::resolveListConfig()` (applies to every provider, not just LDAP) — see "`description` → `list-description`" |
-| `reply-to` | `list` \| `sender` \| `both` \| `nobody` | Reply-To behavior — `both` sets both list and sender addresses; `nobody` sets a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (replies are guaranteed undeliverable — `.invalid` per RFC 2606 — and the display name is what a mail client actually shows when Reply is clicked) |
+| `reply-to` | `list` \| `sender` \| `both` \| `nobody` | Reply-To behavior — `both` sets both list and sender addresses, *unless* the sender is already a list member, in which case it's just the list address (see "Headers to set on outgoing mail" for why); `nobody` sets a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (replies are guaranteed undeliverable — `.invalid` per RFC 2606 — and the display name is what a mail client actually shows when Reply is clicked) |
 | `post-access` | `members` \| `owners` \| `public` | Who may post (default: `members`) |
 | `moderation` | `on` \| `off` | Whether posts require owner approval |
 | `allow-leave` | `direct` \| `moderated` | Unsubscribe behavior |
@@ -1357,6 +1357,8 @@ The fix: for each `IncomingMailAttachment` where `$attachment->disposition === '
 | `X-Forwarded-From` | Original sender address |
 
 `List-Id` uses `name` rather than `display-name` because it is a stable machine-readable identifier that should not change when the human-readable name is updated.
+
+**`reply-to: both` and list-member senders** — `MailProcessor::setOutgoingHeaders()` computes `$exposesSenderAddress` once, before building `Reply-To`, and reuses it for the `X-Original-Sender` decision below: `true` for `Sender` always, for `Both` only when `!$list->isMember($senderEmail)`, `false` for `List`/`Nobody`. The reasoning is a duplicate-delivery problem, not a privacy one (the sender's real address is never otherwise visible to recipients — the distributed mail's own `From` is always the *list's* address, per the `From` row above, so `Reply-To` is the only place it can leak at all): list distribution already reaches every member, sender included, so if a member's own mail also carries their personal address in `Reply-To`, a mail client that sends a reply to *every* `Reply-To` address (e.g. "Reply All") delivers one copy straight to that address and a second copy via the list redistribution — the same reply, twice, in the same inbox. A non-member sender has no such second path (they're not on the list, so redistribution never reaches them), so for them `both` keeps behaving as its name says.
 
 ### Subject label
 

@@ -250,11 +250,29 @@ class MailProcessor
         $headers->remove('sender');
         $headers->addMailboxHeader('Sender', new Address($senderHeader));
 
+        // Both: if the sender is already a list member, replying to the list
+        // alone already reaches them (list distribution includes every member,
+        // sender included) — adding their personal address on top of that isn't
+        // just redundant, it actively causes a duplicate: a client that sends
+        // the reply to *both* Reply-To addresses (e.g. "Reply All") delivers one
+        // copy straight to that address and a second copy via the list
+        // redistribution, since the sender is a recipient there too. Only a
+        // non-member sender has no such second path, so only then does the
+        // extra direct address genuinely add reachability rather than just
+        // duplicating it.
+        $exposesSenderAddress = match ($list->replyTo) {
+            ReplyToBehavior::Sender => true,
+            ReplyToBehavior::Both => !$list->isMember($senderEmail),
+            ReplyToBehavior::List, ReplyToBehavior::Nobody => false,
+        };
+
         $headers->remove('reply-to');
         match ($list->replyTo) {
             ReplyToBehavior::List => $email->replyTo(new Address($list->mail)),
             ReplyToBehavior::Sender => $email->replyTo(new Address($senderEmail)),
-            ReplyToBehavior::Both => $email->replyTo(new Address($list->mail), new Address($senderEmail)),
+            ReplyToBehavior::Both => $exposesSenderAddress
+                ? $email->replyTo(new Address($list->mail), new Address($senderEmail))
+                : $email->replyTo(new Address($list->mail)),
             // ".invalid" (RFC 2606 — reserved specifically for a domain that is
             // always invalid, same TLD QueueSender::isInvalidAddress() already
             // recognizes and skips outright) guarantees this can never actually
@@ -272,11 +290,10 @@ class MailProcessor
             )),
         };
 
-        // The sender's real address is only ever exposed via Reply-To for
-        // Sender/Both — X-Original-Sender (the privacy-preserving username, not
-        // the address) is the CN a reply-based reveal is paired with; List/Nobody
-        // never put the sender's address in Reply-To, so there's nothing to pair.
-        if ($list->replyTo === ReplyToBehavior::Sender || $list->replyTo === ReplyToBehavior::Both) {
+        // X-Original-Sender (the privacy-preserving username, not the address)
+        // is the CN a reply-based reveal is paired with — only meaningful when
+        // the sender's real address actually ended up in Reply-To above.
+        if ($exposesSenderAddress) {
             $senderMember = $list->findMemberByEmail($senderEmail);
             $senderUsername = $senderMember?->attributes['username'] ?? null;
             if ($senderUsername !== null) {
