@@ -13,6 +13,9 @@ auth:
     body: "Hallo %name%,\n\nklicke auf den folgenden Link, um dich anzumelden:\n\n%link%\n\nDer Link ist 5 Minuten gültig."
     body_html: "<p>Hallo %name%,</p><p>Klicke auf den folgenden Link, um dich anzumelden:</p><p><a href=\"%link%\">%link%</a></p><p>Der Link ist 5 Minuten gültig.</p>"
 
+mail:
+  no_reply_name: "Bitte nicht antworten"
+
 unsubscribe:
   token_invalid: "Token ungültig"
   token_expired: "Token abgelaufen"

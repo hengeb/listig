@@ -18,6 +18,7 @@ use PhpImap\IncomingMail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Part\DataPart;
+use Symfony\Contracts\Translation\TranslatorInterface;
 
 class MailProcessor
 {
@@ -29,6 +30,7 @@ class MailProcessor
         private readonly TokenService $tokenService,
         private readonly string $hostname,
         private readonly Logger $logger,
+        private readonly TranslatorInterface $translator,
     ) {
     }
 
@@ -249,10 +251,32 @@ class MailProcessor
         $headers->addMailboxHeader('Sender', new Address($senderHeader));
 
         $headers->remove('reply-to');
-        if ($list->replyTo === ReplyToBehavior::List) {
-            $email->replyTo(new Address($list->mail));
-        } else {
-            $email->replyTo(new Address($senderEmail));
+        match ($list->replyTo) {
+            ReplyToBehavior::List => $email->replyTo(new Address($list->mail)),
+            ReplyToBehavior::Sender => $email->replyTo(new Address($senderEmail)),
+            ReplyToBehavior::Both => $email->replyTo(new Address($list->mail), new Address($senderEmail)),
+            // ".invalid" (RFC 2606 — reserved specifically for a domain that is
+            // always invalid, same TLD QueueSender::isInvalidAddress() already
+            // recognizes and skips outright) guarantees this can never actually
+            // be delivered, not just "probably won't be" — appended to
+            // list->domain, not a fixed domain, so it still identifies the
+            // list's own domain if anyone inspects the header anyway. The
+            // display name is the part that actually reaches the human: most
+            // mail clients show it prominently in the compose window's "To:"
+            // field the moment Reply is clicked, which is far more reliably
+            // visible than hoping a client renders some specific warning UI for
+            // an unusual address alone.
+            ReplyToBehavior::Nobody => $email->replyTo(new Address(
+                "noreply@{$list->domain}.invalid",
+                $this->translator->trans('mail.no_reply_name', [], null, $list->language),
+            )),
+        };
+
+        // The sender's real address is only ever exposed via Reply-To for
+        // Sender/Both — X-Original-Sender (the privacy-preserving username, not
+        // the address) is the CN a reply-based reveal is paired with; List/Nobody
+        // never put the sender's address in Reply-To, so there's nothing to pair.
+        if ($list->replyTo === ReplyToBehavior::Sender || $list->replyTo === ReplyToBehavior::Both) {
             $senderMember = $list->findMemberByEmail($senderEmail);
             $senderUsername = $senderMember?->attributes['username'] ?? null;
             if ($senderUsername !== null) {

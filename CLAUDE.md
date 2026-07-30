@@ -128,7 +128,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   ├── ConfigResolver.php        # Merges config.yml blocks: use:, priority, $VAR substitution
 │   │   ├── YamlIncludeResolver.php   # Resolves !include tags (see "File includes") for config.yml and YamlListProvider files
 │   │   └── Enum/
-│   │       ├── ReplyToBehavior.php   # 'list' | 'sender'
+│   │       ├── ReplyToBehavior.php   # 'list' | 'sender' | 'both' | 'nobody'
 │   │       ├── PostAccess.php        # 'members' | 'owners' | 'public'
 │   │       ├── ModerationMode.php    # 'on' | 'off'
 │   │       ├── AllowLeave.php        # 'direct' | 'moderated'
@@ -716,7 +716,7 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `smtp-from-name` | string | Display name in From header; may contain mail-context variables e.g. `{sender-name} (via {display-name})` |
 | `display-name` | string | Human-readable list name for UI (falls back to `cn`); used in `List-Id` header |
 | `description` | string | Optional list description shown in UI. Renamed to `list-description` on ingest by `ConfigResolver::resolveListConfig()` (applies to every provider, not just LDAP) — see "`description` → `list-description`" |
-| `reply-to` | `list` \| `sender` | Reply-To behavior |
+| `reply-to` | `list` \| `sender` \| `both` \| `nobody` | Reply-To behavior — `both` sets both list and sender addresses; `nobody` sets a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (replies are guaranteed undeliverable — `.invalid` per RFC 2606 — and the display name is what a mail client actually shows when Reply is clicked) |
 | `post-access` | `members` \| `owners` \| `public` | Who may post (default: `members`) |
 | `moderation` | `on` \| `off` | Whether posts require owner approval |
 | `allow-leave` | `direct` \| `moderated` | Unsubscribe behavior |
@@ -1009,7 +1009,7 @@ either) resolves to an empty string rather than a literal `{key}` — see
 ### String-backed Enums
 
 ```php
-enum ReplyToBehavior: string { case List = 'list'; case Sender = 'sender'; }
+enum ReplyToBehavior: string { case List = 'list'; case Sender = 'sender'; case Both = 'both'; case Nobody = 'nobody'; }
 enum PostAccess: string { case Members = 'members'; case Owners = 'owners'; case Public = 'public'; }
 enum ModerationMode: string { case On = 'on'; case Off = 'off'; }
 enum AllowLeave: string { case Direct = 'direct'; case Moderated = 'moderated'; }
@@ -1344,8 +1344,8 @@ The fix: for each `IncomingMailAttachment` where `$attachment->disposition === '
 |---|---|
 | `From` | `smtp-from-name <list-mail>` — `smtp-from-name` may contain mail-context variables |
 | `Sender` | `{list->localPart}+bounce@{list->domain}` — local part of the list's own mail address, not `{list-cn}` (see "Envelope separation") |
-| `Reply-To` | List address (`ReplyToBehavior::List`) or original sender (`ReplyToBehavior::Sender`) |
-| `X-Original-Sender` | Sender's CN — only when `ReplyToBehavior::Sender` (CN not email — privacy) |
+| `Reply-To` | List address (`List`), original sender (`Sender`), both (`Both`), or a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (`Nobody`) — see `ReplyToBehavior` |
+| `X-Original-Sender` | Sender's CN — only when the sender's own address is in Reply-To (`Sender`/`Both`; CN not email — privacy) |
 | `List-Id` | `<{name}.{domain}>` — uses `name` (stable identifier, not `display-name` which may change) |
 | `List-Post` | `<mailto:{mail}>` or `NO` if `PostAccess::Owners` |
 | `List-Help` | `<mailto:{owner-mail}>` — added whenever the list has at least one owner (not conditional on `post-access`) |

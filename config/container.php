@@ -324,6 +324,7 @@ $builder->addDefinitions([
             $c->get(TokenService::class),
             $c->get('app.hostname'),
             $c->get(Logger::class),
+            $c->get(TranslatorInterface::class),
         );
     },
 
