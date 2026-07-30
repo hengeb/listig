@@ -197,6 +197,11 @@ $app->group('', function (RouteCollectorProxy $group): void {
         $api->get('/queue/{listname}', [QueueController::class, 'status']);
         $api->delete('/queue/{id}', [QueueController::class, 'delete']);
         $api->post('/queue/{id}/retry', [QueueController::class, 'retry']);
+        // Owner-only delete of a single archived mail (IMAP + archived_mail index —
+        // see ArchiveController::delete()) — deliberately NOT part of the
+        // OptionalAuthMiddleware-protected read-only archive route group above,
+        // since deleting must require a real session even for an `archive: public` list.
+        $api->delete('/archive/{listname}/{id}', [ArchiveController::class, 'delete']);
     })->add(new CsrfMiddleware());
 })->add(new AuthMiddleware());
 

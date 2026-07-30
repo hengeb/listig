@@ -141,6 +141,8 @@ archive:
     unnamed_attachment: "Attachment"
     view_html: "HTML"
     view_text: "Plain text"
+    delete: "Delete"
+    confirm_delete: "Permanently delete this mail from the archive? This cannot be undone."
   login_required:
     heading: "Login required"
     message: "You need to be logged in to view this list's archive."

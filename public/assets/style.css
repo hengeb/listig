@@ -61,6 +61,15 @@ th { background: #f9f9f9; font-weight: 600; }
 .list-summary-description { color: #555; margin: .4rem 0 0; }
 .list-summary-actions { display: flex; gap: .5rem; flex-shrink: 0; }
 
+/* Narrow screens: .list-summary-actions (up to 3 nowrap buttons, flex-shrink: 0)
+   doesn't fit next to the name/mail text in a single row anymore and overflows
+   past the card's edge instead of wrapping — stack info above actions, and let
+   actions wrap onto a second line if even they alone don't fit one row. */
+@media (max-width: 600px) {
+    .list-summary { flex-direction: column; align-items: stretch; gap: .75rem; }
+    .list-summary-actions { flex-wrap: wrap; }
+}
+
 /* list/manage.latte */
 .list-mail-subtitle { font-size: .6em; color: #777; }
 
@@ -70,7 +79,7 @@ th { background: #f9f9f9; font-weight: 600; }
 .archive-toolbar input[type=text] { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
 #archive-table th.thread-col, #archive-table td.thread-col { width: 1.75rem; padding-left: 0.75rem; padding-right: 0; }
 #archive-table td.subject { display: flex; align-items: center; gap: 0.35rem; }
-.thread-toggle-icon { cursor: pointer; background: none; border: none; font-size: 1rem; padding: 0; line-height: 1; display: inline-flex; align-items: center; }
+.thread-toggle-icon { cursor: pointer; background: none; border: none; color: #888; font-size: 1rem; padding: 0; line-height: 1; display: inline-flex; align-items: center; }
 .chevron { transition: transform .15s ease; color: #888; }
 .thread-expand[aria-expanded="true"] .chevron { transform: rotate(90deg); }
 .thread-indent { display: inline-block; flex-shrink: 0; }
@@ -80,7 +89,31 @@ tr.reply-row.expanded { display: table-row; }
 .reply-count { color: #888; font-size: 0.85em; margin-left: 0.4rem; white-space: nowrap; }
 .pagination { margin-top: 1rem; }
 
+/* Narrow screens: the rigid 4-column grid squeezes subject/sender/timestamp so
+   hard that wrapped subject text produces wildly uneven row heights down the
+   table. Turn each row into a wrapping flex line instead (icon + subject share
+   the first line, sender + date wrap to a smaller meta line below) — a row's
+   height is then driven by its own content, not a shared column grid every
+   other row is also forced into. #archive-table-prefixed selectors are used
+   throughout so this reliably beats tr.reply-row/.expanded's unscoped display
+   rules above (an ID always outranks any number of classes, regardless of
+   source order) while still layering the same show/hide logic correctly. */
+@media (max-width: 600px) {
+    #archive-table thead th:not(.thread-col) { display: none; }
+    #archive-table thead tr { display: flex; align-items: center; }
+    #archive-table tbody tr { display: flex; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #eee; padding: .5rem 0; }
+    #archive-table tbody tr.reply-row { display: none; }
+    #archive-table tbody tr.reply-row.expanded { display: flex; }
+    #archive-table td, #archive-table th { border-bottom: none; padding: .15rem .5rem; }
+    /* min-width: 0 overrides a flex item's default min-width: auto, which would
+       otherwise keep the subject link at its full intrinsic width and force the
+       row wider than the screen instead of actually wrapping. */
+    #archive-table td.subject { flex: 1 1 auto; min-width: 0; }
+    #archive-table td:nth-child(3), #archive-table td:nth-child(4) { flex: 0 0 auto; font-size: .8rem; color: #888; padding-top: 0; }
+}
+
 /* Archive show (templates/archive/show.latte) */
+.archive-show-header { display: flex; justify-content: space-between; align-items: center; }
 .notice { display: flex; align-items: center; gap: .75rem; background: #fff3cd; color: #856404; border: 1px solid #ffe69c; border-radius: 6px; padding: .6rem .9rem; margin-bottom: .75rem; font-size: .9rem; }
 .notice .notice-icon { font-size: 1.1rem; flex-shrink: 0; }
 .notice .btn { margin-left: auto; flex-shrink: 0; }

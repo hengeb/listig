@@ -78,6 +78,42 @@ class ArchiveMailLocator
     }
 
     /**
+     * Permanently deletes the archived mail matching $messageId from the list's
+     * IMAP archive folder — the IMAP side of ArchiveController::delete() (owner-
+     * triggered, from the single-message view). Returns false, rather than
+     * throwing, both when the mail can't be located (already gone — same
+     * end state as a successful delete, from the caller's point of view) and on
+     * any IMAP failure (logged here); the caller removes the archived_mail
+     * index row regardless of this method's result, so a stale index row is
+     * never left behind just because the IMAP side had already lost the mail.
+     */
+    public function delete(ListConfig $list, string $messageId): bool
+    {
+        if (!$list->isImapConfigured) {
+            return false;
+        }
+
+        $needle = trim($messageId, '<> ');
+
+        try {
+            $mailbox = $this->mailboxFactory->getMailbox($list);
+            $mailbox->switchMailbox($list->archiveFolder);
+            $uid = $this->findUidByMessageId($mailbox, $needle);
+            if ($uid === null) {
+                return false;
+            }
+            // deleteMail() only marks the message for deletion — expungeDeletedMails()
+            // is required to actually remove it (see CLAUDE.md "Library API Notes").
+            $mailbox->deleteMail($uid);
+            $mailbox->expungeDeletedMails();
+            return true;
+        } catch (\Throwable $e) {
+            error_log("Listig: ArchiveMailLocator failed to delete Message-ID $messageId for list {$list->name}: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Scans every message's overview (IMAP FETCH) for a matching Message-ID,
      * rather than IMAP SEARCH's HEADER key. Confirmed against a real deployment:
      * some servers (mail.hengeb.de among them) don't implement the HEADER search

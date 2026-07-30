@@ -141,6 +141,8 @@ archive:
     unnamed_attachment: "Anhang"
     view_html: "HTML"
     view_text: "Nur Text"
+    delete: "Löschen"
+    confirm_delete: "Diese Mail unwiderruflich aus dem Archiv löschen? Das kann nicht rückgängig gemacht werden."
   login_required:
     heading: "Anmeldung erforderlich"
     message: "Du musst angemeldet sein, um das Archiv dieser Liste anzusehen."

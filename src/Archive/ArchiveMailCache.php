@@ -81,6 +81,21 @@ class ArchiveMailCache
         apcu_store($this->key($listName, $messageId), $mail, self::TTL_SECONDS);
     }
 
+    /**
+     * Invalidates a cached snapshot right after the underlying mail was deleted
+     * (see ArchiveController::delete()) — without this, a viewer who opened the
+     * mail moments before deletion would keep seeing the cached copy for up to
+     * TTL_SECONDS, even though it no longer exists on IMAP or in the archived_mail
+     * index.
+     */
+    public function delete(string $listName, string $messageId): void
+    {
+        if (!$this->enabled) {
+            return;
+        }
+        apcu_delete($this->key($listName, $messageId));
+    }
+
     private function key(string $listName, string $messageId): string
     {
         return self::PREFIX . $listName . ':' . hash('sha256', trim($messageId, '<> '));

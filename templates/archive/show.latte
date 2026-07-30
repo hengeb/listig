@@ -7,7 +7,20 @@
 {/block}
 
 {block content}
-<p><a href="/{$list->name}/archive">&larr; {$translator->trans('archive.show.back_to_list')}</a></p>
+{* Translated strings + IDs for archive-show.js's deleteMail() — a static file
+   can't itself contain server-rendered translations, so they're threaded
+   through via data attributes instead, same pattern as list-manage.latte's
+   #list-manage-i18n. See CLAUDE.md "Internationalization". *}
+<div id="archive-show-i18n" hidden
+    data-delete-url="/_/api/archive/{$list->name}/{$row['id']}"
+    data-archive-index-url="/{$list->name}/archive"
+    data-confirm-delete="{$translator->trans('archive.show.confirm_delete')}"
+    data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
+></div>
+<p class="archive-show-header">
+    <a href="/{$list->name}/archive">&larr; {$translator->trans('archive.show.back_to_list')}</a>
+    <button n:if="$isOwner" type="button" class="btn btn-danger" onclick="deleteArchivedMail()">{$translator->trans('archive.show.delete')}</button>
+</p>
 
 <div class="card">
     <h1>{($row['subject'] ?? '')|escapeHtml}</h1>

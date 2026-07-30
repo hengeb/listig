@@ -7,6 +7,7 @@ use Hengeb\Listig\Archive\ArchiveHtmlSanitizer;
 use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveMailCache;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
+use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
@@ -368,6 +369,9 @@ $builder->addDefinitions([
     },
     ArchiveMailCache::class => fn() => new ArchiveMailCache(),
     ArchiveHtmlSanitizer::class => fn() => new ArchiveHtmlSanitizer(),
+    ArchiveSynchronizer::class => function (ContainerInterface $c): ArchiveSynchronizer {
+        return new ArchiveSynchronizer($c->get(ImapMailboxFactory::class), $c->get(PDO::class), $c->get(ArchiveIndexer::class));
+    },
 
     // Moderation
     ModerationMailer::class => function (ContainerInterface $c): ModerationMailer {
@@ -515,6 +519,7 @@ $builder->addDefinitions([
             $c->get(TranslatorInterface::class),
             $c->get('app.name'),
             $c->get(TokenService::class),
+            $c->get(ArchiveSynchronizer::class),
         );
     },
 

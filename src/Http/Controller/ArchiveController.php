@@ -9,6 +9,7 @@ use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveMailCache;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
 use Hengeb\Listig\Archive\ArchiveMailNotFoundException;
+use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Archive\ByteFormatter;
 use Hengeb\Listig\Archive\CachedArchivedMail;
@@ -44,6 +45,15 @@ class ArchiveController
      */
     private const ARCHIVE_ATTACHMENT_TOKEN_MAX_AGE = 10 * 60;
 
+    /**
+     * How often index() re-checks the archive folder against archived_mail per
+     * list, per session — see ArchiveSynchronizer's docblock for the cost this
+     * throttles (a SEARCH ALL + FETCH OVERVIEW scan of the whole folder, which
+     * grows with folder size, unlike the rest of index() which is a plain
+     * indexed DB read).
+     */
+    private const SYNC_INTERVAL_SECONDS = 5 * 60;
+
     public function __construct(
         private readonly Engine $latte,
         private readonly PDO $db,
@@ -56,6 +66,7 @@ class ArchiveController
         private readonly TranslatorInterface $translator,
         private readonly string $appName,
         private readonly TokenService $tokenService,
+        private readonly ArchiveSynchronizer $synchronizer,
     ) {
     }
 
@@ -69,6 +80,8 @@ class ArchiveController
         if ($denied !== null) {
             return $denied;
         }
+
+        $this->syncIfDue($list);
 
         $page   = max(1, (int) ($request->getQueryParams()['page'] ?? 1));
         $offset = ($page - 1) * self::PER_PAGE;
@@ -91,6 +104,32 @@ class ArchiveController
         ]);
         $response->getBody()->write($html);
         return $response;
+    }
+
+    /**
+     * Throttles ArchiveSynchronizer::sync() to once per SYNC_INTERVAL_SECONDS,
+     * per list, per session. A cheap count-only check can't replace this — it
+     * can't detect "one mail deleted, a different one added" (same total
+     * count) — but the full scan's cost grows with the archive folder's size,
+     * so it also can't run on every single page load; see ArchiveSynchronizer's
+     * own docblock for the exact cost shape this throttle is based on.
+     *
+     * Session-scoped rather than global/DB-tracked: this is purely a "don't
+     * hammer IMAP on every reload" throttle, not a correctness guarantee — a
+     * fresh session (or simply waiting out the interval) always re-syncs.
+     * Recorded even when sync() finds nothing to do or fails (transient IMAP
+     * error) — retrying on every single request while IMAP is down would
+     * defeat the point of throttling at all.
+     */
+    private function syncIfDue(ListConfig $list): void
+    {
+        $lastSync = $_SESSION['archive_synced'][$list->name] ?? null;
+        if ($lastSync !== null && time() - $lastSync < self::SYNC_INTERVAL_SECONDS) {
+            return;
+        }
+
+        $this->synchronizer->sync($list);
+        $_SESSION['archive_synced'][$list->name] = time();
     }
 
     public function show(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
@@ -140,8 +179,15 @@ class ArchiveController
 
         $this->translator->setLocale($list->language);
 
+        $user = $request->getAttribute('user');
+
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/archive/show.latte', [
-            'user'                 => $request->getAttribute('user'),
+            'user'                 => $user,
+            // Gates the delete button (show.latte) — deleting is an owner-only
+            // action regardless of the list's archive mode, unlike viewing itself
+            // (checkAccess() above already allowed Public/Members access without
+            // requiring ownership).
+            'isOwner'              => $user !== null && $list->isOwnedBy($user['email']),
             'list'                 => $list,
             'row'                  => $row,
             'mailMissing'          => $mail === null,
@@ -291,6 +337,51 @@ class ArchiveController
 
         $response->getBody()->write($contents);
         return $response;
+    }
+
+    /**
+     * Owner-only, permanent delete of a single archived mail — from both the
+     * IMAP archive folder (ArchiveMailLocator::delete()) and the archived_mail
+     * index row (ArchiveIndexer::remove()), plus any cached snapshot
+     * (ArchiveMailCache::delete()) so a viewer who had the mail open moments
+     * ago doesn't keep seeing it for the rest of the cache's TTL. Registered
+     * under /_/api (AuthMiddleware + CsrfMiddleware — see public/index.php),
+     * not the OptionalAuthMiddleware group the read-only archive routes use:
+     * unlike viewing, deleting must never be reachable without a real session,
+     * even for an `archive: public` list.
+     */
+    public function delete(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $user = $request->getAttribute('user');
+        $list = $this->listProvider->getList($args['listname']);
+        if ($list === null || !$list->isOwnedBy($user['email'])) {
+            return $this->jsonError($response, 403, 'Forbidden');
+        }
+
+        $row = $this->fetchRow($list->name, (int) $args['id']);
+        if ($row === null) {
+            return $this->jsonError($response, 404, 'Not found');
+        }
+
+        // Order matters: delete the IMAP message first, while message_id is
+        // still known from $row — ArchiveIndexer::remove() below is what makes
+        // that row (and therefore message_id) unreachable via fetchRow() again.
+        $this->mailLocator->delete($list, $row['message_id']);
+        $this->mailCache->delete($list->name, $row['message_id']);
+        $this->archiveIndexer->remove($list->name, $row['message_id']);
+
+        return $this->json($response, ['status' => 'deleted']);
+    }
+
+    private function json(ResponseInterface $response, array $data, int $status = 200): ResponseInterface
+    {
+        $response->getBody()->write(json_encode($data));
+        return $response->withStatus($status)->withHeader('Content-Type', 'application/json');
+    }
+
+    private function jsonError(ResponseInterface $response, int $status, string $error): ResponseInterface
+    {
+        return $this->json($response, ['error' => $error], $status);
     }
 
     /**
