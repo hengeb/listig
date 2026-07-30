@@ -624,11 +624,13 @@ A variable may be followed by a `|filter:args` pipeline, applied to the resolved
 | `default` | a single fallback value | `{pronoun\|default:Hallo}` |
 | `lowercase` | — | `{firstname\|lowercase}` |
 | `uppercase` | — | `{firstname\|uppercase}` |
+| `urlencode` | — | `{mail\|urlencode}` |
 
 - `match` does exact, case-sensitive comparison against the resolved value. No match → empty string (a `match` filter always replaces, it does not pass the original value through) — `match` has no fallback value of its own; chain `|default:...` afterwards for one, e.g. `{pronoun|match:er=>Lieber,sie=>Liebe|default:Hallo}`. (Earlier versions accepted a `default=>...` pair directly inside `match:` for this; that's gone — use the chained `|default:` filter instead, it composes with anything, not just `match`.)
 - `default` passes its input through unchanged unless it's empty, in which case its arg is used verbatim — works after any filter (or with none), e.g. `{firstname|default:Listenmitglied}` for a member with no `firstname` at all.
 - Commas and `=>` cannot appear literally inside a `match` pattern or replacement — no escaping is implemented; not needed for short salutation-style words.
 - An unknown filter name logs an error and passes the value through unfiltered, rather than leaving the whole placeholder literal — this keeps a template typo from leaking raw `{key|filter:...}` syntax into a sent mail.
+- `urlencode` uses `rawurlencode()` (RFC 3986 — space becomes `%20`), not `urlencode()` (RFC 1866 — space becomes `+`), since its use cases are URL path/query segments and `mailto:` links, not `application/x-www-form-urlencoded` bodies.
 - Nested `{}` inside filter args is supported — e.g. a `{}` variable inside a `match` replacement or a `default` fallback: `{list-mail|default:system@{domain|default:localhost}}`, `{pronoun|match:he=>Lieber {firstname}}`. Placeholder scanning (`VariableResolver::walkPlaceholders()`) is brace-depth aware rather than a plain `[^}]+` regex, so it finds the whole outer placeholder — including any nested one inside a filter arg — instead of stopping at the first `}`. The nested placeholder is resolved (through the same `$contexts`/`ResolutionPurpose`) before the filter that contains it runs, so the filter always sees plain, already-resolved text as its args.
 - Filters chain freely, applied left to right, each seeing the previous one's output — not just `match` then `default`; any combination/order works (e.g. `{firstname|lowercase|default:unbekannt}`).
 

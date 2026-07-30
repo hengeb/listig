@@ -18,6 +18,7 @@ final class VariableFilter
         return match ($name) {
             'lowercase' => mb_strtolower($value),
             'uppercase' => mb_strtoupper($value),
+            'urlencode' => rawurlencode($value),
             'match' => self::match($value, $args),
             // default:Standardwert — passes $value through unchanged unless it's
             // empty (e.g. a member with no pronoun, or a match filter earlier in
