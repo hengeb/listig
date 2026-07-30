@@ -88,4 +88,37 @@ class ImapMailboxFactory
             $this->passwordCrypto->decryptIfEncrypted($list->imapPassword),
         );
     }
+
+    /**
+     * One-off connection test with a candidate plaintext password — bypasses
+     * both the connection cache and $list->imapPassword entirely, so it never
+     * disturbs an already-cached, working connection for this list and never
+     * needs the candidate to be encrypted first. Used by
+     * ListApiController::encryptPassword() to verify a new password actually
+     * logs in *before* persisting it, rather than persisting a typo and only
+     * discovering it's wrong on the next poll cycle.
+     *
+     * @throws \PhpImap\Exceptions\ConnectionException if the login fails (wrong
+     *         password, unreachable host, ...) — caller decides how to surface
+     *         this; imap_open() itself doesn't distinguish the two, so neither
+     *         does this.
+     *
+     * Deliberately never calls $mailbox->disconnect() itself — Mailbox already
+     * does that in its own __destruct(), and calling it twice (once here, once
+     * from the destructor moments later) throws "ValueError: IMAP\Connection is
+     * already closed" from the second call, confirmed live. No other call site
+     * in this codebase calls ->disconnect() either (see ImapMailboxFactory::
+     * reset(), which just drops cached Mailbox objects and lets garbage
+     * collection trigger the one destructor-driven disconnect) — this method
+     * follows the same convention for the same reason.
+     */
+    public function verifyPassword(ListConfig $list, string $plaintextPassword): void
+    {
+        $mailbox = new Mailbox(
+            $this->connectionPrefix($list) . 'INBOX',
+            $list->imapUser,
+            $plaintextPassword,
+        );
+        $mailbox->getImapStream();
+    }
 }

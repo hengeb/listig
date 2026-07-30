@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Crypto\PasswordCrypto;
+use Hengeb\Listig\Imap\ImapMailboxFactory;
 use Hengeb\Listig\Mail\NotificationMailer;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Provider\ListProvider;
@@ -43,6 +44,7 @@ class ListApiController
         private readonly TranslatorInterface $translator,
         private readonly string $hostname,
         private readonly string $appName,
+        private readonly ImapMailboxFactory $imapMailboxFactory,
     ) {
     }
 
@@ -176,6 +178,23 @@ class ListApiController
 
         if ($password === '') {
             return $this->json($response, ['error' => 'password is required'], 400);
+        }
+
+        // Verify the password actually logs in *before* persisting it — a typo
+        // would otherwise only surface later, as a silent IMAP failure on the
+        // next poll cycle (see ListConfig::$isImapConfigured), rather than an
+        // immediate, actionable error to whoever is provisioning this list.
+        // Only possible once imap-host is already configured (e.g. set
+        // directly via LDAP/DB, independent of this endpoint, which only ever
+        // touches mail-password) — a list still mid-setup with no host at all
+        // has nothing to connect to yet, so verification is skipped rather
+        // than blocking the password from being stored.
+        if ($list->imapHost !== '') {
+            try {
+                $this->imapMailboxFactory->verifyPassword($list, $password);
+            } catch (\Throwable $e) {
+                return $this->json($response, ['error' => 'IMAP login failed with the given password: ' . $e->getMessage()], 422);
+            }
         }
 
         $encrypted = $this->passwordCrypto->encrypt($password);

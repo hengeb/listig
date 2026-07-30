@@ -1664,6 +1664,14 @@ upserts a row (`is_member = 1`, preserves existing `is_owner`). `InlineMemberRes
 config and the lookup-only aggregate resolver have no writable store. Callers must
 surface this as a clear error (`409`), not swallow it.
 
+### Password verification (`POST .../encrypt-password`)
+
+Before encrypting and persisting a submitted password, `ListApiController::encryptPassword()` verifies it actually logs in via `ImapMailboxFactory::verifyPassword($list, $password)` — a one-off `PhpImap\Mailbox` built from the list's *current* `imap-host`/`imap-user` (unaffected by the password being submitted) plus the *candidate plaintext* password, bypassing both the shared connection cache and `$list->imapPassword` entirely. A typo would otherwise only surface later, as a silent IMAP failure on the next poll cycle (see "Optional IMAP config" below), rather than an immediate, actionable error to whoever is provisioning the list. `verifyPassword()` just calls `getImapStream()` and lets a login/connection failure propagate as `PhpImap\Exceptions\ConnectionException`; the controller catches `\Throwable` broadly and responds `422` without ever calling `PasswordCrypto::encrypt()`/`setListConfigValue()` — the bad password is never persisted.
+
+Verification only runs when `$list->imapHost !== ''` — a list still mid-setup with no host configured at all (e.g. `api-token` set but nothing else yet, see "Optional IMAP config") has nothing to connect to, so the password is stored unverified in that case, exactly as before this existed.
+
+`verifyPassword()` deliberately never calls `$mailbox->disconnect()` itself — `PhpImap\Mailbox::__destruct()` already does that once the local variable goes out of scope, matching the only other place in this codebase that manages a `Mailbox` lifecycle (`ImapMailboxFactory::reset()`, which just drops cached instances and lets garbage collection trigger the destructor). Confirmed live: calling `disconnect()` explicitly *and* letting the destructor call it again moments later throws `ValueError: IMAP\Connection is already closed` from the second call — a real quirk of `ext-imap`'s PHP 8.1+ object-based connection handle (throws on re-use where the old resource-based API just returned `false`), not something to work around with a guard; simply not calling it twice avoids it entirely.
+
 ### `setListConfigValue()` (`ListProvider`)
 
 New interface method used by `encryptPassword()` to persist the encrypted password

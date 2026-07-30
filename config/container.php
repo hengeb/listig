@@ -560,6 +560,7 @@ $builder->addDefinitions([
             $c->get(TranslatorInterface::class),
             $c->get('app.hostname'),
             $c->get('app.name'),
+            $c->get(ImapMailboxFactory::class),
         );
     },
 
