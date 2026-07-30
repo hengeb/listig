@@ -342,8 +342,7 @@ class ListConfig
      * yet; ImapPoller/ImapArchiver skip such lists instead of erroring.
      */
     public bool $isImapConfigured {
-        get => $this->imapHost !== ''
-            && ($this->raw['imap-password'] ?? $this->raw['mail-password'] ?? '') !== '';
+        get => $this->imapHost !== '' && $this->imapPassword !== '';
     }
 
     /**
