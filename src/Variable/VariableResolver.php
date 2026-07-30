@@ -15,7 +15,12 @@ namespace Hengeb\Listig\Variable;
  * A key may be followed by a |filter:args pipeline, e.g.
  * {pronoun|match:he=>Lieber,she=>Liebe|default:Hallo} or {firstname|lowercase},
  * applied in order to the resolved value — see VariableFilter. Filters are not
- * part of key lookup/cycle-detection: those operate on the key alone.
+ * part of key lookup/cycle-detection: those operate on the key alone. A
+ * filter's args may themselves contain {} placeholders, resolved before the
+ * filter runs — e.g. {list-mail|default:system@{domain|default:localhost}}.
+ * Placeholder scanning is brace-depth aware (walkPlaceholders()/
+ * findMatchingBrace()), not a plain [^}]+ regex, specifically so this nesting
+ * works instead of being cut off at the first '}'.
  *
  * Every call is tagged with a ResolutionPurpose (default: Disclosed), threaded
  * unchanged through recursive resolution, same as $visited. If a key in
@@ -92,37 +97,80 @@ class VariableResolver
         ResolutionPurpose $purpose = ResolutionPurpose::Disclosed,
         array $visited = [],
     ): string {
+        return self::walkPlaceholders(
+            $template,
+            fn(string $inner): string => self::resolvePlaceholder($inner, $contexts, $purpose, $visited),
+        );
+    }
+
+    /**
+     * Walks $template and invokes $resolveInner for each top-level {...}
+     * placeholder, passing its inner content (braces stripped). Brace-depth
+     * aware, so a placeholder whose filter args themselves contain {} (e.g.
+     * {list-mail|default:system@{domain|default:localhost}}) is handed to
+     * $resolveInner whole, rather than being cut off at the first '}' the way
+     * a plain [^}]+ regex would. Text outside placeholders is copied verbatim.
+     * A '{' with no matching '}' is copied as a literal character — malformed
+     * input, not a placeholder.
+     */
+    public static function walkPlaceholders(string $template, callable $resolveInner): string
+    {
         if (!str_contains($template, '{')) {
             return $template;
         }
 
-        return preg_replace_callback('/\{([^}]+)\}/', function (array $matches) use ($contexts, $purpose, $visited): string {
-            [$key, $filters] = self::splitKeyAndFilters($matches[1]);
-
-            if (in_array($key, $visited, true)) {
-                error_log("Listig: Variable cycle detected for key '$key'");
-                return $matches[0];
+        $result = '';
+        $i = 0;
+        $len = strlen($template);
+        while ($i < $len) {
+            if ($template[$i] !== '{') {
+                $result .= $template[$i];
+                $i++;
+                continue;
             }
-
-            [$value, $recursable] = self::lookupWithSource($key, $contexts, $purpose);
-            if ($value === null) {
-                // Falls through to the filter pipeline below (e.g. |default:...)
-                // instead of returning early — a member simply not having a given
-                // attribute is exactly the case VariableFilter's 'default' filter
-                // documents itself as handling (see its docblock), so an absent
-                // key must still reach it, not bypass filters entirely.
-                error_log("Listig: Variable '$key' not found, substituting empty string");
-                $value = '';
-            } elseif ($recursable && str_contains($value, '{')) {
-                $value = self::resolve($value, $contexts, $purpose, [...$visited, $key]);
+            $end = self::findMatchingBrace($template, $i);
+            if ($end === null) {
+                $result .= '{';
+                $i++;
+                continue;
             }
+            $result .= $resolveInner(substr($template, $i + 1, $end - $i - 1));
+            $i = $end + 1;
+        }
+        return $result;
+    }
 
-            foreach ($filters as $filter) {
-                $value = VariableFilter::apply($filter, $value);
-            }
+    private static function resolvePlaceholder(string $inner, array $contexts, ResolutionPurpose $purpose, array $visited): string
+    {
+        [$key, $filters] = self::splitKeyAndFilters($inner);
 
-            return $value;
-        }, $template);
+        if (in_array($key, $visited, true)) {
+            error_log("Listig: Variable cycle detected for key '$key'");
+            return '{' . $inner . '}';
+        }
+
+        [$value, $recursable] = self::lookupWithSource($key, $contexts, $purpose);
+        if ($value === null) {
+            // Falls through to the filter pipeline below (e.g. |default:...)
+            // instead of returning early — a member simply not having a given
+            // attribute is exactly the case VariableFilter's 'default' filter
+            // documents itself as handling (see its docblock), so an absent
+            // key must still reach it, not bypass filters entirely.
+            error_log("Listig: Variable '$key' not found, substituting empty string");
+            $value = '';
+        } elseif ($recursable && str_contains($value, '{')) {
+            $value = self::resolve($value, $contexts, $purpose, [...$visited, $key]);
+        }
+
+        foreach ($filters as $filter) {
+            // A filter's args may themselves contain {} placeholders (e.g.
+            // "default:system@{domain|default:localhost}") — resolve those
+            // first, so VariableFilter::apply() always sees plain text.
+            $resolvedFilter = str_contains($filter, '{') ? self::resolve($filter, $contexts, $purpose, $visited) : $filter;
+            $value = VariableFilter::apply($resolvedFilter, $value);
+        }
+
+        return $value;
     }
 
     /** The bare variable name of a {key|filter:...} placeholder, ignoring any filter pipeline. */
@@ -134,9 +182,56 @@ class VariableResolver
     /** @return array{0: string, 1: string[]} [$key, $filterSpecs] */
     private static function splitKeyAndFilters(string $raw): array
     {
-        $parts = explode('|', $raw);
+        $parts = self::splitTopLevel($raw, '|');
         $key = array_shift($parts);
         return [$key, $parts];
+    }
+
+    /**
+     * Splits $str on $delimiter, ignoring any occurrence nested inside a {}
+     * span — used so a filter pipeline's own '|' separators aren't confused
+     * with a '|' inside a nested placeholder's filter args.
+     *
+     * @return string[]
+     */
+    private static function splitTopLevel(string $str, string $delimiter): array
+    {
+        $parts = [];
+        $current = '';
+        $depth = 0;
+        for ($i = 0, $len = strlen($str); $i < $len; $i++) {
+            $ch = $str[$i];
+            if ($ch === '{') {
+                $depth++;
+            } elseif ($ch === '}') {
+                $depth--;
+            }
+            if ($ch === $delimiter && $depth <= 0) {
+                $parts[] = $current;
+                $current = '';
+            } else {
+                $current .= $ch;
+            }
+        }
+        $parts[] = $current;
+        return $parts;
+    }
+
+    /** Returns the index of the '}' matching the '{' at $openPos, or null if unbalanced. */
+    private static function findMatchingBrace(string $s, int $openPos): ?int
+    {
+        $depth = 0;
+        for ($i = $openPos, $len = strlen($s); $i < $len; $i++) {
+            if ($s[$i] === '{') {
+                $depth++;
+            } elseif ($s[$i] === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    return $i;
+                }
+            }
+        }
+        return null;
     }
 
     /**

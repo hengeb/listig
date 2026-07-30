@@ -69,15 +69,18 @@ class BodyPersonalizer
 
     private function substituteWhitelisted(string $text, array $contexts, array $personalizeKeys): string
     {
-        return preg_replace_callback('/\{([^}]+)\}/', function (array $matches) use ($contexts, $personalizeKeys): string {
+        // Brace-depth aware (VariableResolver::walkPlaceholders), so a
+        // whitelisted key's filter args may themselves contain {} placeholders
+        // without being cut off at the first '}'.
+        return VariableResolver::walkPlaceholders($text, function (string $inner) use ($contexts, $personalizeKeys): string {
             // Whitelist check is on the bare variable name — a |filter:... pipeline
             // (see VariableResolver) does not grant access to a non-whitelisted key.
-            if (!in_array(VariableResolver::baseKey($matches[1]), $personalizeKeys, true)) {
-                return $matches[0]; // not whitelisted at top level — leave literal
+            if (!in_array(VariableResolver::baseKey($inner), $personalizeKeys, true)) {
+                return '{' . $inner . '}'; // not whitelisted at top level — leave literal
             }
             // Whitelisted: resolve including recursive {variable} substitution through full contexts
-            return VariableResolver::resolve($matches[0], $contexts, ResolutionPurpose::Disclosed);
-        }, $text);
+            return VariableResolver::resolve('{' . $inner . '}', $contexts, ResolutionPurpose::Disclosed);
+        });
     }
 
     private function decodeRfc2047(string $value): string

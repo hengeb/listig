@@ -201,8 +201,14 @@ class ConfigResolver
     private function substituteEnvVars(mixed $value): mixed
     {
         if (is_string($value)) {
-            return preg_replace_callback('/\$\{?([A-Z_][A-Z0-9_]*)\}?/', function (array $m): string {
-                $envKey = $m[1];
+            // $VAR and ${VAR} are two distinct alternatives, not one pattern with
+            // both delimiters optional — the previous /\$\{?...\}?/ made the
+            // closing '}' optional independently of the opening '{', so it happily
+            // swallowed an unrelated '}' immediately after a bare $VAR (e.g. the
+            // closing brace of a surrounding {list-mail|default:$MAIL_USER}
+            // template), corrupting anything downstream that still needed it.
+            return preg_replace_callback('/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/', function (array $m): string {
+                $envKey = $m[1] !== '' ? $m[1] : $m[2];
                 $envValue = getenv($envKey);
                 if ($envValue === false) {
                     throw new \RuntimeException("Environment variable '\${$envKey}' is not set (required by config.yml)");

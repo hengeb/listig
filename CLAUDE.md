@@ -525,6 +525,7 @@ oidc-logout-url: "https://sso.example.org/logout?rd=https%3A%2F%2Flists.example.
 `$VAR` in any config value is replaced with the corresponding environment variable at parse time, before lazy variable resolution. This allows secrets to live in `.env` while everything else is in `config.yml`.
 
 - `$VAR` or `${VAR}` syntax supported
+- `$VAR`/`${VAR}` may appear anywhere within a string value, not just as the entire value — including nested inside a `{}` template's filter args, e.g. `mail-user: "{list-mail|default:$MAIL_USER}"` or `display-name: "System ({$HOSTNAME})"`. Substitution (`ConfigResolver::substituteEnvVars()`, a brace-aware `preg_replace_callback`) replaces only the `$VAR`/`${VAR}` token itself, leaving the rest of the string — including any surrounding `{...}` — untouched.
 - If the environment variable is not set: hard error at startup, do not silently use empty string
 - Substitution happens on raw string values only, before `{}` variable resolution
 - All config levels support `$VAR` substitution: named blocks, the config.yml root, `list-providers`, and LDAP `description[]` values
@@ -628,7 +629,7 @@ A variable may be followed by a `|filter:args` pipeline, applied to the resolved
 - `default` passes its input through unchanged unless it's empty, in which case its arg is used verbatim — works after any filter (or with none), e.g. `{firstname|default:Listenmitglied}` for a member with no `firstname` at all.
 - Commas and `=>` cannot appear literally inside a `match` pattern or replacement — no escaping is implemented; not needed for short salutation-style words.
 - An unknown filter name logs an error and passes the value through unfiltered, rather than leaving the whole placeholder literal — this keeps a template typo from leaking raw `{key|filter:...}` syntax into a sent mail.
-- Nested `{}` inside filter args (e.g. a `{}` variable inside a `match` replacement or a `default` fallback) is not supported — the outer `{...}` regex stops at the first `}`. Use a custom variable alias instead if a filter's output needs to itself contain a variable.
+- Nested `{}` inside filter args is supported — e.g. a `{}` variable inside a `match` replacement or a `default` fallback: `{list-mail|default:system@{domain|default:localhost}}`, `{pronoun|match:he=>Lieber {firstname}}`. Placeholder scanning (`VariableResolver::walkPlaceholders()`) is brace-depth aware rather than a plain `[^}]+` regex, so it finds the whole outer placeholder — including any nested one inside a filter arg — instead of stopping at the first `}`. The nested placeholder is resolved (through the same `$contexts`/`ResolutionPurpose`) before the filter that contains it runs, so the filter always sees plain, already-resolved text as its args.
 - Filters chain freely, applied left to right, each seeing the previous one's output — not just `match` then `default`; any combination/order works (e.g. `{firstname|lowercase|default:unbekannt}`).
 
 #### Member attributes — fully dynamic
