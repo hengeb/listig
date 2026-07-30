@@ -83,8 +83,27 @@ class BodyPersonalizer
         });
     }
 
+    /**
+     * $value here is normally already plain, decoded UTF-8 text — MailProcessor::
+     * buildOutgoingEmail() sets the subject from php-imap's $mail->subject, which
+     * php-imap itself already RFC 2047-decodes on parse (Mailbox::decodeMimeStr())
+     * — so this is only ever a no-op passthrough in practice, kept for the
+     * (currently theoretical) case of a still-raw-encoded subject reaching here.
+     * The str_contains() guard is load-bearing, not defensive polish: confirmed
+     * live that calling iconv_mime_decode() on a plain string that merely
+     * *contains* literal non-ASCII bytes — with no "=?...?=" encoded-word syntax
+     * at all — silently strips every umlaut instead of leaving them alone
+     * (iconv_mime_decode() assumes its input is a raw MIME header, i.e. 7-bit
+     * clean outside of encoded-words, and ICONV_MIME_DECODE_CONTINUE_ON_ERROR
+     * drops whatever it can't map under that assumption rather than erroring).
+     * Without the guard, every subject with an umlaut lost it here on every
+     * single distributed mail.
+     */
     private function decodeRfc2047(string $value): string
     {
+        if (!str_contains($value, '=?')) {
+            return $value;
+        }
         return iconv_mime_decode($value, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8') ?: $value;
     }
 

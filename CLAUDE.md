@@ -1368,7 +1368,7 @@ If `list-label` configured (and not empty string):
 
 All MIME manipulation uses symfony/mime on decoded content — never raw string replacement.
 
-Subject: RFC 2047 decode → whitelist-gated substitution → RFC 2047 re-encode.
+Subject: RFC 2047 decode → whitelist-gated substitution → RFC 2047 re-encode. The decode step is guarded by `str_contains($value, '=?')` — in practice the subject reaching here is *already* plain, decoded UTF-8 (php-imap decodes `$mail->subject` on parse, well before `MailProcessor::buildOutgoingEmail()`/`applySubjectLabel()` ever touch it), so this is normally a no-op; without the guard, calling `iconv_mime_decode()` on a plain string that merely contains literal non-ASCII bytes (no actual `=?...?=` encoded-word) silently **strips every umlaut** — confirmed live, `iconv_mime_decode()` treats its input as a raw MIME header (7-bit clean outside encoded-words) and `ICONV_MIME_DECODE_CONTINUE_ON_ERROR` drops whatever it can't map under that assumption instead of erroring. This is exactly why every distributed mail's subject lost its umlauts before the guard existed.
 Body parts: rebuilt immutably via `new TextPart(…)` + `Email::setBody()`.
 
 `BodyPersonalizer::personalize(Email $email, array $contexts, array $personalizeKeys): void`
