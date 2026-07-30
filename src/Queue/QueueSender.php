@@ -55,6 +55,17 @@ class QueueSender
         $envelopeTo = $row['envelope_to'];
         $mime = $row['mime'];
 
+        // Empty recipient — e.g. a member row/resolver template that produced no
+        // address at all. Never a deliverable target; skip outright rather than
+        // wasting an SMTP attempt (and a retry cycle) on it.
+        if ($envelopeTo === '') {
+            $this->db->prepare(
+                "UPDATE queue_recipients SET status = 'failed', error = :error WHERE id = :id"
+            )->execute(['error' => 'Skipped: recipient has no email address', 'id' => $recipientId]);
+            $this->cleanupQueueEntry($queueId);
+            return;
+        }
+
         // RFC 2606 reserved TLD — never a real, deliverable domain. Skip outright
         // rather than wasting an SMTP attempt (and a retry cycle) on it.
         if (self::isInvalidAddress($envelopeTo)) {
