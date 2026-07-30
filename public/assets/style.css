@@ -78,7 +78,11 @@ th { background: #f9f9f9; font-weight: 600; }
 .archive-toolbar { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
 .archive-toolbar input[type=text] { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
 #archive-table th.thread-col, #archive-table td.thread-col { width: 1.75rem; padding-left: 0.75rem; padding-right: 0; }
-#archive-table td.subject { display: flex; align-items: center; gap: 0.35rem; }
+/* display: flex belongs on this inner wrapper, never on the <td> itself —
+   setting it directly on a table cell blockifies it out of normal table-cell
+   layout, so the browser no longer syncs its height with its sibling <td>s in
+   the same <tr>, making cells within one row end up different heights. */
+.subject-inner { display: flex; align-items: center; gap: 0.35rem; }
 .thread-toggle-icon { cursor: pointer; background: none; border: none; color: #888; font-size: 1rem; padding: 0; line-height: 1; display: inline-flex; align-items: center; }
 .chevron { transition: transform .15s ease; color: #888; }
 .thread-expand[aria-expanded="true"] .chevron { transform: rotate(90deg); }

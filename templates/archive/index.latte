@@ -49,15 +49,17 @@
                 </button>
             </td>
             <td class="subject">
-                <span class="thread-indent" style="width:{($row['depth'] * 1.25)|noescape}em"></span>
-                <a href="/{$list->name}/archive/{$row['id']}">{($row['subject'] ?? '')|escapeHtml}</a>
-                <span n:if="$row['has_attachments']" class="paperclip" title="{$translator->trans('archive.index.has_attachments')}">&#128206;</span>
-                <span n:if="$row['is_thread_start'] && $row['thread_size'] > 1" class="reply-count" data-reply-count>
-                    {if $row['thread_size'] - 1 === 1}
-                        {$translator->trans('archive.index.reply_one', ['%count%' => 1])}
-                    {else}
-                        {$translator->trans('archive.index.reply_many', ['%count%' => $row['thread_size'] - 1])}
-                    {/if}
+                <span class="subject-inner">
+                    <span class="thread-indent" style="width:{($row['depth'] * 1.25)|noescape}em"></span>
+                    <a href="/{$list->name}/archive/{$row['id']}">{($row['subject'] ?? '')|escapeHtml}</a>
+                    <span n:if="$row['has_attachments']" class="paperclip" title="{$translator->trans('archive.index.has_attachments')}">&#128206;</span>
+                    <span n:if="$row['is_thread_start'] && $row['thread_size'] > 1" class="reply-count" data-reply-count>
+                        {if $row['thread_size'] - 1 === 1}
+                            {$translator->trans('archive.index.reply_one', ['%count%' => 1])}
+                        {else}
+                            {$translator->trans('archive.index.reply_many', ['%count%' => $row['thread_size'] - 1])}
+                        {/if}
+                    </span>
                 </span>
             </td>
             <td>{($row['sender_name'] ?? $translator->trans('archive.unknown_sender'))|escapeHtml}</td>

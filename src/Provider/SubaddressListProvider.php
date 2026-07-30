@@ -15,7 +15,10 @@ use Hengeb\Listig\Variable\VariableResolver;
  * `members:` is not resolved into static Member objects here: each entry's `mail`
  * (and optional firstname/lastname/username) is a template containing {subaddress},
  * resolved per incoming mail by MailProcessor. `owners:` uses the normal inline
- * mechanism unchanged, so post-access: owners works exactly like type: inline.
+ * mechanism unchanged, so owner posting rights work exactly like type: inline.
+ * getMembers() is always empty for this list type (see "type: subaddress"), so
+ * post-access-members is not meaningful for it — every non-owner sender is
+ * evaluated as "public" instead.
  */
 class SubaddressListProvider extends AbstractListProvider
 {

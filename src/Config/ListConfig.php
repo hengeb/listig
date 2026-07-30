@@ -6,7 +6,6 @@ namespace Hengeb\Listig\Config;
 
 use Hengeb\Listig\Config\Enum\AllowLeave;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
-use Hengeb\Listig\Config\Enum\ModerationMode;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Member\Member;
@@ -193,12 +192,20 @@ class ListConfig
         get => ReplyToBehavior::from($this->resolve((string) ($this->raw['reply-to'] ?? 'list')));
     }
 
-    public PostAccess $postAccess {
-        get => PostAccess::from($this->resolve((string) ($this->raw['post-access'] ?? 'members')));
+    /**
+     * Owners have no config key of their own — they always post, never
+     * moderated (see IncomingMailFilter::checkPostAccess()/requiresModeration()).
+     * Members and public are independently configurable; default 'allow' keeps
+     * the previous implicit behavior for members (no post-access/moderation
+     * configured at all previously meant "members may post, no moderation").
+     */
+    public PostAccess $postAccessMembers {
+        get => PostAccess::from($this->resolve((string) ($this->raw['post-access-members'] ?? 'allow')));
     }
 
-    public ModerationMode $moderation {
-        get => ModerationMode::from($this->resolve((string) ($this->raw['moderation'] ?? 'off')));
+    /** Default 'deny' matches the old default (`post-access: members` — public/non-members excluded unless explicitly opened up). */
+    public PostAccess $postAccessPublic {
+        get => PostAccess::from($this->resolve((string) ($this->raw['post-access-public'] ?? 'deny')));
     }
 
     public AllowLeave $allowLeave {

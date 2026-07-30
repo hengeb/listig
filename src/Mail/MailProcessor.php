@@ -305,11 +305,11 @@ class MailProcessor
         $headers->addTextHeader('List-Id', "<{$list->name}.{$list->domain}>");
 
         $headers->remove('list-post');
-        if ($list->postAccess === PostAccess::Owners) {
-            $headers->addTextHeader('List-Post', 'NO');
-        } else {
-            $headers->addTextHeader('List-Post', "<mailto:{$list->mail}>");
-        }
+        // "Owners only" no longer has a single config key of its own — it's the
+        // state where both members and public are denied (owners themselves
+        // always have posting rights, with no key to check here at all).
+        $onlyOwnersCanPost = $list->postAccessMembers === PostAccess::Deny && $list->postAccessPublic === PostAccess::Deny;
+        $headers->addTextHeader('List-Post', $onlyOwnersCanPost ? 'NO' : "<mailto:{$list->mail}>");
 
         $headers->remove('list-help');
         $owners = $list->getOwners();

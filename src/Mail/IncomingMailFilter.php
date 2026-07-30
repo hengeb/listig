@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Mail;
 
-use Hengeb\Listig\Config\Enum\ModerationMode;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\RateLimit\RateLimiter;
@@ -59,7 +58,10 @@ class IncomingMailFilter
             return FilterResult::reject('reject.size_exceeded', ['%max_size%' => $list->maxSize]);
         }
 
-        // 7. Post-access
+        // 7. Post-access — owners always allowed; members/public independently
+        // allow/deny/moderate (see checkPostAccess()). Only 'deny' is decided
+        // here; 'moderate' falls through to the rate limiter first, same as
+        // 'allow' — moderated senders are not exempt from rate limiting.
         $senderEmail = $mail->fromAddress ?? '';
         $accessResult = $this->checkPostAccess($list, $senderEmail);
         if ($accessResult !== null) {
@@ -71,7 +73,7 @@ class IncomingMailFilter
             return FilterResult::reject('reject.rate_limited');
         }
 
-        if ($list->moderation === ModerationMode::On) {
+        if ($this->requiresModeration($list, $senderEmail)) {
             // A moderation item nobody can ever accept/reject is worse than an
             // outright rejection — without this, the mail would silently vanish
             // (ModerationMailer::send() logs and no-ops on empty owners) with no
@@ -123,25 +125,38 @@ class IncomingMailFilter
         return false;
     }
 
+    /**
+     * Owners always pass (no config key of their own — see CLAUDE.md
+     * "post-access-members"/"post-access-public"). A member or public sender
+     * with PostAccess::Deny is rejected here; Allow and Moderate both pass —
+     * the Allow/Moderate distinction is decided later, by requiresModeration(),
+     * after rate limiting has had a chance to run.
+     */
     private function checkPostAccess(ListConfig $list, string $senderEmail): ?FilterResult
     {
-        $postAccess = $list->postAccess;
-
-        if ($postAccess === PostAccess::Public) {
+        if ($list->isOwnedBy($senderEmail)) {
             return null;
         }
 
         $isMember = $list->isMember($senderEmail);
-        $isOwner  = $list->isOwnedBy($senderEmail);
+        $mode = $isMember ? $list->postAccessMembers : $list->postAccessPublic;
 
-        if ($postAccess === PostAccess::Owners && !$isOwner) {
-            return FilterResult::reject('reject.owners_only');
-        }
-        if ($postAccess === PostAccess::Members && !$isMember && !$isOwner) {
-            return FilterResult::reject('reject.members_only');
+        if ($mode === PostAccess::Deny) {
+            return FilterResult::reject($isMember ? 'reject.members_denied' : 'reject.public_denied');
         }
 
         return null;
+    }
+
+    /** Owners are never moderated — see checkPostAccess() and CLAUDE.md "Moderation". */
+    private function requiresModeration(ListConfig $list, string $senderEmail): bool
+    {
+        if ($list->isOwnedBy($senderEmail)) {
+            return false;
+        }
+
+        $mode = $list->isMember($senderEmail) ? $list->postAccessMembers : $list->postAccessPublic;
+        return $mode === PostAccess::Moderate;
     }
 
     private function isReservedSubaddress(string $subaddress, ListConfig $list): bool

@@ -129,8 +129,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   ├── YamlIncludeResolver.php   # Resolves !include tags (see "File includes") for config.yml and YamlListProvider files
 │   │   └── Enum/
 │   │       ├── ReplyToBehavior.php   # 'list' | 'sender' | 'both' | 'nobody'
-│   │       ├── PostAccess.php        # 'members' | 'owners' | 'public'
-│   │       ├── ModerationMode.php    # 'on' | 'off'
+│   │       ├── PostAccess.php        # 'allow' | 'deny' | 'moderate' — used for both post-access-members and post-access-public
 │   │       ├── AllowLeave.php        # 'direct' | 'moderated'
 │   │       └── ArchiveMode.php       # 'members' | 'owners' | 'public' | 'hidden' | 'off'
 │   ├── Member/
@@ -390,7 +389,8 @@ list-providers:
           - mail: "{subaddress}@intranet.com"   # template, resolved per incoming mail
         owners:
           - mail: admin@example.org
-        post-access: owners
+        post-access-members: deny               # owners-only: no key of their own needed, they always post
+        post-access-public: deny
         reserved-subaddresses: admin,root       # optional, in addition to built-in bounce/accept-/reject-
 ```
 
@@ -453,7 +453,7 @@ A `list-description:` key set directly (bypassing the short form) still works an
 A `type: subaddress` list forwards mail sent to `{local-part}+{subaddress}@{domain}` (relative to the list's own `mail` address) to a computed target address, without an enumerable member directory. It is an ordinary list in every other respect — same IMAP mailbox, headers, subject-label, footer, moderation eligibility, personalization — only recipient resolution differs.
 
 - No new `recipient`/`target` config key: the destination is expressed by reusing the normal inline `members:` shape (`mail`, and optionally `firstname`/`lastname`/`username`), except each value is a **template** resolved per incoming mail via `VariableResolver`, not static data resolved once at startup. Implemented by `Hengeb\Listig\Provider\SubaddressListProvider` (`ListConfig::$subaddressMemberTemplates`, non-null only for this list type) and `MailProcessor::resolveTemplateMembers()`.
-- `owners:` uses the exact same inline mechanism as `type: inline`, so `post-access: owners` works identically. `type: subaddress` lists have no static `members:`, so `getMembers()` is always empty and `post-access: members` is not meaningful for them (rejects everyone).
+- `owners:` uses the exact same inline mechanism as `type: inline`, so owner posting rights work identically (owners always post, no config key needed). `type: subaddress` lists have no static `members:`, so `getMembers()` is always empty and `post-access-members` is not meaningful for them — every non-owner sender is evaluated as public (`post-access-public`) instead.
 - `{subaddress}` is a new mail-context variable — the matched extension for the current incoming mail (e.g. `alice` for `fwd+alice@example.org`), computed by `Hengeb\Listig\Mail\SubaddressExtractor` from the mail's `To`/`Cc` addresses relative to `list->mail`'s local part **and** domain (so `fwd+alice@other-domain.com` does not match). Resolves to an empty string when absent, like `{sender-firstname}` etc.
 - If no `members[].mail` template references `{subaddress}` at all, the list degrades gracefully into a fixed-target alias — every mail (subaddressed or not) resolves to the same target(s), with no missing-subaddress rejection.
 - Reserved subaddresses are rejected (`FilterResult::reject('reject.reserved_subaddress')`), not forwarded: `bounce` (exact — collides with the `{list->localPart}+bounce@{domain}` Sender header, `ListConfig::$localPart`) and the `accept-`/`reject-` prefixes (collide with moderation mailto addresses) are always reserved; a list may reserve more via the comma-separated `reserved-subaddresses` key. A mail with no subaddress at all is rejected with `reject.missing_subaddress`, but only if at least one member template actually requires one (see above).
@@ -717,8 +717,8 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `display-name` | string | Human-readable list name for UI (falls back to `cn`); used in `List-Id` header |
 | `description` | string | Optional list description shown in UI. Renamed to `list-description` on ingest by `ConfigResolver::resolveListConfig()` (applies to every provider, not just LDAP) — see "`description` → `list-description`" |
 | `reply-to` | `list` \| `sender` \| `both` \| `nobody` | Reply-To behavior — `both` sets both list and sender addresses, *unless* the sender is already a list member, in which case it's just the list address (see "Headers to set on outgoing mail" for why); `nobody` sets a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (replies are guaranteed undeliverable — `.invalid` per RFC 2606 — and the display name is what a mail client actually shows when Reply is clicked) |
-| `post-access` | `members` \| `owners` \| `public` | Who may post (default: `members`) |
-| `moderation` | `on` \| `off` | Whether posts require owner approval |
+| `post-access-members` | `allow` \| `deny` \| `moderate` | Whether list members may post (default: `allow`) |
+| `post-access-public` | `allow` \| `deny` \| `moderate` | Whether non-members may post (default: `deny`) |
 | `allow-leave` | `direct` \| `moderated` | Unsubscribe behavior |
 | `archive` | `members` \| `owners` \| `public` \| `hidden` \| `off` | Archive instead of delete after processing, and who may view it in the web archive viewer — see "Archive access levels" (default: `off`) |
 | `archive-folder` | string | Name of the IMAP folder archived mail is moved into (default: `Archive`), created as a top-level folder (sibling of INBOX) if it doesn't exist yet — see "Archive folder path" for why this needs its own explanation. Only relevant when `archive` is not `off` |
@@ -731,6 +731,8 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `language` | `de` \| `en` | Locale for this list's outgoing mails and manage page (inherits global default, code-default `en`) — see Internationalization |
 | `api-token` | string | Bearer token for the list-management API (plaintext — see "List Management API"). Empty/absent = API disabled for this list |
 | `public-subscribe` | `on` \| `off` | Whether `POST /{listname}/subscribe` accepts unauthenticated requests (default: `off`) — see "List Management API" |
+
+**`post-access-members`/`post-access-public` — owners have no key of their own.** List owners can always post, and are never moderated, regardless of what these two keys are set to — there is deliberately no `post-access-owners` (owners posting is not something an operator can restrict). "Owners only may post" is expressed by setting *both* keys to `deny`: `post-access-members: deny`, `post-access-public: deny`. `moderate` queues the mail for owner accept/reject via the normal moderation flow (see "Moderation") exactly as the old `moderation: on` did, just scoped to whichever sender class (members/public) is actually set to it, instead of applying list-wide to everyone who already cleared the (now-removed) single `post-access` gate. See `IncomingMailFilter::checkPostAccess()`/`requiresModeration()`.
 
 ### Archive access levels
 
@@ -1010,8 +1012,7 @@ either) resolves to an empty string rather than a literal `{key}` — see
 
 ```php
 enum ReplyToBehavior: string { case List = 'list'; case Sender = 'sender'; case Both = 'both'; case Nobody = 'nobody'; }
-enum PostAccess: string { case Members = 'members'; case Owners = 'owners'; case Public = 'public'; }
-enum ModerationMode: string { case On = 'on'; case Off = 'off'; }
+enum PostAccess: string { case Allow = 'allow'; case Deny = 'deny'; case Moderate = 'moderate'; }
 enum AllowLeave: string { case Direct = 'direct'; case Moderated = 'moderated'; }
 enum ArchiveMode: string { case Members = 'members'; case Owners = 'owners'; case Public = 'public'; case Hidden = 'hidden'; case Off = 'off'; }
 ```
@@ -1066,7 +1067,7 @@ class ListConfig {
 
 Every property backed by a raw config value is resolved via `ListConfig`'s private `resolve()` before being cast/validated to its final type (`(int)`, `Enum::from()`, `'on'`/`'off'` comparison, ...) — not just plain string properties. This matters: without it, e.g. `smtp-port: "{port-tls}"` would silently produce `0` (an unresolved `"{port-tls}"` string cast to `int`), and `reply-to: "{my-alias}"` would throw an uncaught `ValueError` from `ReplyToBehavior::from()`.
 
-- **`resolve($raw)`, default `ResolutionPurpose::Disclosed`** — the default for everything: `$displayName`, `$description`, `$replyTo`, `$postAccess`, `$moderation`, `$allowLeave`, `$archive`, `$archiveFolder`, `$maxPerSender`, `$maxSize`, `$publicSubscribe`, `$logLevel`, `$language`, and — despite being `VariableResolver::BLOCKED_KEYS` themselves — `$imapPort`/`$imapSecure`/`$smtpPort`/`$smtpSecure` too. These four are numeric/enum properties (`(int)` cast, `'ssl'|'tls'|'none'` comparison): resolved under `Trusted`, a value like `smtp-port: "{imap-password}"` could silently become the leading digits of the actual password cast to an int, which could then surface via a connection-failure error message — a *fragment* leak that casting makes easy to miss. Staying on `Disclosed` here means these four properties can no longer reference `{mail-user}`/`{mail-password}`/`{mail-host}` or any other blocked key — a deliberate trade-off in favor of the leak protection, since none of them actually need to (there's no `mail-port`/`mail-secure` fallback level to reach).
+- **`resolve($raw)`, default `ResolutionPurpose::Disclosed`** — the default for everything: `$displayName`, `$description`, `$replyTo`, `$postAccessMembers`, `$postAccessPublic`, `$allowLeave`, `$archive`, `$archiveFolder`, `$maxPerSender`, `$maxSize`, `$publicSubscribe`, `$logLevel`, `$language`, and — despite being `VariableResolver::BLOCKED_KEYS` themselves — `$imapPort`/`$imapSecure`/`$smtpPort`/`$smtpSecure` too. These four are numeric/enum properties (`(int)` cast, `'ssl'|'tls'|'none'` comparison): resolved under `Trusted`, a value like `smtp-port: "{imap-password}"` could silently become the leading digits of the actual password cast to an int, which could then surface via a connection-failure error message — a *fragment* leak that casting makes easy to miss. Staying on `Disclosed` here means these four properties can no longer reference `{mail-user}`/`{mail-password}`/`{mail-host}` or any other blocked key — a deliberate trade-off in favor of the leak protection, since none of them actually need to (there's no `mail-port`/`mail-secure` fallback level to reach).
 - **`resolve($raw, ResolutionPurpose::Trusted)`** — `$imapHost`, `$imapUser`, `$imapPassword`, `$smtpHost`, `$smtpUser`, `$smtpPassword`. These are string-valued connection/credential properties that must be able to fall back through another blocked key one level up — `imap-host`/`smtp-host` through `{mail-host}`, `imap-user`/`smtp-user` through `{mail-user}`, `imap-password`/`smtp-password` through `{mail-password}` (each `mail-*` key sets both `imap-*` and `smtp-*` unless overridden individually — see "config.yml Structure"). Unlike the numeric/enum group above, a resolved host/user/password is used whole (passed straight to the IMAP/SMTP client), not cast or compared — so there's no fragment-leak risk distinct from the whole-value risk `Trusted` already accepts for this deliberately small, documented set of properties.
 - **Not template-resolved at all** — `$apiToken`. A Bearer credential the caller must present verbatim; indirection here would only add complexity/attack surface (e.g. accidental sharing via a shared alias) for no real benefit.
 - **Not applicable** — `$domain` (derived from `$mail`, not a raw config value), `$personalizeKeys`/`$reservedSubaddresses` (comma-separated *lists of key names*, not content), `$requiresSubaddress`/`$isImapConfigured` (booleans computed from other properties). `$footer`/`$listLabel`/`$smtpFromName` are template-capable but *not* resolved inside `ListConfig` itself — they're read raw and resolved later, downstream, by `FooterAppender`/`MailProcessor` (which already resolve under `ResolutionPurpose::Disclosed`), since they're only ever consumed from the mail-sending pipeline and never read directly elsewhere.
@@ -1308,11 +1309,11 @@ Visible `To` header: original recipients only, never expanded member list.
 4. **Spam filter**: any rule in `filters:` (config.yml, global, see "Spam filtering") matches → reject, notify sender
 5. **Authentication-Results**: SPF or DKIM = `fail` → reject, notify sender
 6. **Size**: raw MIME size > `max-size` → reject, notify sender
-7. **Post-access**: sender not in allowed group → reject, notify sender
+7. **Post-access** (`IncomingMailFilter::checkPostAccess()`): owners always pass; a member or public sender whose respective `post-access-members`/`post-access-public` is `deny` → reject (`reject.members_denied`/`reject.public_denied`), notify sender. `allow` and `moderate` both pass here — deciding between them happens later, at step 9, after rate limiting.
 8. **Rate limit**: exceeded → reject, notify sender
-9. **Moderation with no owners** (only reached if `moderation: on`): list has zero owners → reject (`reject.no_owners`), notify sender — a moderation item nobody can ever accept/reject would otherwise vanish silently instead of being distributed or bounced back with feedback
+9. **Moderation with no owners** (`IncomingMailFilter::requiresModeration()` — owners never moderated; only reached when the sender's `post-access-members`/`post-access-public` is `moderate`): list has zero owners → reject (`reject.no_owners`), notify sender — a moderation item nobody can ever accept/reject would otherwise vanish silently instead of being distributed or bounced back with feedback
 
-Bounces checked before Authentication-Results: MAILER-DAEMON mails may legitimately lack valid SPF/DKIM. Spam filter checked before Authentication-Results too, for the same reason — but after bounce detection, so a MAILER-DAEMON bounce whose body happens to match a filter rule is still handled as a bounce, not a spam reject. Subaddress validation is checked before the spam filter (address-routing validity before content-based filtering) but after bounce detection. Note `bin/worker.php` already routes `+accept-*`/`+reject-*` mail through `ModerationResponseHandler` before `IncomingMailFilter::filter()` is ever reached, so the `accept-`/`reject-` check here is defense-in-depth; the `bounce` check is load-bearing, since bounce detection above is content-based and a non-standard bounce sent to `+bounce` would otherwise fall through. The no-owners check is last since it's only relevant once a mail has already cleared every other gate and would otherwise reach `moderation: on`; `ModerationMailer::send()` still independently checks (and logs, then no-ops) for empty owners too, as a defense-in-depth backstop against a list losing its last owner *after* an item is already in `moderation_queue`.
+Bounces checked before Authentication-Results: MAILER-DAEMON mails may legitimately lack valid SPF/DKIM. Spam filter checked before Authentication-Results too, for the same reason — but after bounce detection, so a MAILER-DAEMON bounce whose body happens to match a filter rule is still handled as a bounce, not a spam reject. Subaddress validation is checked before the spam filter (address-routing validity before content-based filtering) but after bounce detection. Note `bin/worker.php` already routes `+accept-*`/`+reject-*` mail through `ModerationResponseHandler` before `IncomingMailFilter::filter()` is ever reached, so the `accept-`/`reject-` check here is defense-in-depth; the `bounce` check is load-bearing, since bounce detection above is content-based and a non-standard bounce sent to `+bounce` would otherwise fall through. The no-owners check is last since it's only relevant once a mail has already cleared every other gate and would otherwise be headed for moderation; `ModerationMailer::send()` still independently checks (and logs, then no-ops) for empty owners too, as a defense-in-depth backstop against a list losing its last owner *after* an item is already in `moderation_queue`.
 
 `PhpImap\Mailbox::getMailHeaderFieldValue()` (populates `IncomingMail::$autoSubmitted`, among others) is typed to always return `string`, using `''` for "header absent" — **never** `null`, despite `IncomingMailHeader`'s own `@var string|null` docblock claiming otherwise. `IncomingMailFilter::isBounce()`'s `Auto-Submitted` check must test `!== null && !== ''`, not just `!== null` — the latter is true for every mail lacking the header (i.e. essentially all normal mail), misclassifying it as a bounce.
 
@@ -1347,8 +1348,8 @@ The fix: for each `IncomingMailAttachment` where `$attachment->disposition === '
 | `Reply-To` | List address (`List`), original sender (`Sender`), both (`Both`), or a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (`Nobody`) — see `ReplyToBehavior` |
 | `X-Original-Sender` | Sender's CN — only when the sender's own address is in Reply-To (`Sender`/`Both`; CN not email — privacy) |
 | `List-Id` | `<{name}.{domain}>` — uses `name` (stable identifier, not `display-name` which may change) |
-| `List-Post` | `<mailto:{mail}>` or `NO` if `PostAccess::Owners` |
-| `List-Help` | `<mailto:{owner-mail}>` — added whenever the list has at least one owner (not conditional on `post-access`) |
+| `List-Post` | `<mailto:{mail}>`, or `NO` if both `post-access-members` and `post-access-public` are `deny` (owners-only — see "`post-access-members`/`post-access-public`") |
+| `List-Help` | `<mailto:{owner-mail}>` — added whenever the list has at least one owner (not conditional on post-access) |
 | `List-Unsubscribe` | `<https://{hostname}/{list-name}/unsubscribe?token={TOKEN}>` |
 | `List-Unsubscribe-Post` | `List-Unsubscribe=One-Click` |
 | `Precedence` | `list` |
@@ -1423,7 +1424,7 @@ Expand member list. Exclude addresses in original `To` or `Cc`. Normalize to low
 
 ### Flow
 
-1. Incoming mail for list with `ModerationMode::On`; size check passes first
+1. Incoming mail from a sender whose `post-access-members`/`post-access-public` (whichever applies) is `PostAccess::Moderate` — see `IncomingMailFilter::requiresModeration()`; size check passes first
 2. `ModerationMailer` sends to all owners:
    - `From`: list address; `Reply-To`: original sender
    - `Content-Type: multipart/mixed`:

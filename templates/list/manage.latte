@@ -36,8 +36,8 @@
             {/foreach}
         </td></tr>
         <tr><th>{$translator->trans('list.manage.reply_to')}</th><td>{$list->replyTo->value|escapeHtml}</td></tr>
-        <tr><th>{$translator->trans('list.manage.access')}</th><td>{$list->postAccess->value|escapeHtml}</td></tr>
-        <tr><th>{$translator->trans('list.manage.moderation')}</th><td>{$list->moderation->value|escapeHtml}</td></tr>
+        <tr><th>{$translator->trans('list.manage.access_members')}</th><td>{$list->postAccessMembers->value|escapeHtml}</td></tr>
+        <tr><th>{$translator->trans('list.manage.access_public')}</th><td>{$list->postAccessPublic->value|escapeHtml}</td></tr>
     </table>
 </div>
 
