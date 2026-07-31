@@ -169,7 +169,7 @@ class ListController
         $counts = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['last7' => 0, 'last30' => 0];
 
         $stmt = $this->db->prepare(
-            'SELECT sender, subject, bounced_at FROM bounce_log WHERE list_cn = :list ORDER BY bounced_at DESC LIMIT 20'
+            'SELECT id, sender, subject, message_id, bounced_at FROM bounce_log WHERE list_cn = :list ORDER BY bounced_at DESC LIMIT 20'
         );
         $stmt->execute(['list' => $listName]);
         $recent = $stmt->fetchAll(PDO::FETCH_ASSOC);

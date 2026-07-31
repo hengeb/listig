@@ -116,9 +116,16 @@ while (true) {
 
             try {
                 // Owner replies to +accept-{token}/+reject-{token} — handled separately,
-                // never subject to the normal incoming-mail filter chain.
+                // never subject to the normal incoming-mail filter chain. This is the
+                // reply mail's own UID (not the original moderated mail's, which
+                // ModerationResponseHandler::processAccept()/processReject() already
+                // archives/deletes via its own uid from the token payload) — without
+                // archiveOrDelete() here too, every accept/reject reply piled up in the
+                // inbox forever, marked seen but never actually removed, unlike every
+                // other terminal outcome (bounce/reject/distribute) below.
                 if ($moderationResponseHandler->handle($mail, $list)) {
                     $imapPoller->markSeen($list, $uid, $uidValidity);
+                    $imapArchiver->archiveOrDelete($list, $uid);
                     continue;
                 }
 
@@ -127,6 +134,13 @@ while (true) {
 
                 if ($result->isDiscard) {
                     $imapPoller->markSeen($list, $uid, $uidValidity);
+                    // True for a `filters:` rule with `action: discard` (see
+                    // SpamFilter/FilterResult::$forceDelete) — unlike the X-Loop
+                    // discard, that one is meant to actually go away, deleted
+                    // outright regardless of the list's own archive: setting.
+                    if ($result->forceDelete) {
+                        $imapArchiver->delete($list, $uid);
+                    }
                     continue;
                 }
 
@@ -138,9 +152,16 @@ while (true) {
                 }
 
                 if ($result->isReject) {
-                    $rejectionNotifier->notify($list, $mail->fromAddress ?? '', $result->reason);
+                    $rejectionNotifier->notify($list, $mail, $rawMime, $result->reason, $result->reasonParams);
                     $imapPoller->markSeen($list, $uid, $uidValidity);
-                    $imapArchiver->archiveOrDelete($list, $uid);
+                    // forceDelete (a `filters:` spam match, see FilterResult) skips
+                    // the list's own archive: setting entirely — every other reject
+                    // reason still goes through the normal archiveOrDelete().
+                    if ($result->forceDelete) {
+                        $imapArchiver->delete($list, $uid);
+                    } else {
+                        $imapArchiver->archiveOrDelete($list, $uid);
+                    }
                     continue;
                 }
 

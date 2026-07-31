@@ -40,7 +40,7 @@ reject:
   moderation_declined: "Von einem Listeninhaber abgelehnt."
   notice:
     subject: "Deine Mail an %list% wurde abgelehnt"
-    body: "Deine Mail an die Liste %list% (%mail%) wurde nicht zugestellt.\n\nGrund: %reason%"
+    body: "Deine Mail an die Liste %list% (%mail%) wurde nicht zugestellt.\n\nBetreff: %subject%\nZeitpunkt: %date%\n\nGrund: %reason%"
 
 moderation:
   mail:
@@ -48,7 +48,7 @@ moderation:
     body: "Eine Mail an die Liste %list% (%mail%) erfordert deine Freigabe.\n\nBetreff: %subject%\nAbsender: %sender%\nZeitpunkt: %date%\n\nAnnehmen: mailto:%accept%\nAblehnen: mailto:%reject%\n"
   pending_notice:
     subject: "Deine Mail an %list% wartet auf Freigabe"
-    body: "Deine Mail an die Liste %list% (%mail%) wurde nicht sofort verteilt, sondern wartet auf die Freigabe durch die Listeninhaber."
+    body: "Deine Mail an die Liste %list% (%mail%) wurde nicht sofort verteilt, sondern wartet auf die Freigabe durch die Listeninhaber.\n\nBetreff: %subject%\nZeitpunkt: %date%"
 
 bounce:
   unknown: "unbekannt"

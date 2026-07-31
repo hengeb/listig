@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Http\Controller\ArchiveController;
+use Hengeb\Listig\Http\Controller\BounceController;
 use Hengeb\Listig\Http\Controller\AuthController;
 use Hengeb\Listig\Http\Controller\DashboardController;
 use Hengeb\Listig\Http\Controller\ListApiController;
@@ -116,6 +117,8 @@ $app->group('', function (RouteCollectorProxy $group): void {
     // to its token grant, exactly like ArchiveController::attachment() right
     // above it needs OptionalAuthMiddleware for the same reason.
     $group->get('/{listname}/moderation/{id}/attachment/{index}', [ModerationController::class, 'attachment']);
+    // Same reasoning as the moderation attachment route above.
+    $group->get('/{listname}/bounce/{id}/attachment/{index}', [BounceController::class, 'attachment']);
 })->add(new OptionalAuthMiddleware());
 
 /**
@@ -206,6 +209,15 @@ $app->group('', function (RouteCollectorProxy $group): void {
     // below the archive viewer's own group for why that one specifically can't.
     $group->get('/{listname}/moderation/{id}', [ModerationController::class, 'show']);
     $group->get('/{listname}/moderation/{id}/frame', [ModerationController::class, 'frame']);
+
+    // Owner-only preview of a bounce mail, clicked from the manage page's bounce
+    // table — same reasoning as the moderation preview above (show()/frame()
+    // need a real session; attachment() doesn't, see the archive/moderation
+    // group below for why). See BounceController's own docblock for why a
+    // bounce is located by Message-ID (like the archive viewer) rather than by
+    // UID (like the still-pending moderation preview).
+    $group->get('/{listname}/bounce/{id}', [BounceController::class, 'show']);
+    $group->get('/{listname}/bounce/{id}/frame', [BounceController::class, 'frame']);
 
     // API routes (also need CSRF)
     $group->group('/_/api', function (RouteCollectorProxy $api): void {

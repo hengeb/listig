@@ -460,7 +460,7 @@ A `type: subaddress` list forwards mail sent to `{local-part}+{subaddress}@{doma
 
 ### Spam filtering (`filters:`)
 
-Third top-level key in `config.yml`, alongside the root config and `list-providers`. Global, list-independent content filter checked by `IncomingMailFilter` for every incoming mail on every list (see "IncomingMailFilter — check order"). Implemented by `Hengeb\Listig\Mail\SpamFilter`, constructed from `ConfigResolver::getFilters()`.
+Third top-level key in `config.yml`, alongside the root config and `list-providers`. Globally *configured* — one `filters:` list applies to every list — but each mail is checked against it together with the specific list it was sent to, since a rule's pattern may reference that list's own `{}` variables (see below). Checked by `IncomingMailFilter` for every incoming mail on every list (see "IncomingMailFilter — check order"). Implemented by `Hengeb\Listig\Mail\SpamFilter`, constructed from `ConfigResolver::getFilters()`.
 
 ```yaml
 filters:
@@ -469,16 +469,35 @@ filters:
   - body: xyz                     # checked against textPlain + textHtml combined
   - from: bla                     # checked against fromName + fromAddress combined
   - to: johnny                    # checked against the raw To header (names and addresses)
-  - subject: /ab+$/               # /delimited/ value → preg_match instead of str_contains
+  - subject: /ab+$/               # /delimited/ value → preg_match instead of str_contains, case-sensitive
   - body: /a\s*b\s*c\*s/
   - to: foo                       # a multi-key entry ANDs its conditions — this rule only
     subject: bar                  # matches a mail whose To *and* Subject both match
+  - subject: spam                 # action: discard — mail is silently dropped (marked seen, no
+    from: johnny                  # notice to the sender, unlike the default action: reject).
+    action: discard               # Either action deletes the mail outright, never archives it.
+  - from: "MAILER-DAEMON@{domain}" # {} variables resolve against the specific list a mail
+    to: "{list-mail}"              # was sent to — see "Variable resolution in filter patterns"
 ```
 
-- Each entry is a map with one or more of `subject`, `body`, `from`, `to` as keys (any other key is a hard error at startup, fail fast, same philosophy as missing `$VAR`s). A single-key entry is just the common case; when an entry has more than one key, **all** of that entry's conditions must match (AND) for the entry itself to match — different top-level entries are still ORed against each other (see below). `SpamFilter::normalizeRule()` turns each raw entry into a list of conditions; `matches()` requires `allConditionsMatch()` for at least one entry.
+- Each entry is a map with one or more of `subject`, `body`, `from`, `to` as keys, plus an optional `action` key (any other key is a hard error at startup, fail fast, same philosophy as missing `$VAR`s). A single field key is just the common case; when an entry has more than one field key, **all** of that entry's conditions must match (AND) for the entry itself to match — different top-level entries are still ORed against each other (see below). `SpamFilter::normalizeRule()` turns each raw entry into `{conditions, action}`; `match()` returns the first fully-matching entry's action, or `null` if none matched.
+- `action` is `reject` (default — the original, pre-existing behavior) or `discard`. It is **not** a match condition itself — it's read and stripped from the entry before the field keys above are validated/compiled, so it can appear alongside any number of them without affecting what the rule matches on. An entry with only an `action` key and no field key at all (nothing to actually match on) is a hard startup error, same as an entry with zero keys.
+  - `reject`: same reject *notification* pipeline as every other reject reason — `RejectionNotifier` notifies the sender (translation key `reject.spam`, e.g. "Spam message rejected" / "Spam-Nachricht abgelehnt") and the mail is marked seen.
+  - `discard`: `FilterResult::discard(forceDelete: true)` — no notice to the sender at all (unlike `reject`), but still marked seen. Distinct from a bare `FilterResult::discard()` (the X-Loop case, `IncomingMailFilter` check 1), which deliberately leaves the mail sitting in the inbox for manual inspection rather than deleting it — named `discard`, not `delete`, for that broader "mail-handling outcome" sense (matching the internal `FilterResult` type), not because of what specifically happens to the IMAP message.
+- **Either action deletes the mail outright** (`ImapArchiver::delete()`) rather than going through `ImapArchiver::archiveOrDelete()` — unlike every other reject reason (auth failure, size, rate limit, ...), a spam-filter match is never worth archiving, regardless of what the list's own `archive:` setting says for everything else; `reject`/`discard` set `FilterResult::$forceDelete = true` specifically for this. Confirmed live: a mail matching a `filters:` rule on a list with `archive: members` was deleted from the inbox outright, not moved into the archive folder the way a `reject.size_exceeded` mail on the same list still is.
 - The value is matched literally (`str_contains(strtolower($value), strtolower($pattern))` — case-insensitive) **unless** it looks like a delimited PCRE pattern — starts with one of `/ # ~ % !`, and the same character reappears later followed by nothing but valid regex flags (`a-zA-Z`) to the end of the string. In that case it is passed as-is to `preg_match()` (case-sensitive unless the pattern's own flags say otherwise, e.g. `/ab+$/i`). An invalid regex in that form is also a hard startup error.
-- A mail matches (is spam) if **any** entry matches (and, within an entry with multiple keys, **all** of its conditions match — see above). On match, `IncomingMailFilter` returns `FilterResult::reject('reject.spam')` — same reject pipeline as every other reject reason: `RejectionNotifier` notifies the sender (translation key `reject.spam`, e.g. "Spam message rejected" / "Spam-Nachricht abgelehnt"), the mail is marked seen, and `ImapArchiver::archiveOrDelete()` removes it from the inbox (or archives it, unless the list has `archive: off`).
 - Like every other config value, `filters:` supports `!include` (see "File includes"), so rules can be outsourced to their own file: `filters: !include filters.yml`.
+- A matching rule is traced at `log-level: debug` (see "Debug logging") — which rule (1-based position), its action, and the resolved condition(s) it matched on.
+
+#### Variable resolution in filter patterns
+
+A pattern may contain `{}` variables, e.g. `from: "MAILER-DAEMON@{domain}"` to match against a specific list's own bounce-generating domain rather than a hardcoded one. Unlike almost every other `{}` site in this codebase, these are **not** resolved once at startup — `filters:` itself has no list in scope at all (it's parsed once, globally, by `ConfigResolver::processConfig()`, alongside `list-providers:`, before any specific list exists), so there is nothing to resolve `{domain}`/`{list-mail}`/etc. against yet at that point. This was confirmed live as a real, silent bug: a rule referencing `{domain}`/`{list-mail}` matched literally against those unresolved placeholder strings, which no real mail ever contains — the rule simply never fired, with no error or warning to say so.
+
+Fixed by deferring resolution: `SpamFilter::normalizeRule()` keeps a condition's raw pattern text as-is (including any `{}`), and `SpamFilter::match(IncomingMail $mail, ListConfig $list)` — now takes the list being checked, not just the mail — resolves each condition's pattern against `$list->createContext()` fresh, inside `allConditionsMatch()`, only when the raw pattern actually contains a `{` (a plain `str_contains()` check, cheap, and skips building a context array at all for the common case of a rule with no variables). Resolution uses `VariableResolver::resolve()` under `ResolutionPurpose::Disclosed`, same as everywhere else — a pattern that references a blocked key (`{imap-password}`, ...) resolves to the classified placeholder rather than leaking it, safe by construction, not because filters: happens to be a special case.
+
+One consequence of deferring resolution to match time: case-folding a literal (non-regex) pattern also has to happen then, not at `normalizeRule()` time as before, since the pattern isn't fully known until it's resolved against a specific list. Regex-ness (`isRegex()`) and startup-time regex-validity checking are unaffected and still happen once, on the raw pattern, at construction — a `{}` placeholder is always inert, valid PCRE syntax on its own (a `{` that doesn't form a numeric quantifier like `{2,4}` is just a literal character), so validating before resolution doesn't risk a false positive.
+
+No escaping is applied to a resolved value used inside a regex pattern — if a list's own `{list-name}`/`{domain}`/etc. happens to contain a regex metacharacter, it's substituted verbatim and takes on its regex meaning, same as any other `{}` substitution elsewhere in this codebase (e.g. a footer or subject-label template). This is a known, accepted tradeoff, not a bug: operators writing `{}` inside a `/regex/` pattern are expected to understand what they're embedding it into.
 
 ### App name (`app-name`)
 
@@ -635,6 +654,7 @@ A variable may be followed by a `|filter:args` pipeline, applied to the resolved
 - `urlencode` uses `rawurlencode()` (RFC 3986 — space becomes `%20`), not `urlencode()` (RFC 1866 — space becomes `+`), since its use cases are URL path/query segments and `mailto:` links, not `application/x-www-form-urlencoded` bodies.
 - Nested `{}` inside filter args is supported — e.g. a `{}` variable inside a `match` replacement or a `default` fallback: `{list-mail|default:system@{domain|default:localhost}}`, `{pronoun|match:he=>Lieber {firstname}}`. Placeholder scanning (`VariableResolver::walkPlaceholders()`) is brace-depth aware rather than a plain `[^}]+` regex, so it finds the whole outer placeholder — including any nested one inside a filter arg — instead of stopping at the first `}`. The nested placeholder is resolved (through the same `$contexts`/`ResolutionPurpose`) before the filter that contains it runs, so the filter always sees plain, already-resolved text as its args.
 - Filters chain freely, applied left to right, each seeing the previous one's output — not just `match` then `default`; any combination/order works (e.g. `{firstname|lowercase|default:unbekannt}`).
+- **A `{` immediately followed by a digit is never treated as a placeholder** — `walkPlaceholders()` passes it through as literal text instead of scanning for a matching `}`. Every variable name in this app is alphabetic/hyphenated (`domain`, `list-name`, `sender-firstname`, a member's own attribute name, ...), never digit-first, so this is an unambiguous way to leave a PCRE quantifier alone. This matters specifically for `filters:` (see "Spam filtering") — a regex pattern like `subject: /spa{5,}m/i` was, before this, corrupted by `SpamFilter`'s own `{}`-resolution pass (triggered by `str_contains($pattern, '{')`, needed for genuine `{}` variables in a pattern like `from: "MAILER-DAEMON@{domain}"`): `{5,}` was looked up as a variable named `5,`, found nowhere, and silently resolved to `''` per this class's own "key not found → empty string" rule — turning `/spa{5,}m/i` into `/spam/i` without any error. Confirmed live: the same rule matched correctly against a real "SPAAAAAM" (5+ a's) subject after this fix, and still left a genuine `{domain}`/nested-`{}`-in-filter-args placeholder elsewhere in the same string fully resolved, unaffected.
 
 #### Member attributes — fully dynamic
 
@@ -1189,12 +1209,23 @@ CREATE TABLE rate_limit (
 
 Contains sender addresses and subjects — document in privacy policy / data retention documentation that these are retained for 90 days.
 
+`message_id` (added by `migrations/003_bounce_log_message_id.sql`, not backfilled — `NULL` for
+any row logged before this migration ran, or whose bounce mail had no Message-ID at all) —
+bare Message-ID of the bounce mail itself (`HeaderFilter::readMessageId()`, same normalization
+`ArchiveIndexer` applies), populated once by `BounceHandler::logBounce()`. Lets the manage
+page's bounce table offer a click-through preview (`BounceController`, see "Bounce preview")
+the same way `archived_mail.message_id` lets the archive viewer re-locate a distributed mail —
+without persisting an IMAP UID, which is meaningless once `ImapArchiver::archiveOrDelete()`
+moves the bounce into the archive folder (or deletes it outright, if `archive: off`) right
+after this row is written.
+
 ```sql
 CREATE TABLE bounce_log (
     id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     list_cn     VARCHAR(255) NOT NULL,
     sender      VARCHAR(255) NOT NULL,
     subject     VARCHAR(500) NULL,
+    message_id  VARCHAR(255) NULL,
     bounced_at  DATETIME NOT NULL,
     INDEX idx_list_time (list_cn, bounced_at)
 );
@@ -1318,21 +1349,23 @@ Visible `To`/`Cc` header: the original mail's own `To`/`Cc` addresses, copied ve
 ### IncomingMailFilter — check order
 
 1. **X-Loop** present (any value) → discard silently
-2. **Bounce** (any match below) → log to `bounce_log`, forward to owner as `multipart/mixed` (Part 1: `text/plain` with metadata — see "Bounce notice details" below; Part 2: `message/rfc822` with full original bounce mail):
+2. **Spam filter**: any rule in `filters:` (config.yml, global, see "Spam filtering") matches → `action: reject` (default): reject, notify sender; `action: discard`: silently dropped, no notice. Either way the mail is *deleted* outright, never archived — regardless of the list's own `archive:` setting (unlike every other reject reason below, which still go through the normal `archiveOrDelete()`).
+3. **Bounce** (any match below) → log to `bounce_log`, forward to owner as `multipart/mixed` (Part 1: `text/plain` with metadata — see "Bounce notice details" below; Part 2: `message/rfc822` with full original bounce mail):
    - `Auto-Submitted` present and ≠ `no`
    - `X-Auto-Response-Suppress` present
    - `Content-Type: multipart/report; report-type=delivery-status`
    - `From` contains `MAILER-DAEMON` or `postmaster` (case-insensitive)
    - Subject matches `/^(delivery status|mail delivery failed|undelivered mail)/i`
-3. **Subaddress validation** (`type: subaddress` lists only, see "type: subaddress — subaddress forwarding"): reserved subaddress (`bounce`, `accept-*`, `reject-*`, or list-configured `reserved-subaddresses`) → reject, notify sender; no subaddress at all while at least one member template requires one → reject, notify sender
-4. **Spam filter**: any rule in `filters:` (config.yml, global, see "Spam filtering") matches → reject, notify sender
+4. **Subaddress validation** (`type: subaddress` lists only, see "type: subaddress — subaddress forwarding"): reserved subaddress (`bounce`, `accept-*`, `reject-*`, or list-configured `reserved-subaddresses`) → reject, notify sender; no subaddress at all while at least one member template requires one → reject, notify sender
 5. **Authentication-Results**: SPF or DKIM = `fail` → reject, notify sender
 6. **Size**: raw MIME size > `max-size` → reject, notify sender
 7. **Post-access** (`IncomingMailFilter::checkPostAccess()`): owners always pass; a member or public sender whose respective `post-access-members`/`post-access-public` is `deny` → reject (`reject.members_denied`/`reject.public_denied`), notify sender. `allow` and `moderate` both pass here — deciding between them happens later, at step 9, after rate limiting.
 8. **Rate limit**: exceeded → reject, notify sender
 9. **Moderation with no owners** (`IncomingMailFilter::requiresModeration()` — owners never moderated; only reached when the sender's `post-access-members`/`post-access-public` is `moderate`): list has zero owners → reject (`reject.no_owners`), notify sender — a moderation item nobody can ever accept/reject would otherwise vanish silently instead of being distributed or bounced back with feedback
 
-Bounces checked before Authentication-Results: MAILER-DAEMON mails may legitimately lack valid SPF/DKIM. Spam filter checked before Authentication-Results too, for the same reason — but after bounce detection, so a MAILER-DAEMON bounce whose body happens to match a filter rule is still handled as a bounce, not a spam reject. Subaddress validation is checked before the spam filter (address-routing validity before content-based filtering) but after bounce detection. Note `bin/worker.php` already routes `+accept-*`/`+reject-*` mail through `ModerationResponseHandler` before `IncomingMailFilter::filter()` is ever reached, so the `accept-`/`reject-` check here is defense-in-depth; the `bounce` check is load-bearing, since bounce detection above is content-based and a non-standard bounce sent to `+bounce` would otherwise fall through. The no-owners check is last since it's only relevant once a mail has already cleared every other gate and would otherwise be headed for moderation; `ModerationMailer::send()` still independently checks (and logs, then no-ops) for empty owners too, as a defense-in-depth backstop against a list losing its last owner *after* an item is already in `moderation_queue`.
+**Spam filter checked before bounce detection** — the opposite of every other check, which all stay *after* bounce detection specifically because a real bounce may legitimately fail auth/lack a valid subaddress/etc. (see below). This one reversal is deliberate: it lets an operator write a `filters:` rule matching a particular unwanted bounce (e.g. a known noisy auto-responder, or a specific `MAILER-DAEMON` host) and have it silently dropped via `action: discard` instead of always being logged to `bounce_log` and forwarded to the owner. Before this reordering, bounce detection ran first and a spam-content match against a bounce mail was unreachable — the mail was always handled as a bounce regardless of what `filters:` said. The tradeoff: **any** `filters:` rule that happens to also match real bounce content will now intercept that bounce before it's ever logged/forwarded, not just ones an operator intentionally wrote for that purpose — a broad `subject: /error/i` rule, say, would now swallow bounces mentioning "error" in the subject too, silently. Confirmed live: a mail with `From: MAILER-DAEMON@...` that also matched a `filters:` rule was rejected/discarded as spam and never reached `isBounce()` at all; the same mail without a matching rule was still correctly classified as a bounce, unchanged.
+
+Bounces are still checked before Authentication-Results and Subaddress validation, for the reasons those two sections already had: `MAILER-DAEMON` mails may legitimately lack valid SPF/DKIM, and address-routing validity is a separate concern from content-based filtering. Note `bin/worker.php` already routes `+accept-*`/`+reject-*` mail through `ModerationResponseHandler` before `IncomingMailFilter::filter()` is ever reached, so the `accept-`/`reject-` check here is defense-in-depth; the `bounce` check is load-bearing, since bounce detection above is content-based and a non-standard bounce sent to `+bounce` would otherwise fall through. The no-owners check is last since it's only relevant once a mail has already cleared every other gate and would otherwise be headed for moderation; `ModerationMailer::send()` still independently checks (and logs, then no-ops) for empty owners too, as a defense-in-depth backstop against a list losing its last owner *after* an item is already in `moderation_queue`.
 
 `PhpImap\Mailbox::getMailHeaderFieldValue()` (populates `IncomingMail::$autoSubmitted`, among others) is typed to always return `string`, using `''` for "header absent" — **never** `null`, despite `IncomingMailHeader`'s own `@var string|null` docblock claiming otherwise. `IncomingMailFilter::isBounce()`'s `Auto-Submitted` check must test `!== null && !== ''`, not just `!== null` — the latter is true for every mail lacking the header (i.e. essentially all normal mail), misclassifying it as a bounce.
 
@@ -1562,6 +1595,50 @@ of `ArchiveController` into their own small class specifically so `ModerationCon
 reuse them rather than maintaining a second copy of security-relevant logic that could drift out
 of sync with the original. `ArchiveController` itself was updated to call the shared class too,
 so there is exactly one implementation, not two kept in parallel by convention.
+
+### Bounce preview
+
+Clicking a row in the manage page's bounce table (`templates/list/manage.latte`) opens the same
+read-only preview as the moderation queue, at `GET /{listname}/bounce/{id}` (`{id}` is
+`bounce_log.id`) — `BounceController::show()`/`frame()`/`attachment()`, again reusing
+`archive/show.latte`/`frame.latte`. Unlike a pending moderation mail (still sitting in the
+INBOX, fetched by IMAP UID), a bounce mail has **already** been archived into the list's archive
+folder — or deleted outright, if `archive: off` — by `ImapArchiver::archiveOrDelete()`, which
+runs right after `BounceHandler::logBounce()` writes the `bounce_log` row (see `IncomingMailFilter
+— check order`). So a bounce is located the same way the archive viewer locates any other
+archived mail: by Message-ID, not by UID.
+
+**`ArchiveMailResolver` (`src/Archive/ArchiveMailResolver.php`)** — the "locate by Message-ID,
+eagerly cache attachment contents while the IMAP connection is still open" logic (previously a
+private `ArchiveController::locateMail()` method, see "Archive mail cache — performance") was
+extracted into its own class specifically so `BounceController` could reuse it instead of a
+second copy. It deliberately does **not** decide what happens when `ArchiveMailNotFoundException`
+is thrown (a confirmed-gone mail, per a full successful `SEARCH ALL` that found nothing) — that
+cleanup differs per caller: `ArchiveController::locateMail()` still removes the now-stale
+`archived_mail` row itself; `BounceController::locateMail()` has no equivalent index to clean up
+and just returns `null` (the row stays, `message_id` still set, and the next time someone opens
+it the same lookup — and the same "not found" — simply happens again).
+
+A `bounce_log` row whose `message_id` is `NULL` (logged before `migrations/003_bounce_log_message_id.sql`,
+or the bounce mail had no Message-ID at all) is rendered as **not clickable at all** in the
+table — `manage.latte` only adds the `clickable-row` class/`onclick` when `message_id !== null`,
+rather than making every row clickable and having `BounceController` immediately show a
+"mail unavailable" preview for the un-locatable ones.
+
+**Owner-only, always a real session** — same reasoning and the same `AuthMiddleware`/
+`OptionalAuthMiddleware` split as the moderation preview (`show()`/`frame()` need a session;
+`attachment()` sits in the archive/moderation `OptionalAuthMiddleware` group instead, since the
+sandboxed frame's `cid:`-rewritten `<img>` requests carry no cookie — see "Preview: pending
+mail" above for the full reasoning). Its attachment token uses its own dedicated purpose,
+`bounce-attachment`, so it can't be replayed against the archive/moderation grants or vice versa.
+
+**Bounce's own sender is shown as-is, unlike archive/moderation** — `show.latte`'s metadata table
+normally shows only a display name, never a raw address (see "Privacy" under Archive viewer).
+`BounceController::show()` passes `bounce_log.sender` (the bounce mail's own `From`, typically
+`MAILER-DAEMON@...`) into that same slot regardless, because the manage page's bounce table right
+next to it already shows that exact same address in its own "Sender" column — there is nothing
+left to redact that isn't already on the same page, and it identifies the *remote MTA* that
+generated the bounce, not a list member.
 
 ---
 
@@ -1914,6 +1991,9 @@ segment — the only requirement is that no list is ever named `_` (enforced fai
 | GET | `/{listname}/moderation/{id}` | owner | Preview a still-pending mail — see "Preview: pending mail" |
 | GET | `/{listname}/moderation/{id}/frame` | owner | Preview: sandboxed HTML body |
 | GET | `/{listname}/moderation/{id}/attachment/{index}` | owner (or signed token) | Preview: attachment download/inline |
+| GET | `/{listname}/bounce/{id}` | owner | Preview a bounce mail — see "Bounce preview" |
+| GET | `/{listname}/bounce/{id}/frame` | owner | Preview: sandboxed HTML body |
+| GET | `/{listname}/bounce/{id}/attachment/{index}` | owner (or signed token) | Preview: attachment download/inline |
 | GET | `/_/api/queue/{listname}` | owner | Queue status |
 | DELETE | `/_/api/queue/{id}` | owner | Delete failed entry |
 | POST | `/_/api/queue/{id}/retry` | owner | Retry failed entry |
@@ -2007,8 +2087,9 @@ This is scoped tracing, not a retrofit of the whole codebase's logging: the pre-
 - **`AuthController::loginOidc()`** — one line per successful OIDC login (list-scoped level), mirroring the magic-link success line for parity between the two login methods.
 - **`ImapPoller::poll()`** — one summary line per cycle when unseen UIDs exist ("found N unseen mail(s) ... UID(s) ..."), then one line per mail actually fetched (UID + Message-ID — deliberately not the subject, since "Never log MIME content, passwords, or tokens" under Security Notes is written as an unconditional rule and a debug log is not an exemption worth carving out for it).
 - **`MailProcessor::process()`** — one summary line before the recipient loop (recipient count + `batch_id`), then one line per `QueueWriter::enqueue()` call (recipient address + `batch_id`) — covers "das Enqueuen für alle Mitglieder" end to end, one line per member.
+- **`SpamFilter::match()`** — one line per matched `filters:` rule (list-scoped level): the rule's 1-based position among `filters:` entries (not the internal 0-based array index — matches how an operator would refer to "the third rule" in their own `filters.yml`), its `action`, and every condition that matched with the *resolved* pattern it was actually compared against (post-`{}`-substitution, not the raw config text) — e.g. `Listig: filters: rule #2 matched (action: discard) — subject: "spam", from: "MAILER-DAEMON@hengeb.de"`. Nothing is logged when no rule matches at all.
 
-Registered in `config/container.php`: `'app.log-level'` (the global default string) and `Logger::class` (constructed from it via `LogLevel::fromString()`), injected into `AuthController`, `ImapPoller`, and `MailProcessor` alongside their existing dependencies.
+Registered in `config/container.php`: `'app.log-level'` (the global default string) and `Logger::class` (constructed from it via `LogLevel::fromString()`), injected into `AuthController`, `ImapPoller`, `MailProcessor`, and `SpamFilter` alongside their existing dependencies.
 
 ---
 
@@ -2068,6 +2149,34 @@ chain — no special-casing:
 returns keys like `'reject.size_exceeded'` with `['%max_size%' => $list->maxSize]`, not
 literal English sentences. `RejectionNotifier::notify()` translates the key (and the
 surrounding subject/body) using `$list->language` at send time.
+
+### Making clear which mail a reject/pending notice is about
+
+`RejectionNotifier::notify(ListConfig $list, IncomingMail $mail, ?string $rawMime, string $reasonKey, array $reasonParams = [])`
+takes the `IncomingMail` itself (not just the sender's bare address, as before) and the raw
+MIME — `reject.notice.body` includes `%subject%`/`%date%` (same fields, same fallback for a
+missing/unparseable `Date` header, as `ModerationMailer`'s own metadata — see "Moderation"),
+and the raw MIME is attached as `message/rfc822` (`original.eml`, `8bit` transfer encoding —
+per RFC 2046, `message/rfc822` only allows 7bit/8bit/binary, never quoted-printable/base64,
+same fix already applied to `ModerationMailer`'s own attachment) so the sender can tell which
+of their mails a notice actually refers to, the same way `ModerationMailer`'s request to owners
+already could. Without this, a reject notice ("your mail was rejected: spam") gave no way to
+identify *which* mail if a sender had sent several around the same time.
+
+All three notification paths that tell a sender their mail didn't go through as expected now
+carry this information:
+- **Rejected** (`bin/worker.php`'s `isReject` branch, covers every `reject.*` reason —
+  spam, auth failure, size, access denied, rate limit, moderation declined, ...) — passes the
+  already-parsed `$mail` and `$rawMime` straight through, both already in scope.
+- **Moderated** (`ModerationMailer::send()`'s `pending_notice`, see "Moderation") — reuses the
+  exact same `$mail`/`$rawMime`/`$mailDate` it already computed for the owners' own copy above
+  it in the same method, no extra IMAP fetch needed.
+- **Moderation declined** (`ModerationResponseHandler::processReject()` and
+  `ModerationController::reject()`, both `reject.moderation_declined` via the same
+  `RejectionNotifier`) — neither originally fetched the raw MIME (only the parsed
+  `IncomingMail`, for the sender's address); both now also call `ImapPoller::fetchByUid()`
+  for it, best-effort — a `null` result (mail gone from IMAP between the two fetches) still
+  sends the notice, just without the attachment, rather than blocking it entirely.
 
 ---
 

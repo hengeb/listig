@@ -7,6 +7,7 @@ use Hengeb\Listig\Archive\ArchiveHtmlSanitizer;
 use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveMailCache;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
+use Hengeb\Listig\Archive\ArchiveMailResolver;
 use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
@@ -17,6 +18,7 @@ use Hengeb\Listig\Crypto\KeyDerivation;
 use Hengeb\Listig\Crypto\PasswordCrypto;
 use Hengeb\Listig\Http\Controller\ArchiveController;
 use Hengeb\Listig\Http\Controller\AuthController;
+use Hengeb\Listig\Http\Controller\BounceController;
 use Hengeb\Listig\Http\Controller\DashboardController;
 use Hengeb\Listig\Http\Controller\ListApiController;
 use Hengeb\Listig\Http\Controller\ListController;
@@ -308,7 +310,7 @@ $builder->addDefinitions([
 
     // Global, list-independent spam filter — rules from the top-level filters: section
     SpamFilter::class => function (ContainerInterface $c): SpamFilter {
-        return new SpamFilter($c->get(ConfigResolver::class)->getFilters());
+        return new SpamFilter($c->get(ConfigResolver::class)->getFilters(), $c->get(Logger::class));
     },
 
     IncomingMailFilter::class => function (ContainerInterface $c): IncomingMailFilter {
@@ -369,6 +371,9 @@ $builder->addDefinitions([
         return new ArchiveMailLocator($c->get(ImapMailboxFactory::class));
     },
     ArchiveMailCache::class => fn() => new ArchiveMailCache(),
+    ArchiveMailResolver::class => function (ContainerInterface $c): ArchiveMailResolver {
+        return new ArchiveMailResolver($c->get(ArchiveMailLocator::class), $c->get(ArchiveMailCache::class));
+    },
     ArchiveHtmlSanitizer::class => fn() => new ArchiveHtmlSanitizer(),
     ArchiveSynchronizer::class => function (ContainerInterface $c): ArchiveSynchronizer {
         return new ArchiveSynchronizer($c->get(ImapMailboxFactory::class), $c->get(PDO::class), $c->get(ArchiveIndexer::class));
@@ -517,6 +522,7 @@ $builder->addDefinitions([
             $c->get(ArchiveThreader::class),
             $c->get(ArchiveMailLocator::class),
             $c->get(ArchiveMailCache::class),
+            $c->get(ArchiveMailResolver::class),
             $c->get(ArchiveIndexer::class),
             $c->get(ArchiveHtmlSanitizer::class),
             $c->get(TranslatorInterface::class),
@@ -537,6 +543,19 @@ $builder->addDefinitions([
             $c->get(ArchiveIndexer::class),
             $c->get(RejectionNotifier::class),
             $c->get(Engine::class),
+            $c->get(ArchiveHtmlSanitizer::class),
+            $c->get(TranslatorInterface::class),
+            $c->get(TokenService::class),
+            $c->get('app.name'),
+        );
+    },
+
+    BounceController::class => function (ContainerInterface $c): BounceController {
+        return new BounceController(
+            $c->get(PDO::class),
+            $c->get(ListProvider::class),
+            $c->get(Engine::class),
+            $c->get(ArchiveMailResolver::class),
             $c->get(ArchiveHtmlSanitizer::class),
             $c->get(TranslatorInterface::class),
             $c->get(TokenService::class),

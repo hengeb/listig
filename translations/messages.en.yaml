@@ -40,7 +40,7 @@ reject:
   moderation_declined: "Rejected by a list owner."
   notice:
     subject: "Your mail to %list% was rejected"
-    body: "Your mail to the list %list% (%mail%) was not delivered.\n\nReason: %reason%"
+    body: "Your mail to the list %list% (%mail%) was not delivered.\n\nSubject: %subject%\nDate: %date%\n\nReason: %reason%"
 
 moderation:
   mail:
@@ -48,7 +48,7 @@ moderation:
     body: "A mail to list %list% (%mail%) requires your approval.\n\nSubject: %subject%\nFrom: %sender%\nDate: %date%\n\nAccept: mailto:%accept%\nReject: mailto:%reject%\n"
   pending_notice:
     subject: "Your mail to %list% is awaiting approval"
-    body: "Your mail to the list %list% (%mail%) was not delivered immediately — it is awaiting approval by the list owners."
+    body: "Your mail to the list %list% (%mail%) was not delivered immediately — it is awaiting approval by the list owners.\n\nSubject: %subject%\nDate: %date%"
 
 bounce:
   unknown: "unknown"

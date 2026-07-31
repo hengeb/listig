@@ -141,8 +141,12 @@ class ModerationResponseHandler
             error_log("Listig: Moderation reject — original mail UID $uid no longer on IMAP for list {$list->name}");
             return;
         }
+        // Best-effort — a missing raw MIME (mail gone between the two fetches)
+        // still lets the notice go out, just without the attachment; see
+        // RejectionNotifier::notify()'s own $rawMime docblock.
+        $rawMime = $this->imapPoller->fetchByUid($list, $uid);
 
-        $this->rejectionNotifier->notify($list, $incomingMail->fromAddress ?? '', 'reject.moderation_declined');
+        $this->rejectionNotifier->notify($list, $incomingMail, $rawMime, 'reject.moderation_declined');
         $this->imapPoller->markSeen($list, $uid, $uidValidity);
         $this->imapArchiver->archiveOrDelete($list, $uid);
     }

@@ -149,7 +149,15 @@ class ModerationMailer
                 $this->translator->trans('moderation.pending_notice.body', [
                     '%list%' => $list->displayName,
                     '%mail%' => $list->mail,
+                    '%subject%' => $subject,
+                    '%date%' => $mailDate,
                 ], null, $locale),
+                // Same attachment as the owners' own copy above — lets the sender
+                // tell which of their mails this notice is about, same reasoning
+                // as RejectionNotifier::notify().
+                $rawMime,
+                'original.eml',
+                'message/rfc822',
             );
         }
     }

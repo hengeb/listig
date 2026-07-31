@@ -17,13 +17,12 @@ class ImapArchiver
 
     public function archiveOrDelete(ListConfig $list, int $uid): void
     {
-        $mailbox = $this->mailboxFactory->getMailbox($list);
-
         if ($list->archive === ArchiveMode::Off) {
-            $mailbox->deleteMail($uid);
-            $mailbox->expungeDeletedMails();
+            $this->delete($list, $uid);
             return;
         }
+
+        $mailbox = $this->mailboxFactory->getMailbox($list);
 
         // Members/Owners/Public/Hidden all store the same way at the IMAP level — they
         // only differ in who may view the archive through the web UI (Http/Controller/
@@ -46,6 +45,22 @@ class ImapArchiver
             // Folder may already exist
         }
         $mailbox->moveMail($uid, $archiveFolder);
+    }
+
+    /**
+     * Deletes outright, ignoring the list's own `archive:` setting entirely —
+     * unlike archiveOrDelete(), which only deletes when archive is Off and
+     * otherwise moves the mail into the archive folder. Used for mail that's
+     * never worth keeping regardless of what the list archives everything else
+     * as (currently: a `filters:` spam match — see IncomingMailFilter — a
+     * spam-filtered mail sitting in the member-visible-adjacent archive folder
+     * forever serves no one).
+     */
+    public function delete(ListConfig $list, int $uid): void
+    {
+        $mailbox = $this->mailboxFactory->getMailbox($list);
+        $mailbox->deleteMail($uid);
+        $mailbox->expungeDeletedMails();
     }
 
     public function deleteOldMails(ListConfig $list): void

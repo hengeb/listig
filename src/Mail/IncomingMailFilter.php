@@ -27,12 +27,35 @@ class IncomingMailFilter
             return FilterResult::discard();
         }
 
-        // 2. Bounce detection
+        // 2. Spam filter (globally configured, but matched with this list's own
+        // context — see SpamFilter's docblock on why a rule's pattern needs $list).
+        // Both actions force-delete the mail outright (never archived, regardless
+        // of the list's own archive: setting) — see FilterResult::$forceDelete.
+        //
+        // Deliberately before bounce detection (3), the opposite of every other
+        // check below it (which all stay after bounce detection, since a real
+        // bounce may legitimately fail auth/lack a valid subaddress/etc.) — a
+        // spam-content match is meant to take precedence *even* over a mail that
+        // also looks like a bounce, specifically so an operator can write a
+        // filters: rule to silently drop particular unwanted bounces (e.g. a
+        // known noisy auto-responder) without them going through the normal
+        // bounce-log + forward-to-owner pipeline at all. Confirmed live: a rule
+        // matching a MAILER-DAEMON-from mail applied and the mail never reached
+        // isBounce() below, unlike before this reordering.
+        $spamAction = $this->spamFilter->match($mail, $list);
+        if ($spamAction === 'discard') {
+            return FilterResult::discard(forceDelete: true);
+        }
+        if ($spamAction === 'reject') {
+            return FilterResult::reject('reject.spam', forceDelete: true);
+        }
+
+        // 3. Bounce detection
         if ($this->isBounce($mail, $unfolded)) {
             return FilterResult::bounce();
         }
 
-        // 3. Subaddress validation (type: subaddress lists only)
+        // 4. Subaddress validation (type: subaddress lists only)
         if ($list->subaddressMemberTemplates !== null) {
             $subaddress = SubaddressExtractor::extract($mail, $list);
             if ($subaddress !== null && $this->isReservedSubaddress($subaddress, $list)) {
@@ -41,11 +64,6 @@ class IncomingMailFilter
             if ($subaddress === null && $list->requiresSubaddress) {
                 return FilterResult::reject('reject.missing_subaddress');
             }
-        }
-
-        // 4. Spam filter (global, list-independent — see filters: in config.yml)
-        if ($this->spamFilter->matches($mail)) {
-            return FilterResult::reject('reject.spam');
         }
 
         // 5. Authentication-Results

@@ -111,7 +111,11 @@ class VariableResolver
      * $resolveInner whole, rather than being cut off at the first '}' the way
      * a plain [^}]+ regex would. Text outside placeholders is copied verbatim.
      * A '{' with no matching '}' is copied as a literal character — malformed
-     * input, not a placeholder.
+     * input, not a placeholder. A '{' immediately followed by a digit is a PCRE
+     * quantifier (e.g. `{5,}`, `{2,4}`), not a variable — see the digit check
+     * below — so this also safely passes through a `filters:` regex pattern
+     * like `/spa{5,}m/i` (see SpamFilter) unchanged, not just operator-authored
+     * `{}` templates.
      */
     public static function walkPlaceholders(string $template, callable $resolveInner): string
     {
@@ -124,6 +128,21 @@ class VariableResolver
         $len = strlen($template);
         while ($i < $len) {
             if ($template[$i] !== '{') {
+                $result .= $template[$i];
+                $i++;
+                continue;
+            }
+            // Every variable name in this app is alphabetic/hyphenated
+            // (domain, list-name, sender-firstname, a member's own attribute
+            // name, ...) -- never digit-first. A PCRE quantifier always is
+            // ({5,}, {2,4}, {3}), so this is an unambiguous, cheap way to tell
+            // the two apart without needing to know this string is even a
+            // regex pattern at all. Without this, {5,} was treated as a
+            // placeholder for a key literally named "5,", which doesn't exist
+            // in any context and -- per this class's own "key not found
+            // resolves to empty string" rule -- silently resolved to '',
+            // corrupting /spa{5,}m/i into /spam/i instead of leaving it alone.
+            if ($i + 1 < $len && ctype_digit($template[$i + 1])) {
                 $result .= $template[$i];
                 $i++;
                 continue;

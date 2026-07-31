@@ -33,6 +33,24 @@ class HeaderFilter
     }
 
     /**
+     * Bare Message-ID (no surrounding `<>`) — same normalization ArchiveIndexer
+     * applies before storing one, so a value read here always matches what
+     * ArchiveMailLocator::find()/ArchiveIndexer::index() key their own lookups
+     * by. Used by BounceHandler to record which archived_mail-equivalent entry
+     * (bounce_log.message_id) a bounce can later be re-located by, the same way
+     * a distributed mail is keyed by its own Message-ID.
+     */
+    public function readMessageId(string $headersRaw): ?string
+    {
+        $value = $this->readHeader($headersRaw, 'Message-ID');
+        if ($value === null) {
+            return null;
+        }
+        $value = trim($value, '<> ');
+        return $value === '' ? null : $value;
+    }
+
+    /**
      * Parses SPF and DKIM results from the Authentication-Results header(s)
      * in a raw header block.
      *

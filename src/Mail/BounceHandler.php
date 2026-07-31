@@ -32,13 +32,23 @@ class BounceHandler
 
     private function logBounce(string $listCn, IncomingMail $mail): void
     {
+        // Lets the manage page's bounce table offer a click-through preview, the
+        // same way ArchiveIndexer keys an archived_mail row — null when archive
+        // is off (the bounce mail gets deleted, not archived, by
+        // ImapArchiver::archiveOrDelete() right after this) or the bounce mail
+        // simply had no Message-ID; either way BounceController degrades to a
+        // "mail unavailable" preview rather than erroring, same as the archive
+        // viewer already does for a missing mail.
+        $messageId = $this->headerFilter->readMessageId($mail->headersRaw ?? '');
+
         $stmt = $this->db->prepare(
-            'INSERT INTO bounce_log (list_cn, sender, subject, bounced_at) VALUES (:list, :sender, :subject, NOW())'
+            'INSERT INTO bounce_log (list_cn, sender, subject, message_id, bounced_at) VALUES (:list, :sender, :subject, :message_id, NOW())'
         );
         $stmt->execute([
-            'list'    => $listCn,
-            'sender'  => $mail->fromAddress ?? '',
-            'subject' => $mail->subject,
+            'list'       => $listCn,
+            'sender'     => $mail->fromAddress ?? '',
+            'subject'    => $mail->subject,
+            'message_id' => $messageId,
         ]);
     }
 

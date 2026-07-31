@@ -95,7 +95,10 @@
     <table n:if="count($bounceStats['recent']) > 0">
         <thead><tr><th>{$translator->trans('list.manage.sender')}</th><th>{$translator->trans('list.manage.subject')}</th><th>{$translator->trans('list.manage.timestamp')}</th></tr></thead>
         <tbody>
-        <tr n:foreach="$bounceStats['recent'] as $bounce">
+        {* Only clickable when message_id is set — null for a bounce logged before
+           migrations/003_bounce_log_message_id.sql, or whose bounce mail had no
+           Message-ID at all; BounceController has nothing to locate it by then. *}
+        <tr n:foreach="$bounceStats['recent'] as $bounce" n:class="$bounce['message_id'] !== null ? 'clickable-row'" n:attr="onclick: $bounce['message_id'] !== null ? sprintf('location.href=%s', json_encode(sprintf('/%s/bounce/%s', $list->name, $bounce['id']), \JSON_UNESCAPED_SLASHES)) : null">
             <td>{$bounce['sender']}</td>
             <td>{$bounce['subject']}</td>
             <td>{$bounce['bounced_at']}</td>

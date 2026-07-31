@@ -10,6 +10,7 @@ use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveMailCache;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
 use Hengeb\Listig\Archive\ArchiveMailNotFoundException;
+use Hengeb\Listig\Archive\ArchiveMailResolver;
 use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Archive\ByteFormatter;
@@ -22,7 +23,6 @@ use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\Token\TokenService;
 use Latte\Engine;
 use PDO;
-use PhpImap\IncomingMailAttachment;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
@@ -55,6 +55,7 @@ class ArchiveController
         private readonly ArchiveThreader $threader,
         private readonly ArchiveMailLocator $mailLocator,
         private readonly ArchiveMailCache $mailCache,
+        private readonly ArchiveMailResolver $resolver,
         private readonly ArchiveIndexer $archiveIndexer,
         private readonly ArchiveHtmlSanitizer $sanitizer,
         private readonly TranslatorInterface $translator,
@@ -149,7 +150,7 @@ class ArchiveController
         // by ArchiveHtmlSanitizer) are not listed again as separate downloads —
         // array_filter preserves CachedArchivedMail::$attachments' positional
         // keys, which is exactly the {index} the attachment/frame routes expect
-        // (see ArchiveController::indexAttachmentsByPosition()'s docblock for why).
+        // (see ArchiveMailResolver's own docblock for why).
         $attachments = $mail !== null
             ? array_filter($mail->attachments, fn(CachedAttachment $a) => !self::isEmbeddedInline($a))
             : [];
@@ -405,13 +406,8 @@ class ArchiveController
      */
     private function locateMail(ListConfig $list, string $messageId): ?CachedArchivedMail
     {
-        $cached = $this->mailCache->get($list->name, $messageId);
-        if ($cached !== null) {
-            return $cached;
-        }
-
         try {
-            $mail = $this->mailLocator->find($list, $messageId);
+            return $this->resolver->resolve($list, $messageId);
         } catch (ArchiveMailNotFoundException) {
             // Confirmed gone from the IMAP archive folder (not a transient
             // failure — see the exception's own docblock): the list archive
@@ -420,32 +416,6 @@ class ArchiveController
             $this->archiveIndexer->remove($list->name, $messageId);
             return null;
         }
-        if ($mail === null) {
-            return null;
-        }
-
-        $attachments = [];
-        foreach (self::indexAttachmentsByPosition($mail->getAttachments()) as $index => $attachment) {
-            try {
-                $contents = $attachment->getContents();
-            } catch (\Throwable $e) {
-                error_log("Listig: failed to eagerly fetch attachment $index for Message-ID $messageId on list {$list->name}: " . $e->getMessage());
-                $contents = null;
-            }
-            $attachments[$index] = new CachedAttachment(
-                $attachment->name,
-                $attachment->mimeType,
-                $attachment->sizeInBytes,
-                $attachment->disposition,
-                $attachment->contentId,
-                $contents,
-            );
-        }
-
-        $cached = new CachedArchivedMail($mail->textHtml, $mail->textPlain, $attachments);
-        $this->mailCache->set($list->name, $messageId, $cached);
-
-        return $cached;
     }
 
     /** @see frame()'s $attachmentToken comment for why this fallback exists. */
@@ -553,33 +523,6 @@ class ArchiveController
         $stmt->execute(['id' => $id, 'list' => $listName]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
-    }
-
-    /**
-     * IncomingMail::getAttachments() is keyed by IncomingMailAttachment::$id —
-     * PhpImap\Mailbox generates this fresh with bin2hex(random_bytes(20)) on
-     * *every* parse, so it is never the same twice for the same message, let alone
-     * stable across the separate HTTP requests this app's routes are split across
-     * (show()'s attachment links and frame()'s cid: rewrites are rendered from one
-     * getMail() call; clicking them or loading the resulting <img> triggers a
-     * second, independent getMail() call in attachment(), via ArchiveMailLocator —
-     * see its own docblock on why nothing here is cached across requests). Using
-     * that random id as the {index} in a URL therefore can never work: by the time
-     * attachment() looks it up, the id it's holding no longer exists anywhere.
-     *
-     * The MIME part order php-imap parses attachments in, by contrast, is fully
-     * determined by the message's own (unchanging) byte structure — parsing the
-     * same raw mail twice always encounters its attachments in the same order.
-     * Re-keying by that position instead of the random id gives every caller
-     * (show(), frame(), attachment()) a stable identifier that actually survives
-     * from one request to the next.
-     *
-     * @param IncomingMailAttachment[] $attachments
-     * @return array<int, IncomingMailAttachment>
-     */
-    private static function indexAttachmentsByPosition(array $attachments): array
-    {
-        return array_values($attachments);
     }
 
     /** An attachment rewritten to a cid: reference in the body by ArchiveHtmlSanitizer — not listed as a separate download. */

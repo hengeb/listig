@@ -313,7 +313,10 @@ class ModerationController
             // moderation_queue row.
             $incomingMail = $this->imapPoller->fetchMailByUid($list, $uid);
             if ($incomingMail !== null) {
-                $this->rejectionNotifier->notify($list, $incomingMail->fromAddress ?? '', 'reject.moderation_declined');
+                // Best-effort attachment — see RejectionNotifier::notify()'s own
+                // $rawMime docblock.
+                $rawMime = $this->imapPoller->fetchByUid($list, $uid);
+                $this->rejectionNotifier->notify($list, $incomingMail, $rawMime, 'reject.moderation_declined');
                 $this->imapPoller->markSeen($list, $uid, $uidValidity);
                 $this->imapArchiver->archiveOrDelete($list, $uid);
             }
