@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Moderation;
 
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Mail\NotificationMailer;
 use Hengeb\Listig\Smtp\SmtpConnectionFactory;
 use Hengeb\Listig\Token\TokenService;
 use PDO;
@@ -24,6 +25,7 @@ class ModerationMailer
         private readonly SmtpConnectionFactory $smtpFactory,
         private readonly TokenService $tokenService,
         private readonly TranslatorInterface $translator,
+        private readonly NotificationMailer $notificationMailer,
     ) {
     }
 
@@ -42,8 +44,13 @@ class ModerationMailer
         $acceptToken = $this->tokenService->sign('accept', $list->name, $imapUid, $uidValidity);
         $rejectToken = $this->tokenService->sign('reject', $list->name, $imapUid, $uidValidity);
 
-        $acceptAddress = "{$list->name}+accept-{$acceptToken}@{$list->domain}";
-        $rejectAddress = "{$list->name}+reject-{$rejectToken}@{$list->domain}";
+        // localPart, not $list->name/{list-cn} — those commonly differ (e.g. a list
+        // named "it-team" with mail "it@example.org"), same reasoning as the bounce
+        // address (see MailProcessor::setOutgoingHeaders()) — the token payload
+        // above still carries $list->name itself, since that's what's compared
+        // against on verify, unrelated to which mailbox actually receives the reply.
+        $acceptAddress = "{$list->localPart}+accept-{$acceptToken}@{$list->domain}";
+        $rejectAddress = "{$list->localPart}+reject-{$rejectToken}@{$list->domain}";
 
         $subject = $mail->subject ?? '';
         $senderName = $mail->fromName ?? '';
@@ -56,11 +63,12 @@ class ModerationMailer
         // reminded/from whom — it holds no secret, so a plain dedup no-op (not updating
         // the mail metadata on a repeat call) is enough here; the metadata was already
         // correct from the first INSERT and never changes for a given UID.
-        $this->db->prepare(
+        $insertStmt = $this->db->prepare(
             'INSERT INTO moderation_queue (list_cn, imap_uid, imap_uidvalidity, subject, sender_name, sender_mail, mail_date, created_at)
              VALUES (:list, :uid, :validity, :subject, :sender_name, :sender_mail, :mail_date, NOW())
              ON DUPLICATE KEY UPDATE id = id'
-        )->execute([
+        );
+        $insertStmt->execute([
             'list' => $list->name,
             'uid' => $imapUid,
             'validity' => $uidValidity,
@@ -69,6 +77,11 @@ class ModerationMailer
             'sender_mail' => $senderMail,
             'mail_date' => $mailDate,
         ]);
+        // MariaDB's own INSERT ... ON DUPLICATE KEY UPDATE semantics: 1 row affected
+        // means this was a genuine INSERT; 0 means the row already existed and the
+        // no-op "id = id" clause changed nothing — i.e. this call is a reminder
+        // resend (ModerationChecker::checkOverdue()), not the item's first queueing.
+        $isNewItem = $insertStmt->rowCount() === 1;
 
         $locale = $list->language;
         // "Name <mail>", or just "<mail>" when the sender set no display name —
@@ -91,6 +104,10 @@ class ModerationMailer
             $email = new Email();
             $email->from(new Address($list->mail, $list->displayName));
             $email->to(new Address($owner->email));
+            // Lets an owner just hit "Reply" in their mail client to accept — without
+            // this, a reply went to $list->mail (the From address) instead, silently
+            // distributing nothing and never reaching ModerationResponseHandler at all.
+            $email->replyTo(new Address($acceptAddress));
             $email->subject($translatedSubject);
 
             // multipart/mixed: text/plain (no HTML to prevent token leakage) + message/rfc822
@@ -109,6 +126,24 @@ class ModerationMailer
             } catch (\Throwable $e) {
                 error_log("Listig: Failed to send moderation mail to {$owner->email}: " . $e->getMessage());
             }
+        }
+
+        // Owners aren't the only ones left waiting — without this, a sender whose
+        // mail is pending moderation gets no feedback at all until (if ever) an
+        // owner acts on it, indistinguishable from the mail having silently
+        // vanished. Sent once per incoming mail (only on first queueing, not
+        // again on every 7-day reminder resend — see $isNewItem above), not once
+        // per owner above.
+        if ($isNewItem && $senderMail !== '') {
+            $this->notificationMailer->send(
+                $list,
+                $senderMail,
+                $this->translator->trans('moderation.pending_notice.subject', ['%list%' => $list->displayName], null, $locale),
+                $this->translator->trans('moderation.pending_notice.body', [
+                    '%list%' => $list->displayName,
+                    '%mail%' => $list->mail,
+                ], null, $locale),
+            );
         }
     }
 }

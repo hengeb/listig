@@ -8,6 +8,7 @@ use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Imap\ImapArchiver;
 use Hengeb\Listig\Imap\ImapPoller;
+use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\MailProcessor;
 use Hengeb\Listig\Mail\RejectionNotifier;
 use Hengeb\Listig\Token\TokenService;
@@ -30,6 +31,7 @@ class ModerationResponseHandler
         private readonly ImapArchiver $imapArchiver,
         private readonly RejectionNotifier $rejectionNotifier,
         private readonly ArchiveIndexer $archiveIndexer,
+        private readonly HeaderFilter $headerFilter,
     ) {
     }
 
@@ -39,7 +41,9 @@ class ModerationResponseHandler
      */
     public function handle(IncomingMail $mail, ListConfig $list): bool
     {
-        $action = $this->detectAction($mail, $list->name);
+        // localPart, matching ModerationMailer's own accept/reject address —
+        // see the comment there for why this must not be $list->name.
+        $action = $this->detectAction($mail, $list->localPart);
         if ($action === null) {
             return false;
         }
@@ -94,14 +98,22 @@ class ModerationResponseHandler
         return true;
     }
 
-    /** @return array{0: string, 1: string}|null [purpose, token] */
-    private function detectAction(IncomingMail $mail, string $listName): ?array
+    /**
+     * @return array{0: string, 1: string}|null [purpose, token]
+     */
+    private function detectAction(IncomingMail $mail, string $localPart): ?array
     {
-        $pattern = '/^' . preg_quote($listName, '/') . '\+(accept|reject)-(.+)@/i';
-        foreach (array_keys($mail->to) as $address) {
-            if (preg_match($pattern, $address, $m)) {
-                return [strtolower($m[1]), $m[2]];
-            }
+        // Not $mail->to: PhpImap\Mailbox lowercases every recipient address it
+        // parses (mb_strtolower(), see possiblyGetEmailAndNameFromRecipient())
+        // before $mail->to is ever populated, which corrupts the case-sensitive
+        // base64 token embedded in the local-part — TokenService::verify() would
+        // then always fail signature verification for a genuine reply. The raw
+        // To header still has the address exactly as the sending mail client
+        // wrote it, case included.
+        $toHeader = $this->headerFilter->readHeader($mail->headersRaw ?? '', 'To') ?? '';
+        $pattern = '/' . preg_quote($localPart, '/') . '\+(accept|reject)-(.+?)@/i';
+        if (preg_match($pattern, $toHeader, $m)) {
+            return [strtolower($m[1]), $m[2]];
         }
         return null;
     }

@@ -19,7 +19,7 @@ class SpamFilter
     private const FIELDS = ['subject', 'body', 'from', 'to'];
     private const DELIMITERS = ['/', '#', '~', '%', '!'];
 
-    /** @var array<int, array{field: string, pattern: string, isRegex: bool}> */
+    /** @var array<int, array<int, array{field: string, pattern: string, isRegex: bool}>> */
     private readonly array $rules;
 
     /** @param array<int, array<string, mixed>> $rawRules */
@@ -28,21 +28,39 @@ class SpamFilter
         $this->rules = array_map($this->normalizeRule(...), $rawRules);
     }
 
+    /**
+     * A mail matches (is spam) if any *rule* matches — but a rule with more than
+     * one key (e.g. `to: foo` + `subject: bar` in the same list entry) only
+     * matches when *all* of its conditions match (AND). Different top-level
+     * entries in filters: remain OR'd against each other, unchanged.
+     */
     public function matches(IncomingMail $mail): bool
     {
-        foreach ($this->rules as $rule) {
-            $value = $this->fieldValue($rule['field'], $mail);
-
-            if ($rule['isRegex']) {
-                if (@preg_match($rule['pattern'], $value) === 1) {
-                    return true;
-                }
-            } elseif (str_contains(strtolower($value), $rule['pattern'])) {
+        foreach ($this->rules as $conditions) {
+            if ($this->allConditionsMatch($conditions, $mail)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /** @param array<int, array{field: string, pattern: string, isRegex: bool}> $conditions */
+    private function allConditionsMatch(array $conditions, IncomingMail $mail): bool
+    {
+        foreach ($conditions as $condition) {
+            $value = $this->fieldValue($condition['field'], $mail);
+
+            if ($condition['isRegex']) {
+                if (@preg_match($condition['pattern'], $value) !== 1) {
+                    return false;
+                }
+            } elseif (!str_contains(strtolower($value), $condition['pattern'])) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function fieldValue(string $field, IncomingMail $mail): string
@@ -56,37 +74,40 @@ class SpamFilter
     }
 
     /**
-     * @param array<string, mixed> $rawRule
-     * @return array{field: string, pattern: string, isRegex: bool}
+     * @param array<string, mixed> $rawRule One or more field => pattern pairs,
+     *     ANDed together (see matches()) — a single-key entry is just the
+     *     degenerate one-condition case.
+     * @return array<int, array{field: string, pattern: string, isRegex: bool}>
      */
     private function normalizeRule(array $rawRule): array
     {
-        if (count($rawRule) !== 1) {
-            throw new \RuntimeException(
-                'Each entry in filters: must have exactly one key (subject/body/from/to), got: ' . json_encode($rawRule)
-            );
+        if (count($rawRule) === 0) {
+            throw new \RuntimeException('Each entry in filters: must have at least one key (subject/body/from/to)');
         }
 
-        $field = array_key_first($rawRule);
-        if (!in_array($field, self::FIELDS, true)) {
-            throw new \RuntimeException(
-                "Unknown filters: field '$field' — expected one of: " . implode(', ', self::FIELDS)
-            );
+        $conditions = [];
+        foreach ($rawRule as $field => $pattern) {
+            if (!in_array($field, self::FIELDS, true)) {
+                throw new \RuntimeException(
+                    "Unknown filters: field '$field' — expected one of: " . implode(', ', self::FIELDS)
+                );
+            }
+
+            if (!is_string($pattern) || $pattern === '') {
+                throw new \RuntimeException("filters: entry for '$field' must be a non-empty string");
+            }
+
+            $isRegex = $this->isRegex($pattern);
+            if ($isRegex && @preg_match($pattern, '') === false) {
+                throw new \RuntimeException("filters: invalid regular expression for '$field': $pattern");
+            }
+
+            // Literal patterns are matched case-insensitively — lowercase once here so
+            // matches() only has to lowercase the (per-mail, per-check) field value.
+            $conditions[] = ['field' => $field, 'pattern' => $isRegex ? $pattern : strtolower($pattern), 'isRegex' => $isRegex];
         }
 
-        $pattern = $rawRule[$field];
-        if (!is_string($pattern) || $pattern === '') {
-            throw new \RuntimeException("filters: entry for '$field' must be a non-empty string");
-        }
-
-        $isRegex = $this->isRegex($pattern);
-        if ($isRegex && @preg_match($pattern, '') === false) {
-            throw new \RuntimeException("filters: invalid regular expression for '$field': $pattern");
-        }
-
-        // Literal patterns are matched case-insensitively — lowercase once here so
-        // matches() only has to lowercase the (per-mail, per-check) field value.
-        return ['field' => $field, 'pattern' => $isRegex ? $pattern : strtolower($pattern), 'isRegex' => $isRegex];
+        return $conditions;
     }
 
     private function isRegex(string $pattern): bool

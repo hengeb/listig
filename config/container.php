@@ -381,6 +381,7 @@ $builder->addDefinitions([
             $c->get(SmtpConnectionFactory::class),
             $c->get(TokenService::class),
             $c->get(TranslatorInterface::class),
+            $c->get(NotificationMailer::class),
         );
     },
 
@@ -402,6 +403,7 @@ $builder->addDefinitions([
             $c->get(ImapArchiver::class),
             $c->get(RejectionNotifier::class),
             $c->get(ArchiveIndexer::class),
+            $c->get(HeaderFilter::class),
         );
     },
 
@@ -533,6 +535,7 @@ $builder->addDefinitions([
             $c->get(ImapPoller::class),
             $c->get(ImapArchiver::class),
             $c->get(ArchiveIndexer::class),
+            $c->get(RejectionNotifier::class),
         );
     },
 

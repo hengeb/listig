@@ -471,11 +471,13 @@ filters:
   - to: johnny                    # checked against the raw To header (names and addresses)
   - subject: /ab+$/               # /delimited/ value → preg_match instead of str_contains
   - body: /a\s*b\s*c\*s/
+  - to: foo                       # a multi-key entry ANDs its conditions — this rule only
+    subject: bar                  # matches a mail whose To *and* Subject both match
 ```
 
-- Each entry is a single-key map; the key is one of `subject`, `body`, `from`, `to`. More than one key, or a key outside this set, is a hard error at startup (fail fast, same philosophy as missing `$VAR`s).
+- Each entry is a map with one or more of `subject`, `body`, `from`, `to` as keys (any other key is a hard error at startup, fail fast, same philosophy as missing `$VAR`s). A single-key entry is just the common case; when an entry has more than one key, **all** of that entry's conditions must match (AND) for the entry itself to match — different top-level entries are still ORed against each other (see below). `SpamFilter::normalizeRule()` turns each raw entry into a list of conditions; `matches()` requires `allConditionsMatch()` for at least one entry.
 - The value is matched literally (`str_contains(strtolower($value), strtolower($pattern))` — case-insensitive) **unless** it looks like a delimited PCRE pattern — starts with one of `/ # ~ % !`, and the same character reappears later followed by nothing but valid regex flags (`a-zA-Z`) to the end of the string. In that case it is passed as-is to `preg_match()` (case-sensitive unless the pattern's own flags say otherwise, e.g. `/ab+$/i`). An invalid regex in that form is also a hard startup error.
-- A mail matches (is spam) if **any** rule matches. On match, `IncomingMailFilter` returns `FilterResult::reject('reject.spam')` — same reject pipeline as every other reject reason: `RejectionNotifier` notifies the sender (translation key `reject.spam`, e.g. "Spam message rejected" / "Spam-Nachricht abgelehnt"), the mail is marked seen, and `ImapArchiver::archiveOrDelete()` removes it from the inbox (or archives it, unless the list has `archive: off`).
+- A mail matches (is spam) if **any** entry matches (and, within an entry with multiple keys, **all** of its conditions match — see above). On match, `IncomingMailFilter` returns `FilterResult::reject('reject.spam')` — same reject pipeline as every other reject reason: `RejectionNotifier` notifies the sender (translation key `reject.spam`, e.g. "Spam message rejected" / "Spam-Nachricht abgelehnt"), the mail is marked seen, and `ImapArchiver::archiveOrDelete()` removes it from the inbox (or archives it, unless the list has `archive: off`).
 - Like every other config value, `filters:` supports `!include` (see "File includes"), so rules can be outsourced to their own file: `filters: !include filters.yml`.
 
 ### App name (`app-name`)
@@ -1307,7 +1309,7 @@ $mailer->send(
 ```
 
 `Sender` header in MIME: `{$list->localPart}+bounce@{$list->domain}` — same value as the Envelope-From above, built from `ListConfig::$localPart` (the local part of the list's own `mail` address, e.g. `it` for `it@example.org`), **not** `$list->name`/`{list-cn}` — those commonly differ (a list named `it-team` may have `mail: it@example.org`), and a bounce address built from the internal list name has no reason to be a real, deliverable mailbox at all. No per-recipient VERP: this is the same address for every recipient of a given send (see "Bounce notice details" below for how a bounced recipient is still identified, via the DSN's own `Final-Recipient` field, not the envelope).
-Visible `To` header: original recipients only, never expanded member list.
+Visible `To`/`Cc` header: the original mail's own `To`/`Cc` addresses, copied verbatim by `MailProcessor::buildOutgoingEmail()` — never the expanded member list, and never the actual per-recipient envelope target (that's the `Envelope` above). This was documented but not actually implemented for a while: `new Email()` starts with no address header at all, and unlike `Message::ensureValidity()` (which requires at least one of To/Cc/Bcc), `Message::toString()` — what `QueueWriter::enqueue()` actually calls to serialize into `mail_queue.mime` — never checks for one, so the omission produced valid-looking, silently header-less mail rather than an error.
 
 ---
 
@@ -1443,7 +1445,7 @@ Expand member list. Exclude addresses in original `To` or `Cc`. Normalize to low
 
 1. Incoming mail from a sender whose `post-access-members`/`post-access-public` (whichever applies) is `PostAccess::Moderate` — see `IncomingMailFilter::requiresModeration()`; size check passes first
 2. `ModerationMailer::send(ListConfig $list, IncomingMail $mail, int $imapUid, int $uidValidity, string $rawMime)` sends to all owners:
-   - `From`: list address; `Reply-To`: original sender
+   - `From`: list address; `Reply-To`: the accept address itself — so an owner can just hit "Reply" in their mail client to approve, without needing to compose a new message or click the `mailto:` link. Rejecting still requires acting on the `Reject:` line explicitly (there's only one Reply-To slot, and accept is the more common action) — see "Reply-To header" below.
    - `Content-Type: multipart/mixed`:
      - **Part 1** (`text/plain`): the moderated mail's own subject/sender/date, then metadata + mailto links as plain text (**no HTML part** — prevents token leakage in replies):
        ```
@@ -1451,20 +1453,24 @@ Expand member list. Exclude addresses in original `To` or `Cc`. Normalize to low
        From: {sender-name} <{sender-mail}>
        Date: {date}
 
-       Accept: mailto:{name}+accept-{TOKEN}@example.org
-       Reject: mailto:{name}+reject-{TOKEN}@example.org
+       Accept: mailto:{local-part}+accept-{TOKEN}@example.org
+       Reject: mailto:{local-part}+reject-{TOKEN}@example.org
        ```
+       `{local-part}` is `ListConfig::$localPart` (the local part of the list's own `mail` address), **not** `$list->name`/`{list-cn}` — same reasoning as the bounce address (see "Envelope separation"): they commonly differ, and only the real mailbox's local part is guaranteed deliverable back into the list's own IMAP inbox where `ModerationResponseHandler` can find it. `{TOKEN}` is the normal base64 token (see "Token Format") — recovering it intact from a reply's raw `To` header, rather than the lowercased `$mail->to`, is what makes mail-reply accept/reject actually work; see "Token Format" for why.
        Sourced directly from the already-parsed `IncomingMail` passed in (`$mail->subject`/`$mail->fromName`/`$mail->fromAddress`/`$mail->date`), not re-read from `$rawMime` — same fields, and same `"{$senderName} <{$senderMail}>"` formatting, persisted to `moderation_queue`'s `subject`/`sender_name`/`sender_mail`/`mail_date` columns (see "Database Schema") so the manage page's moderation queue table can show the same information without a live IMAP fetch.
      - **Part 2** (`message/rfc822`): complete original mail
+   - The sender also gets a notice (`NotificationMailer`, translation key `moderation.pending_notice`) that their mail is awaiting approval — without this, a moderated mail looked identical, from the sender's side, to one that silently vanished; there's no equivalent of `reject.notice`/`bounce.owner_notice` for "still pending." Sent only when `ModerationMailer::send()`'s own `INSERT ... ON DUPLICATE KEY UPDATE id = id` actually inserted a new row (`$insertStmt->rowCount() === 1`) — `ModerationChecker::checkOverdue()`'s reminder resend calls this same `send()` method (see below) and must not re-notify the sender on every 7-day reminder, only the owners.
 3. `imap_uid` + `uidvalidity` (and the mail metadata above) stored in `moderation_queue` + `imap_seen` (the token itself is not persisted — it is self-describing, see Token Format). `ModerationChecker::checkOverdue()`'s reminder resend re-fetches the same `IncomingMail` by UID (`ImapPoller::fetchMailByUid()`) to pass through the same `send()` call — the stored columns are written once at initial queueing and never updated by a reminder.
-4. Owner sends to accept/reject address
-5. Worker detects `+accept-` or `+reject-` in `To`:
+4. Owner sends to accept/reject address (by replying, or via the `mailto:` link)
+5. Worker detects `+accept-` or `+reject-` in `To` (`ModerationResponseHandler::detectAction()`, matched against `$list->localPart`, mirroring how `ModerationMailer` built the address):
    - Validate HMAC + expiry
    - Validate sender is list owner (LDAP)
    - **Both must pass**
 6. Accept: fetch from IMAP by UID; if not found → send error to owner, delete from `moderation_queue`; if found → process and enqueue normally, archive/delete
-7. Reject: archive/delete, notify original sender
+7. Reject: archive/delete, notify original sender (translation key `reject.moderation_declined`)
 8. Delete from `moderation_queue`
+
+**Reject via the manage-page button** (`ModerationController::reject()`, `POST /_/api/moderation/{id}/reject` — see "Moderation via UI") follows the exact same reject contract as step 7 above: fetch the `IncomingMail` by UID, `RejectionNotifier::notify(..., 'reject.moderation_declined')`, `markSeen()`, `archiveOrDelete()`, then delete the `moderation_queue` row. It did not originally — it only deleted the row, leaving the sender un-notified and the mail stuck in the inbox forever (never marked seen, never archived/deleted) — a UI reject and a mail-reply reject must have identical end states, not two different ones depending on which path an owner happens to use.
 
 `allow-leave: moderated`: when a member requests unsubscription, send a plain notification mail to all owners: "User {firstname} {lastname} ({mail}) has requested removal from list {display-name}." Owner must remove manually in LDAP.
 
@@ -1583,6 +1589,8 @@ Each call site defines its own payload shape and max age, and destructures the s
 | `accept` / `reject` | `$listCn, $imapUid, $imapUidvalidity` | 7 days | `ModerationMailer` (sign) / `ModerationResponseHandler` (verify) |
 
 URL-safe Base64 (`+`→`-`, `/`→`_`, no padding). Safe in mail `+` addresses.
+
+An `accept`/`reject` token rides in an email address's local-part (`{list->localPart}+accept-{TOKEN}@{list->domain}`, see Moderation) — `PhpImap\Mailbox` parses every recipient address through `mb_strtolower()` before the app ever sees it (`possiblyGetEmailAndNameFromRecipient()`), which would corrupt a mixed-case base64 token if the token were read from `$mail->to`/`$mail->cc`. Rather than change the token encoding (base64 is kept, unchanged, for all three purposes), `ModerationResponseHandler::detectAction()` reads the address straight out of the raw, unparsed `To` header instead (`HeaderFilter::readHeader($mail->headersRaw, 'To')`) — case exactly as the sending mail client wrote it — and regex-matches the accept/reject pattern against that string directly, never touching the lowercased `$mail->to`/`$mail->cc` arrays for this purpose. Confirmed live: a real reply's `$mail->to` key showed an all-lowercase token where the raw header still had the original mixed case, and `TokenService::verify()` only succeeds against the latter.
 
 Tokens are stateless and self-describing: the HMAC signature is the only thing that
 needs verifying, so `TokenService::verify()` never touches the database. Purposes that

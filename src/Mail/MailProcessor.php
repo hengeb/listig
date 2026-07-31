@@ -166,7 +166,35 @@ class MailProcessor
         $email->getHeaders()->addTextHeader('X-Original-To', implode(', ', array_keys($mail->to)));
         $email->getHeaders()->addTextHeader('X-Forwarded-From', $mail->fromAddress ?? '');
 
+        // Visible To/Cc: the original recipients, never the expanded member list (see
+        // "Envelope separation" — actual delivery is per-recipient via Envelope, this
+        // is only what the recipient sees). symfony/mime's Message::toString() never
+        // throws for a missing To/Cc/Bcc header (only Message::ensureValidity() does,
+        // which nothing in the queue-write path calls), so this was silently absent
+        // rather than erroring — the distributed mail had no visible recipient header
+        // at all, not just a missing Cc.
+        if (!empty($mail->to)) {
+            $email->to(...$this->addressesFromRecipientMap($mail->to));
+        }
+        if (!empty($mail->cc)) {
+            $email->cc(...$this->addressesFromRecipientMap($mail->cc));
+        }
+
         return $email;
+    }
+
+    /**
+     * @param array<string, string|null> $recipients email => display name, as
+     *     exposed by PhpImap\IncomingMail::$to/$cc
+     * @return Address[]
+     */
+    private function addressesFromRecipientMap(array $recipients): array
+    {
+        $addresses = [];
+        foreach ($recipients as $email => $name) {
+            $addresses[] = new Address($email, $name ?? '');
+        }
+        return $addresses;
     }
 
     private function extractFromHeader(string $headersRaw): string

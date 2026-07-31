@@ -9,6 +9,7 @@ use Hengeb\Listig\Imap\ImapArchiver;
 use Hengeb\Listig\Imap\ImapPoller;
 use Hengeb\Listig\Mail\IncomingMailFilter;
 use Hengeb\Listig\Mail\MailProcessor;
+use Hengeb\Listig\Mail\RejectionNotifier;
 use Hengeb\Listig\Provider\ListProvider;
 use PDO;
 use Psr\Http\Message\ResponseInterface;
@@ -24,6 +25,7 @@ class ModerationController
         private readonly ImapPoller $imapPoller,
         private readonly ImapArchiver $imapArchiver,
         private readonly ArchiveIndexer $archiveIndexer,
+        private readonly RejectionNotifier $rejectionNotifier,
     ) {
     }
 
@@ -59,9 +61,10 @@ class ModerationController
             return $this->json($response, ['error' => 'Forbidden'], 403);
         }
 
+        $uid         = (int) $item['imap_uid'];
+        $uidValidity = (int) $item['imap_uidvalidity'];
+
         if ($action === 'accept') {
-            $uid         = (int) $item['imap_uid'];
-            $uidValidity = (int) $item['imap_uidvalidity'];
             $incomingMail = $this->imapPoller->fetchMailByUid($list, $uid);
             $rawMime      = $this->imapPoller->fetchByUid($list, $uid);
 
@@ -74,6 +77,17 @@ class ModerationController
             $this->imapPoller->markSeen($list, $uid, $uidValidity);
             $this->imapArchiver->archiveOrDelete($list, $uid);
             $this->archiveIndexer->index($list, $incomingMail);
+        } else {
+            // Mirrors ModerationResponseHandler::processReject() (the mail-reply
+            // path) — a reject via the manage-page button must notify the sender
+            // and clear the mail out of the inbox the same way, not just drop the
+            // moderation_queue row.
+            $incomingMail = $this->imapPoller->fetchMailByUid($list, $uid);
+            if ($incomingMail !== null) {
+                $this->rejectionNotifier->notify($list, $incomingMail->fromAddress ?? '', 'reject.moderation_declined');
+                $this->imapPoller->markSeen($list, $uid, $uidValidity);
+                $this->imapArchiver->archiveOrDelete($list, $uid);
+            }
         }
 
         $this->db->prepare('DELETE FROM moderation_queue WHERE id = :id')->execute(['id' => $id]);
