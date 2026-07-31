@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Archive\ArchiveHtmlSanitizer;
+use Hengeb\Listig\Archive\AttachmentSafety;
 use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveMailCache;
 use Hengeb\Listig\Archive\ArchiveMailLocator;
@@ -30,14 +31,6 @@ use Symfony\Contracts\Translation\TranslatorInterface;
 class ArchiveController
 {
     private const PER_PAGE = 1000;
-
-    /**
-     * MIME types ever eligible for inline (browser-rendered, open-in-new-tab)
-     * delivery instead of a forced download — never svg, it can carry scripts.
-     * Every one of these the browser can display natively; anything else falls
-     * back to a download regardless of what the mail itself claims.
-     */
-    private const INLINE_SAFE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'];
 
     /**
      * Deliberately short — this token only needs to survive one page load's worth
@@ -164,7 +157,7 @@ class ArchiveController
         // Shown a second time below the mail body as a thumbnail gallery — the
         // claimed MIME type is fine for this (a UI hint, not a security decision;
         // attachment() independently verifies actual bytes before ever serving one
-        // inline — see isSafeInlineContent()).
+        // inline — see AttachmentSafety::isSafeInlineContent()).
         $imageAttachments = array_filter($attachments, fn(CachedAttachment $a) => str_starts_with($a->mimeType ?? '', 'image/'));
 
         $totalAttachmentSize = array_sum(array_map(fn(CachedAttachment $a) => $a->sizeInBytes ?? 0, $attachments));
@@ -183,13 +176,18 @@ class ArchiveController
 
         $user = $request->getAttribute('user');
 
+        $baseUrl = "/{$list->name}/archive/{$row['id']}";
+
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/archive/show.latte', [
             'user'                 => $user,
             // Gates the delete button (show.latte) — deleting is an owner-only
             // action regardless of the list's archive mode, unlike viewing itself
             // (checkAccess() above already allowed Public/Members access without
             // requiring ownership).
-            'isOwner'              => $user !== null && $list->isOwnedBy($user['email']),
+            'allowDelete'          => $user !== null && $list->isOwnedBy($user['email']),
+            'baseUrl'              => $baseUrl,
+            'backUrl'              => "/{$list->name}/archive",
+            'backLabel'            => $this->translator->trans('archive.show.back_to_list'),
             'list'                 => $list,
             'row'                  => $row,
             'mailMissing'          => $mail === null,
@@ -326,12 +324,12 @@ class ArchiveController
         // tab" treatment as an embedded one, since the browser can display either
         // just as safely either way (see show.latte's attachment links, which all
         // carry target="_blank" for exactly this).
-        if (self::isSafeInlineContent($contents, $mimeType)) {
+        if (AttachmentSafety::isSafeInlineContent($contents, $mimeType)) {
             $response = $response
                 ->withHeader('Content-Type', $mimeType)
                 ->withHeader('Content-Disposition', 'inline');
         } else {
-            $filename = self::sanitizeFilename($attachment->name ?: 'attachment');
+            $filename = AttachmentSafety::sanitizeFilename($attachment->name ?: 'attachment');
             $response = $response
                 ->withHeader('Content-Type', $mimeType)
                 ->withHeader('Content-Disposition', "attachment; filename=\"{$filename}\"");
@@ -590,34 +588,4 @@ class ArchiveController
         return ($attachment->disposition ?? '') === 'inline' && ($attachment->contentId ?? '') !== '';
     }
 
-    /**
-     * Trusting a mail's own Content-Disposition/MIME claim to decide "safe to serve
-     * inline" would let a mislabeled attachment ride along; verify the actual bytes
-     * decode as one of the whitelisted types before honoring the claim. Images are
-     * verified via getimagesizefromstring() (decodes and reports the real format);
-     * PDF has no equivalent lightweight PHP decoder, so its magic-bytes header is
-     * checked instead — a lighter guarantee, but %PDF- is specific enough that a
-     * mislabeled non-PDF attachment couldn't plausibly start with it by accident.
-     */
-    private static function isSafeInlineContent(string $contents, string $claimedMimeType): bool
-    {
-        $claimedMimeType = strtolower($claimedMimeType);
-        if (!in_array($claimedMimeType, self::INLINE_SAFE_MIME_TYPES, true)) {
-            return false;
-        }
-
-        if ($claimedMimeType === 'application/pdf') {
-            return str_starts_with($contents, '%PDF-');
-        }
-
-        $info = @getimagesizefromstring($contents);
-        return $info !== false
-            && isset($info['mime'])
-            && in_array(strtolower($info['mime']), self::INLINE_SAFE_MIME_TYPES, true);
-    }
-
-    private static function sanitizeFilename(string $filename): string
-    {
-        return str_replace(["\r", "\n", '"'], '', $filename);
-    }
 }

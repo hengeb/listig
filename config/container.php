@@ -536,6 +536,11 @@ $builder->addDefinitions([
             $c->get(ImapArchiver::class),
             $c->get(ArchiveIndexer::class),
             $c->get(RejectionNotifier::class),
+            $c->get(Engine::class),
+            $c->get(ArchiveHtmlSanitizer::class),
+            $c->get(TranslatorInterface::class),
+            $c->get(TokenService::class),
+            $c->get('app.name'),
         );
     },
 

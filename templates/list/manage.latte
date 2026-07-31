@@ -52,16 +52,23 @@
             <th>{$translator->trans('list.manage.actions')}</th>
         </tr></thead>
         <tbody>
-        <tr n:foreach="$moderationItems as $item">
-            <td>{($item['subject'] ?? '')}</td>
+        {* Clicking anywhere in the row opens the same read-only preview as the
+           archive viewer (ModerationController::show(), reusing archive/show.latte
+           — the mail is still on IMAP, not yet archived). The Subject cell also
+           carries a real <a> so the row is reachable without JS / via keyboard /
+           open-in-new-tab — the row-level onclick is a convenience on top of that,
+           not a replacement for it. Accept/Reject stop propagation so clicking a
+           button doesn't also navigate away first. *}
+        <tr n:foreach="$moderationItems as $item" class="clickable-row" onclick="location.href={sprintf('/%s/moderation/%s', $list->name, $item['id'])}">
+            <td><a href="/{$list->name}/moderation/{$item['id']}">{($item['subject'] ?? '')}</a></td>
             <td>{$item['sender_display']}</td>
             {* mail_date is only null for an item queued before this column existed
                (the migration doesn't backfill) — falls back to created_at, same as
                before, until that item is accepted/rejected/reminded. *}
             <td n:attr="data-utc: $item['mail_date'] !== null ? str_replace(' ', 'T', $item['mail_date']) . 'Z' : null">{($item['mail_date'] ?? $item['created_at'])}</td>
             <td>
-                <button class="btn btn-success" onclick="apiPost('/_/api/moderation/{$item['id']}/accept')">{$translator->trans('list.manage.accept')}</button>
-                <button class="btn btn-danger" onclick="apiPost('/_/api/moderation/{$item['id']}/reject')">{$translator->trans('list.manage.reject')}</button>
+                <button class="btn btn-success" onclick="event.stopPropagation(); apiPost('/_/api/moderation/{$item['id']}/accept')">{$translator->trans('list.manage.accept')}</button>
+                <button class="btn btn-danger" onclick="event.stopPropagation(); apiPost('/_/api/moderation/{$item['id']}/reject')">{$translator->trans('list.manage.reject')}</button>
             </td>
         </tr>
         </tbody>

@@ -13,13 +13,13 @@
    #list-manage-i18n. See CLAUDE.md "Internationalization". *}
 <div id="archive-show-i18n" hidden
     data-delete-url="/_/api/archive/{$list->name}/{$row['id']}"
-    data-archive-index-url="/{$list->name}/archive"
+    data-archive-index-url="{$backUrl}"
     data-confirm-delete="{$translator->trans('archive.show.confirm_delete')}"
     data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
 ></div>
 <p class="archive-show-header">
-    <a href="/{$list->name}/archive">&larr; {$translator->trans('archive.show.back_to_list')}</a>
-    <button n:if="$isOwner" type="button" class="btn btn-danger" onclick="deleteArchivedMail()">{$translator->trans('archive.show.delete')}</button>
+    <a href="{$backUrl}">&larr; {$backLabel}</a>
+    <button n:if="$allowDelete" type="button" class="btn btn-danger" onclick="deleteArchivedMail()">{$translator->trans('archive.show.delete')}</button>
 </p>
 
 <div class="card">
@@ -34,7 +34,7 @@
     <h2>{$translator->trans('archive.show.attachments_heading')}</h2>
     {if count($attachments) === 1}
         {foreach $attachments as $index => $attachment}
-            <a href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))}</a>
+            <a href="{$baseUrl}/attachment/{$index}" target="_blank" rel="noopener">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))}</a>
             <span class="attachment-size"> ({$attachment->sizeInBytes|formatBytes})</span>
         {/foreach}
     {else}
@@ -42,7 +42,7 @@
             <summary>{$translator->trans('archive.show.attachments_summary', ['%count%' => count($attachments), '%size%' => $totalAttachmentSize])}</summary>
             <ul class="attachment-list">
                 <li n:foreach="$attachments as $index => $attachment">
-                    <a href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))}</a>
+                    <a href="{$baseUrl}/attachment/{$index}" target="_blank" rel="noopener">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))}</a>
                     <span class="attachment-size"> ({$attachment->sizeInBytes|formatBytes})</span>
                 </li>
             </ul>
@@ -65,15 +65,15 @@
         <button type="button" class="btn btn-primary" id="view-html-btn" onclick="setView('html')">{$translator->trans('archive.show.view_html')}</button>
         <button type="button" class="btn btn-secondary" id="view-text-btn" onclick="setView('text')">{$translator->trans('archive.show.view_text')}</button>
     </div>
-    <iframe n:if="!$mailMissing" id="archive-frame" class="archive-frame" src="/{$list->name}/archive/{$row['id']}/frame" sandbox
+    <iframe n:if="!$mailMissing" id="archive-frame" class="archive-frame" src="{$baseUrl}/frame" sandbox
         title="{$translator->trans('archive.show.mail_frame_title')}"></iframe>
 </div>
 
 <div class="card" n:if="count($imageAttachments) > 0">
     <h2>{$translator->trans('archive.show.attachment_previews')}</h2>
     <div class="thumbnail-gallery">
-        <a n:foreach="$imageAttachments as $index => $attachment" class="thumbnail-box" href="/{$list->name}/archive/{$row['id']}/attachment/{$index}" target="_blank" rel="noopener">
-            <img src="/{$list->name}/archive/{$row['id']}/attachment/{$index}" alt="">
+        <a n:foreach="$imageAttachments as $index => $attachment" class="thumbnail-box" href="{$baseUrl}/attachment/{$index}" target="_blank" rel="noopener">
+            <img src="{$baseUrl}/attachment/{$index}" alt="">
             <span class="thumbnail-name">{($attachment->name ?? $translator->trans('archive.show.unnamed_attachment'))}</span>
         </a>
     </div>

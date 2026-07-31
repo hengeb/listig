@@ -96,8 +96,15 @@ class ModerationMailer
             '%subject%' => $subject,
             '%sender%' => $senderDisplay,
             '%date%' => $mailDate,
-            '%accept%' => $acceptAddress,
-            '%reject%' => $rejectAddress,
+            // ?subject=... only in the mailto: link shown to the owner — never on
+            // $acceptAddress/$rejectAddress themselves, which also feed
+            // Email::replyTo() below and must stay bare addresses there. A blank
+            // Subject (the moderated mail's own subject/body are deliberately
+            // never quoted back into this reply — see the multipart/mixed comment
+            // below) otherwise made some mail clients warn about sending an
+            // empty-subject mail, which the pre-filled subject avoids.
+            '%accept%' => "{$acceptAddress}?subject=accept",
+            '%reject%' => "{$rejectAddress}?subject=reject",
         ], null, $locale);
 
         foreach ($owners as $owner) {

@@ -793,11 +793,11 @@ An earlier version of this cache used `$_SESSION` (keyed the same way, but stori
 1. **Session cookie**: `sandbox` with no `allow-same-origin` gives the iframe's content a unique *opaque* origin, so any request it makes itself — including these `<img src>` loads — carries no cookie at all, regardless of the viewer's own login. For an off-origin image this is irrelevant (no cookie was ever going there), but for a cid:-rewritten same-origin attachment URL it meant `ArchiveController::attachment()`'s own `checkAccess()` always saw a logged-out request and returned `401`, even though the *outer* page's `frame()` request (a normal, non-sandboxed navigation) had already proven access to this exact mail moments earlier. Fixed with a short-lived (`ARCHIVE_ATTACHMENT_TOKEN_MAX_AGE`, 10 min), `archive-attachment`-purpose `TokenService` token scoped to `($list->name, $archivedMailId)`: `frame()` signs one per render and `ArchiveHtmlSanitizer::rewriteCidReferences()` appends it as `?token=...` to every cid: URL it emits; `attachment()` accepts it as a fallback grant only when the normal session-based `checkAccess()` fails, so a plain browser navigation to an attachment link (from `show.latte`, outside the sandbox) still works exactly as before, on the session alone.
 2. **Random per-parse attachment ids**: see `ArchiveController::indexAttachmentsByPosition()`'s docblock — `IncomingMailAttachment::$id` (`PhpImap\Mailbox`'s `bin2hex(random_bytes(20))`) is never the same across the separate `getMail()` calls `show()`/`frame()` and `attachment()` each make (via `ArchiveMailLocator`, which caches nothing across requests by design), so using it as the `{index}` URL segment could never resolve — every attachment link or cid: image 404'd unconditionally, regardless of whether the referenced attachment genuinely existed. Fixed by re-keying `getAttachments()` by array position (`array_values()`) instead, which — unlike the random id — is stable: the same raw message always parses its MIME parts in the same order.
 
-**Attachments** — served from `CachedAttachment::$contents`, eagerly fetched once per `ArchiveMailCache` entry rather than live from IMAP on every request (see "Archive mail cache — performance" below; the underlying `IncomingMailAttachment::getContents()` call is still what actually performs each fetch, just moved to cache-population time). `X-Content-Type-Options: nosniff` always, plus `Content-Disposition: inline` whenever `ArchiveController::isSafeInlineContent()` verifies the content — deliberately *regardless* of the mail's own claimed disposition (cid-embedded or a plain attachment are treated the same, see below), on a small whitelist (`INLINE_SAFE_MIME_TYPES`: `png`/`jpeg`/`gif`/`webp`/`pdf` — deliberately not `svg`, which can carry scripts). The claimed MIME type alone is never trusted: images are re-verified via `getimagesizefromstring()` (decodes and reports the real format), PDF via its `%PDF-` magic-bytes header (no lightweight PHP PDF decoder exists, but that prefix is specific enough that an accidental false-positive on a mislabeled non-PDF is implausible). Everything else is forced `attachment` regardless of what the mail claims — and every attachment link in `show.latte` carries `target="_blank" rel="noopener"`, so a safe-inline file opens in a new tab instead of triggering a download prompt, while an unsafe one still downloads (the browser, not this app, decides based on the response headers).
+**Attachments** — served from `CachedAttachment::$contents`, eagerly fetched once per `ArchiveMailCache` entry rather than live from IMAP on every request (see "Archive mail cache — performance" below; the underlying `IncomingMailAttachment::getContents()` call is still what actually performs each fetch, just moved to cache-population time). `X-Content-Type-Options: nosniff` always, plus `Content-Disposition: inline` whenever `AttachmentSafety::isSafeInlineContent()` verifies the content — deliberately *regardless* of the mail's own claimed disposition (cid-embedded or a plain attachment are treated the same, see below), on a small whitelist (`INLINE_SAFE_MIME_TYPES`: `png`/`jpeg`/`gif`/`webp`/`pdf` — deliberately not `svg`, which can carry scripts). The claimed MIME type alone is never trusted: images are re-verified via `getimagesizefromstring()` (decodes and reports the real format), PDF via its `%PDF-` magic-bytes header (no lightweight PHP PDF decoder exists, but that prefix is specific enough that an accidental false-positive on a mislabeled non-PDF is implausible). Everything else is forced `attachment` regardless of what the mail claims — and every attachment link in `show.latte` carries `target="_blank" rel="noopener"`, so a safe-inline file opens in a new tab instead of triggering a download prompt, while an unsafe one still downloads (the browser, not this app, decides based on the response headers).
 
 **Attachment list (`show.latte`, above the mail body, not below)** — a single attachment shows its name and size directly; two or more collapse into a `<details>` summary (`archive.show.attachments_summary`, "*N* attachments (*total size*)") that expands to the full per-file list, name and size each. Sizes come from `IncomingMailAttachment::$sizeInBytes` — populated from the MIME `BODYSTRUCTURE`'s own byte count during the normal `getMail()` parse, so listing sizes never needs a separate content fetch. Formatting (`Archive/ByteFormatter.php`, B/KB/MB/GB/TB) is shared between PHP (the collapsed summary's `%size%` param) and Latte (the `formatBytes` filter, registered in `config/container.php`, per-file sizes) — one rule, not two independently-maintained ones.
 
-**Image previews (`show.latte`, below the mail body)** — a second, separate rendering of just the image-typed attachments (`$imageAttachments`, filtered by `str_starts_with($attachment->mimeType, 'image/')` — a UI hint only, not the security-relevant check; that's `isSafeInlineContent()`, applied independently when the browser actually requests the file), each as a bordered thumbnail box (filename + `<img>` pointing at the same `/attachment/{index}` URL) linking to the full attachment. This is intentionally separate from the summary list above — a purely visual complement, not a replacement — and only ever includes non-cid attachments; images already shown inline in the body via a `cid:` rewrite are excluded from both (`ArchiveController::isEmbeddedInline()`), since showing those a second time would be redundant.
+**Image previews (`show.latte`, below the mail body)** — a second, separate rendering of just the image-typed attachments (`$imageAttachments`, filtered by `str_starts_with($attachment->mimeType, 'image/')` — a UI hint only, not the security-relevant check; that's `AttachmentSafety::isSafeInlineContent()`, applied independently when the browser actually requests the file), each as a bordered thumbnail box (filename + `<img>` pointing at the same `/attachment/{index}` URL) linking to the full attachment. This is intentionally separate from the summary list above — a purely visual complement, not a replacement — and only ever includes non-cid attachments; images already shown inline in the body via a `cid:` rewrite are excluded from both (`ArchiveController::isEmbeddedInline()`), since showing those a second time would be redundant.
 
 **"Load external content" is a real notice, not just a bare button** (`show.latte`'s `.notice` box, modeled on Roundcube's/Thunderbird's own wording) — a warning icon, an explanatory sentence (`archive.show.external_content_notice`), and the action button (`archive.show.load_images`, labelled "Erlauben"/"Allow") together, rather than a button alone with no context for why images are missing. Clicking it removes the notice and reloads the iframe with `?loadImages=1`, same underlying mechanism as before. The notice only renders when `$hasExternalContent` is true (`ArchiveController::show()` computing it via `ArchiveHtmlSanitizer::hasExternalResources()`, gating a `{if}` in `show.latte`) — it previously rendered unconditionally under every mail regardless of whether it actually had any off-origin image to block, which was misleading for a plain-text-only mail or an HTML one with no external images at all (confirmed live against the archived test mails: only the one containing an actual external image showed the notice after the fix, the rest didn't). `hasExternalResources()` runs the same cid:-rewrite + HTMLPurifier pass `render()` does (so a `cid:`-embedded image is never mistaken for external — `isExternal()`'s `^(https?:)?//` pattern doesn't match `cid:` anyway) and then scans for any off-origin `img[src]`/`[srcset]`, sharing the DOM-walk (`findExternalImages()`) with `stripExternalResources()` rather than duplicating it — both operate on the *same already-parsed* `\DOMElement` tree in `stripExternalResources()`'s case (parsing once, finding, then mutating and calling `saveHTML()` on that one tree), since re-parsing a second copy just to search it would return elements belonging to a different tree than the one about to be saved.
 
@@ -1453,10 +1453,11 @@ Expand member list. Exclude addresses in original `To` or `Cc`. Normalize to low
        From: {sender-name} <{sender-mail}>
        Date: {date}
 
-       Accept: mailto:{local-part}+accept-{TOKEN}@example.org
-       Reject: mailto:{local-part}+reject-{TOKEN}@example.org
+       Accept: mailto:{local-part}+accept-{TOKEN}@example.org?subject=accept
+       Reject: mailto:{local-part}+reject-{TOKEN}@example.org?subject=reject
        ```
        `{local-part}` is `ListConfig::$localPart` (the local part of the list's own `mail` address), **not** `$list->name`/`{list-cn}` — same reasoning as the bounce address (see "Envelope separation"): they commonly differ, and only the real mailbox's local part is guaranteed deliverable back into the list's own IMAP inbox where `ModerationResponseHandler` can find it. `{TOKEN}` is the normal base64 token (see "Token Format") — recovering it intact from a reply's raw `To` header, rather than the lowercased `$mail->to`, is what makes mail-reply accept/reject actually work; see "Token Format" for why.
+       `?subject=accept`/`?subject=reject` is a `mailto:` query parameter — mail clients pre-fill the compose window's Subject with it, but it plays no role in `ModerationResponseHandler::detectAction()` (which only ever looks at the `To` address) and is stripped from the actual outgoing `To:` header, so it can't interfere with token detection. Added purely because a mail with a genuinely empty Subject made some mail clients warn the owner before sending; not applied to `$acceptAddress`/`$rejectAddress` themselves, which are also used bare for the `Reply-To` header below and must stay valid, query-free addresses there.
        Sourced directly from the already-parsed `IncomingMail` passed in (`$mail->subject`/`$mail->fromName`/`$mail->fromAddress`/`$mail->date`), not re-read from `$rawMime` — same fields, and same `"{$senderName} <{$senderMail}>"` formatting, persisted to `moderation_queue`'s `subject`/`sender_name`/`sender_mail`/`mail_date` columns (see "Database Schema") so the manage page's moderation queue table can show the same information without a live IMAP fetch.
      - **Part 2** (`message/rfc822`): complete original mail
    - The sender also gets a notice (`NotificationMailer`, translation key `moderation.pending_notice`) that their mail is awaiting approval — without this, a moderated mail looked identical, from the sender's side, to one that silently vanished; there's no equivalent of `reject.notice`/`bounce.owner_notice` for "still pending." Sent only when `ModerationMailer::send()`'s own `INSERT ... ON DUPLICATE KEY UPDATE id = id` actually inserted a new row (`$insertStmt->rowCount() === 1`) — `ModerationChecker::checkOverdue()`'s reminder resend calls this same `send()` method (see below) and must not re-notify the sender on every 7-day reminder, only the owners.
@@ -1489,7 +1490,78 @@ The manage page's moderation queue table (`ListController::getModerationItems()`
 `templates/list/manage.latte`) shows Subject/Sender/Received columns alongside Accept/Reject,
 reading `moderation_queue`'s `subject`/`sender_display` (see "Database Schema")/`mail_date`
 columns directly — no live IMAP fetch. `mail_date` falls back to `created_at` for a row queued
-before the metadata columns existed (the migration doesn't backfill).
+before the metadata columns existed (the migration doesn't backfill). Each row is itself
+clickable (`class="clickable-row"`, whole-row `onclick` plus a real `<a>` on the Subject cell
+for no-JS/keyboard/open-in-new-tab access) and opens a full preview of the still-pending mail
+— see "Preview: pending mail" below. The Accept/Reject buttons call `event.stopPropagation()`
+first so clicking one doesn't also navigate the row away.
+
+**`onclick` attributes are a JS-string context, not a plain HTML-attribute context** — a
+non-obvious Latte behavior that bit the row's `onclick` during development: `{...}` printing
+a *plain string* value (not an int) inside an `onclick="..."` attribute gets wrapped in Latte's
+own JS-string quoting, on top of whatever quoting the template author already wrote — so
+`onclick="location.href='/{$list->name}/...'"` (manual single quotes around the interpolated
+`{$list->name}`) rendered as `location.href='/&quot;testliste&quot;/...'`, a second, nested
+quoting Latte added because it couldn't tell the manually-quoted JS string apart from a bare
+value it needed to quote itself. Confirmed live via `Latte\Engine::renderToString()`: an `int`
+value (`{$item['id']}`, as `moderation_queue.id` actually comes back as via `mysqlnd`'s type
+handling *despite* the app's `PDO::ATTR_EMULATE_PREPARES` staying at its default `true` — see
+"DatabaseConnectionFactory") rendered correctly bare (`.../moderation/7`), but a `string` value
+interpolated the same way did not — and a `{...}` expression is silently left completely
+unprocessed, verbatim in the output, if its very first character is a quote (`{'/' . ...}`
+never evaluated at all; `{$name . '/' . ...}`, starting with a variable instead, did). The fix,
+`onclick="location.href={sprintf('/%s/moderation/%s', $list->name, $item['id'])}"` — the
+*entire* attribute value is one `{...}` print expression (no manual quotes at all, and it
+doesn't start with a literal), letting Latte supply the one correct layer of JS-string quoting
+itself. The pre-existing `onclick="apiPost('/_/api/moderation/{$item['id']}/accept')"` pattern
+(Accept/Reject buttons) was never affected by this, precisely because `$item['id']` is an `int`
+here, not a `string` — the same pattern with a string interpolated inside manual quotes would
+have the identical bug.
+
+### Preview: pending mail
+
+Clicking a moderation queue row (see above) opens a read-only preview of the still-pending
+mail at `GET /{listname}/moderation/{id}` (`{id}` is `moderation_queue.id`) —
+`ModerationController::show()`/`frame()`, reusing the archive viewer's own
+`templates/archive/show.latte`/`frame.latte` rather than duplicating them, since the two views
+are otherwise identical (metadata table, attachment list/thumbnail gallery, sandboxed HTML
+frame, HTML/plain-text toggle, external-image gating). The mail itself comes straight from IMAP
+by UID (`ImapPoller::fetchMailByUid()`, the same call `ModerationController::accept()` already
+makes) — not `archived_mail`/`ArchiveMailLocator`, since a pending item was never archived and
+still lives in the inbox, not the archive folder; there is deliberately no caching layer
+equivalent to `ArchiveMailCache` here, since a moderation preview is opened rarely compared to
+the archive and a plain per-request IMAP fetch is cheap enough on its own.
+
+**Templates were parametrized, not duplicated**, to support both call sites:
+`show.latte`/`frame.latte` take `$baseUrl` (the `.../{id}` prefix every attachment/frame link is
+built from — `/{listname}/archive/{id}` for `ArchiveController`, `/{listname}/moderation/{id}`
+here), `$backUrl`/`$backLabel` (the "← back" link target/label — the archive index vs. the
+list's own manage page), and `$allowDelete` (renamed from the template's old `$isOwner` — gates
+the delete button, which only makes sense for an actually-archived mail; `ModerationController`
+always passes `false`, since there is no `archived_mail` row here for it to act on).
+
+**Owner-only, always a real session** — unlike the archive viewer's own routes (whose access
+depends on the specific list's `archive` mode and so sit behind `OptionalAuthMiddleware`, see
+"Archive viewer"), `show()`/`frame()` are plain `AuthMiddleware`-protected routes (same group as
+`/{listname}` itself) — a pending mail has no `Public`/`Members` visibility concept, only the
+list's owners may ever see it. `attachment()` is the **one exception**: `GET
+/{listname}/moderation/{id}/attachment/{index}` sits in the *archive* viewer's own
+`OptionalAuthMiddleware` group instead, for the identical reason `ArchiveController::attachment()`
+does — the `<img>` tags `frame()`'s sandboxed iframe fetches for `cid:`-rewritten images carry
+no session cookie at all (opaque origin, no `allow-same-origin`), so `AuthMiddleware` would
+redirect that cookie-less request to `/_/login` before the controller ever got a chance to fall
+back to its signed-token grant. That token uses its own dedicated purpose,
+`moderation-attachment` (not `archive-attachment`), purely so the two grants can never be
+replayed against each other — same `TokenService` purpose-isolation principle as `login` vs.
+`unsubscribe` vs. `accept`/`reject`.
+
+**`AttachmentSafety` (`src/Archive/AttachmentSafety.php`)** — `isSafeInlineContent()`
+(magic-byte/`getimagesizefromstring()` re-verification of a claimed MIME type before ever
+serving an attachment `Content-Disposition: inline`) and `sanitizeFilename()` were extracted out
+of `ArchiveController` into their own small class specifically so `ModerationController` could
+reuse them rather than maintaining a second copy of security-relevant logic that could drift out
+of sync with the original. `ArchiveController` itself was updated to call the shared class too,
+so there is exactly one implementation, not two kept in parallel by convention.
 
 ---
 
@@ -1839,6 +1911,9 @@ segment — the only requirement is that no list is ever named `_` (enforced fai
 | GET | `/{listname}` | user | Manage page (owner) or reduced info page (non-owner) — see "`/{listname}` — owner vs. non-owner view" |
 | POST | `/_/api/moderation/{id}/accept` | owner | Accept moderation item |
 | POST | `/_/api/moderation/{id}/reject` | owner | Reject moderation item |
+| GET | `/{listname}/moderation/{id}` | owner | Preview a still-pending mail — see "Preview: pending mail" |
+| GET | `/{listname}/moderation/{id}/frame` | owner | Preview: sandboxed HTML body |
+| GET | `/{listname}/moderation/{id}/attachment/{index}` | owner (or signed token) | Preview: attachment download/inline |
 | GET | `/_/api/queue/{listname}` | owner | Queue status |
 | DELETE | `/_/api/queue/{id}` | owner | Delete failed entry |
 | POST | `/_/api/queue/{id}/retry` | owner | Retry failed entry |

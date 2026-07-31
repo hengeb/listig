@@ -108,6 +108,14 @@ $app->group('', function (RouteCollectorProxy $group): void {
     $group->get('/{listname}/archive/{id}', [ArchiveController::class, 'show']);
     $group->get('/{listname}/archive/{id}/frame', [ArchiveController::class, 'frame']);
     $group->get('/{listname}/archive/{id}/attachment/{index}', [ArchiveController::class, 'attachment']);
+    // Not AuthMiddleware, unlike ModerationController::show()/frame() above: the
+    // <img> tags frame()'s sandboxed iframe fetches for cid:-rewritten images
+    // (from inside content with no allow-same-origin) carry no session cookie at
+    // all — AuthMiddleware would redirect that cookie-less request to /_/login
+    // before ModerationController::attachment() ever got a chance to fall back
+    // to its token grant, exactly like ArchiveController::attachment() right
+    // above it needs OptionalAuthMiddleware for the same reason.
+    $group->get('/{listname}/moderation/{id}/attachment/{index}', [ModerationController::class, 'attachment']);
 })->add(new OptionalAuthMiddleware());
 
 /**
@@ -188,6 +196,16 @@ $app->get('/_/health', function ($request, $response) use ($container): \Psr\Htt
 $app->group('', function (RouteCollectorProxy $group): void {
     $group->get('/', [DashboardController::class, 'index']);
     $group->get('/{listname}', [ListController::class, 'manage']);
+
+    // Owner-only preview of a still-pending (not yet accepted/rejected) mail,
+    // clicked from the moderation queue table on the manage page — reuses the
+    // archive viewer's own templates (ArchiveController's show/frame have the
+    // identical shape). show()/frame() need a real session (both are normal,
+    // cookie-carrying top-level/subresource requests from the outer page), so
+    // they stay in this AuthMiddleware group — but see the attachment route
+    // below the archive viewer's own group for why that one specifically can't.
+    $group->get('/{listname}/moderation/{id}', [ModerationController::class, 'show']);
+    $group->get('/{listname}/moderation/{id}/frame', [ModerationController::class, 'frame']);
 
     // API routes (also need CSRF)
     $group->group('/_/api', function (RouteCollectorProxy $api): void {
