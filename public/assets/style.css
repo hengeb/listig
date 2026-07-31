@@ -3,7 +3,7 @@
    shared by every page that extends it. See CLAUDE.md "Static assets". */
 
 *, *::before, *::after { box-sizing: border-box; }
-body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #f5f5f5; color: #333; }
+body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #f5f8fd; color: #333; }
 .container { max-width: 960px; margin: 0 auto; padding: 1rem 1.5rem; }
 header { background: #1a1a2e; color: #fff; padding: 0.75rem 0; }
 header .container { display: flex; justify-content: space-between; align-items: center; }
@@ -20,7 +20,7 @@ table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
 th { background: #f9f9f9; font-weight: 600; }
 tr.clickable-row { cursor: pointer; }
-tr.clickable-row:hover { background: #f5f5f5; }
+tr.clickable-row:hover { background: #f5f8fd; }
 .btn { display: inline-block; padding: 0.4rem 0.9rem; border-radius: 4px; border: none; cursor: pointer; font-size: 0.875rem; text-decoration: none; }
 .btn-primary { background: #1a1a2e; color: #fff; }
 .btn-danger { background: #c0392b; color: #fff; }
@@ -43,6 +43,14 @@ tr.clickable-row:hover { background: #f5f5f5; }
 
 /* header (templates/layout.latte) */
 .header-user-email { color: #ccc; font-size: .85rem; }
+
+.attribution {
+    text-align: center;
+    a {
+        color: #475569;
+        font-size: 0.9em;
+    }
+}
 
 /* narrow centered card pages: login.latte, unsubscribe.latte, subscribe-confirm.latte */
 .narrow-page { max-width: 480px; margin: 4rem auto; }

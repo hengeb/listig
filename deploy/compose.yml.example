@@ -3,7 +3,7 @@ services:
     image: ghcr.io/hengeb/listig:latest
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "80:80"
     volumes:
       - ./config.yml:/app/config/config.yml:ro
       # Optional — see CLAUDE.md "Custom layout". Only mount this if you actually

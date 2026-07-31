@@ -41,7 +41,7 @@
 {else}
 <header>
     <div class="container">
-        <a href="/" class="brand"><img src="/logo-mark.svg" alt=""> {$appName ?? 'Listig'}</a>
+        <a href="/" class="brand"><img src="/assets/logo-mark.svg" alt=""> {$appName ?? 'Listig'}</a>
         <nav>
             {if isset($user)}
                 <span class="header-user-email">{$user['email']}</span>
@@ -59,6 +59,7 @@
         {block content}{/block}
     </div>
 </main>
+<p class="attribution"><a href="https://github.com/hengeb/listig">powered by Listig</a></p>
 {ifset #custom_body_end}
     {include #custom_body_end}
 {/ifset}
