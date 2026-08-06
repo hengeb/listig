@@ -16,6 +16,8 @@ use Hengeb\Listig\Http\Middleware\ApiTokenMiddleware;
 use Hengeb\Listig\Http\Middleware\AuthMiddleware;
 use Hengeb\Listig\Http\Middleware\CsrfMiddleware;
 use Hengeb\Listig\Http\Middleware\OptionalAuthMiddleware;
+use Hengeb\Listig\Http\QuietNotFoundErrorHandler;
+use Slim\Exception\HttpNotFoundException;
 use Slim\Factory\AppFactory;
 use Slim\Routing\RouteCollectorProxy;
 use Symfony\Component\Ldap\Ldap;
@@ -40,7 +42,14 @@ $container = require __DIR__ . '/../config/container.php';
 AppFactory::setContainer($container);
 $app = AppFactory::create();
 
-$app->addErrorMiddleware(true, true, true);
+$errorMiddleware = $app->addErrorMiddleware(true, true, true);
+// A 404 is already visible in nginx's own access log — see
+// QuietNotFoundErrorHandler's docblock for why this exception alone gets a
+// quiet handler while every other error keeps the default, fully-logged one.
+$errorMiddleware->setErrorHandler(
+    HttpNotFoundException::class,
+    new QuietNotFoundErrorHandler($app->getCallableResolver(), $app->getResponseFactory())
+);
 $app->addBodyParsingMiddleware();
 
 // Public routes. Anything not scoped to a specific list lives under the reserved

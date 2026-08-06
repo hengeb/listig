@@ -36,6 +36,8 @@ use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
 use Hengeb\Listig\Mail\MailProcessor;
 use Hengeb\Listig\Mail\NotificationMailer;
+use Hengeb\Listig\Mail\ProcessingFailureNotifier;
+use Hengeb\Listig\Mail\ProcessingFailureTracker;
 use Hengeb\Listig\Mail\RejectionNotifier;
 use Hengeb\Listig\Mail\SpamFilter;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
@@ -344,6 +346,12 @@ $builder->addDefinitions([
     },
     RejectionNotifier::class => function (ContainerInterface $c): RejectionNotifier {
         return new RejectionNotifier($c->get(NotificationMailer::class), $c->get(TranslatorInterface::class));
+    },
+    ProcessingFailureTracker::class => function (ContainerInterface $c): ProcessingFailureTracker {
+        return new ProcessingFailureTracker($c->get(PDO::class));
+    },
+    ProcessingFailureNotifier::class => function (ContainerInterface $c): ProcessingFailureNotifier {
+        return new ProcessingFailureNotifier($c->get(NotificationMailer::class), $c->get(TranslatorInterface::class));
     },
 
     // IMAP — ImapMailboxFactory caches Mailbox connections per list for one worker

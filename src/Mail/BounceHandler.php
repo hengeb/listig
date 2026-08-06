@@ -13,9 +13,26 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * Records a bounce in bounce_log and forwards the original bounce mail to the
  * list owners. Extracted from bin/worker.php to keep that file a thin loop and
  * match the rest of the codebase's constructor-injected, class-based design.
+ *
+ * A bounce-forward is itself an outgoing mail (via NotificationMailer), which
+ * means it can itself bounce — and that new bounce would, without the two
+ * guards in handle() below, be forwarded again, producing another
+ * notification for the owner's server to possibly reject again, and so on.
+ * Confirmed live: a single spam-rejected distributed mail produced roughly
+ * 100 consecutive bounces this way before these guards existed. See
+ * isBounceOnOwnNotification() (the primary fix) and the bounce-log circuit
+ * breaker in handle() (the last-resort safety net) — plus
+ * NotificationMailer's own null-sender envelope and X-Listig-Auto/
+ * Auto-Submitted headers, which this class's detection depends on.
  */
 class BounceHandler
 {
+    /** Trips the circuit breaker once more than this many bounces have been logged for a list within CIRCUIT_BREAKER_WINDOW_MINUTES — see handle(). */
+    private const int CIRCUIT_BREAKER_THRESHOLD = 5;
+
+    /** Rolling window (minutes) the circuit breaker counts bounces over — see handle(). */
+    private const int CIRCUIT_BREAKER_WINDOW_MINUTES = 15;
+
     public function __construct(
         private readonly PDO $db,
         private readonly NotificationMailer $notificationMailer,
@@ -27,7 +44,82 @@ class BounceHandler
     public function handle(ListConfig $list, IncomingMail $mail, string $rawMime): void
     {
         $this->logBounce($list->name, $mail);
+
+        // Both guards below only ever skip forwardToOwners() — logBounce()
+        // above has already run unconditionally, so the manage page's bounce
+        // table stays a complete record of every bounce either way, forwarded
+        // or not.
+        if ($this->isBounceOnOwnNotification($rawMime)) {
+            return;
+        }
+
+        if ($this->circuitBreakerTripped($list->name)) {
+            return;
+        }
+
         $this->forwardToOwners($list, $mail, $rawMime);
+    }
+
+    /**
+     * True if the message/rfc822 attachment of this bounce is itself one of
+     * Listig's own auto-generated notifications (NotificationMailer's
+     * X-Listig-Auto header) — i.e. this is a bounce *on a bounce forward*,
+     * not a bounce on an original member/owner-authored mail. This is what
+     * actually breaks the loop: forwardToOwners() sends every bounce
+     * notification through NotificationMailer, which stamps that same header
+     * on its own output, so a bounce on *that* forward is recognized here and
+     * dropped rather than being treated as a brand-new bounce and forwarded
+     * again.
+     *
+     * Mirrors extractOriginalSender()'s own approach of searching only from
+     * the first message/rfc822 marker onward — a standard bounce carries the
+     * original message as a message/rfc822 part after the human-readable
+     * explanation and delivery-status parts, so this can't accidentally match
+     * something in the outer bounce's own headers instead.
+     */
+    private function isBounceOnOwnNotification(string $rawMime): bool
+    {
+        $pos = stripos($rawMime, 'message/rfc822');
+        if ($pos === false) {
+            return false;
+        }
+        return $this->headerFilter->readHeader(substr($rawMime, $pos), NotificationMailer::AUTO_HEADER) !== null;
+    }
+
+    /**
+     * Last-resort safety net beyond isBounceOnOwnNotification(): that check
+     * only catches a bounce whose own X-Listig-Auto header survived intact in
+     * the attached original message — a bounce generator that reformats,
+     * truncates, or otherwise mangles the attached original (some do) could
+     * still slip through undetected. If a list has already logged more than
+     * $threshold bounces within the last $windowMinutes minutes (the just-
+     * logged one from handle() included), stop forwarding entirely until it
+     * cools down, rather than let a fast loop through whatever gap remains.
+     * Uses bounce_log's own idx_list_time index (list_cn, bounced_at) — a
+     * single indexed COUNT(*), not a new query shape.
+     */
+    private function circuitBreakerTripped(
+        string $listCn,
+        int $threshold = self::CIRCUIT_BREAKER_THRESHOLD,
+        int $windowMinutes = self::CIRCUIT_BREAKER_WINDOW_MINUTES,
+    ): bool {
+        $cutoff = (new \DateTimeImmutable())->modify("-{$windowMinutes} minutes")->format('Y-m-d H:i:s');
+
+        $stmt = $this->db->prepare(
+            'SELECT COUNT(*) FROM bounce_log WHERE list_cn = :list AND bounced_at > :cutoff'
+        );
+        $stmt->execute(['list' => $listCn, 'cutoff' => $cutoff]);
+
+        $count = (int) $stmt->fetchColumn();
+        if ($count > $threshold) {
+            error_log(
+                "Listig: Bounce circuit breaker tripped for list $listCn ($count bounces in the last "
+                . "$windowMinutes minutes) — not forwarding to owners until it cools down."
+            );
+            return true;
+        }
+
+        return false;
     }
 
     private function logBounce(string $listCn, IncomingMail $mail): void

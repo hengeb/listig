@@ -71,6 +71,8 @@ Configuration via `config.yml` (structure below) and `.env` for DB credentials a
 
 **Access logging (`docker logs`)** — nginx's own access log is the canonical one: `docker/nginx.conf` sets `access_log /dev/stdout combined if=$loggable;`, where a `map $request_uri $loggable { ~^/_/health 0; default 1; }` block (same file, http-level, since `docker/nginx.conf` is `include`d from inside the base image's `http {}` block) excludes Docker's own `HEALTHCHECK` (`/_/health`, hit every ~30s — see "Health check" below) from ever reaching it, so `docker logs` isn't dominated by routine, uninteresting `200`s. `docker/php-fpm-pool.conf` (copied to `/usr/local/etc/php-fpm.d/zz-listig.conf` — the `zz-` prefix sorts it after the base image's own `docker.conf`/`zz-docker.conf`, so its directive wins) disables php-fpm's *own* access log entirely (`access.log = /dev/null`, overriding `docker.conf`'s `access.log = /proc/self/fd/2`) so every request is logged exactly once, through nginx, not twice.
 
+**Quiet 404 logging** — `docker/nginx.conf`'s `location ~ \.php$ { return 404; }` (see "Routes") already intercepts most automated bot/scanner traffic (probes for `wp-content/`, PHP shells, etc.) before it ever reaches PHP-FPM, so those never generate a PHP-level log entry at all. A request that *doesn't* end in `.php` but still matches no route (e.g. `/wp-content/`) reaches Slim, which throws `Slim\Exception\HttpNotFoundException`; by default `$app->addErrorMiddleware(true, true, true)` (`public/index.php`) logs every exception's full type/message/file/line/stack trace via `error_log()` — redundant for a 404 specifically, since nginx's own access log line (path + `404` status) already says everything an operator needs, and this class of request is overwhelmingly the same bot noise the `.php` rule already filters out. `src/Http/QuietNotFoundErrorHandler.php` (a small `Slim\Handlers\ErrorHandler` subclass whose `writeToErrorLog()` is a no-op) is registered specifically for `HttpNotFoundException` via `$errorMiddleware->setErrorHandler(HttpNotFoundException::class, ...)` in `public/index.php` — the response body/status is unaffected, only the log write is skipped. Every other exception type (a real 500, a config error, ...) still goes through Slim's default `ErrorHandler` and is logged in full, unchanged.
+
 This wasn't the first design tried. php-fpm's own access log was briefly the canonical one instead, with `docker/php-fpm-pool.conf` overriding just its `access.format`: the default format's `%r` specifier logs `SCRIPT_NAME`, which is always literally `/index.php` — every request funnels through `docker/nginx.conf`'s `try_files $uri /index.php$is_args$args`, so by the time php-fpm sees it that's genuinely the only script name there is, regardless of what the client actually requested; `%{REQUEST_URI}e` (reading the `REQUEST_URI` FastCGI param, set from nginx's `$request_uri` via `/etc/nginx/fastcgi_params` — unlike `$uri`/`SCRIPT_NAME`, never touched by the internal `try_files` rewrite) fixed that part. Excluding `/_/health` from *that* log was then attempted via php-fpm's own `access.suppress_path[]` pool directive — confirmed to compile and load without error, but empirically unreliable in live testing (suppressed some requests and not others with no consistent relationship to the configured path, including once suppressing a `/_/health` hit that should have matched and *not* suppressing a `/testliste/archive` hit under a config that should have matched everything). Given that, the whole approach was replaced with nginx's `map`/`access_log ... if=`, which is standard, long-established nginx behavvior rather than a php-fpm mechanism with unclear-in-practice matching semantics.
 
 **Set `hostname` explicitly in config.yml.** It's used to build every link Listig generates (login, dashboard, manage page, unsubscribe, moderation) — see `{hostname}` above. Without it, `ListConfig`/`'app.hostname'` (`config/container.php`) fall back to PHP's `gethostname()`, which in a container returns the container's own internal hostname (a random ID or the compose service name) — never the public domain a reverse proxy actually exposes the app under, and there's no way to derive that automatically: the worker has no incoming request to read a `Host` header from at all, and even on the web side, deriving it from the request would make worker-generated links (unsubscribe, moderation) and web-generated links (login) disagree whenever the same instance is reachable under more than one name. `bin/worker.php` logs a warning at startup (`error_log`, not a hard failure) if `hostname` resolves to empty, precisely because this is easy to miss and the resulting links are silently wrong rather than erroring.
@@ -94,7 +96,16 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 ├── config/
 │   └── container.php                 # DI container (PHP-DI or similar); config.yml itself is gitignored, copied here from deploy/config.yml.example for a repo checkout
 ├── public/
-│   └── index.php                     # Slim HTTP entry point
+│   ├── index.php                     # Slim HTTP entry point
+│   ├── favicon.ico / favicon.png / favicon.svg # served statically; only favicon.ico is actually picked up (browser default convention — no <link rel="icon"> in layout.latte), see "Routes"
+│   └── assets/                       # served directly by nginx (location /assets/), never routed through Slim — see "Routes"
+│       ├── style.css
+│       ├── script.js                 # shared JS loaded on every page (getCsrfToken(), listigLogout()) — see "Static assets"
+│       ├── archive-index.js          # templates/archive/index.latte's client-side thread toggle/quick filter — see "Threading"
+│       ├── archive-show.js           # templates/archive/show.latte's image-toggle/HTML-text-toggle/delete button — see "Archive viewer"
+│       ├── list-manage.js            # templates/list/manage.latte's moderation accept/reject — see "Moderation via UI"
+│       ├── logo.svg                  # full wordmark
+│       └── logo-mark.svg             # icon only, no baked-in text — see "App name (`app-name`)"
 ├── src/
 │   ├── Imap/
 │   │   ├── ImapPoller.php            # Polls IMAP via PhpImap\Mailbox; checks UIDVALIDITY; returns (uid, uidvalidity, mime, mail: IncomingMail) tuples
@@ -102,18 +113,28 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   └── ImapMailboxFactory.php    # Builds/caches PhpImap\Mailbox connections per list, keyed by imap-* fingerprint; also computes absolute (top-level) IMAP folder paths — see "Archive folder path"
 │   ├── Archive/                      # Web archive viewer backend — see "Archive viewer"
 │   │   ├── ArchiveIndexer.php        # Writes archived_mail rows; called alongside (not from) ImapArchiver::archiveOrDelete()
+│   │   ├── ArchiveSynchronizer.php   # Proactive reconciliation on opening the archive index, throttled per list per session — see "Proactive sync on opening the archive"
 │   │   ├── ArchiveThreader.php       # Pure PHP: annotates a page of rows with depth/thread_size/is_thread_start
 │   │   ├── ArchiveMailLocator.php    # Re-locates a message by Message-ID in the list's IMAP archive folder ($archiveFolder), on demand
+│   │   ├── ArchiveMailNotFoundException.php # Thrown by ArchiveMailLocator::find() only after a full, successful SEARCH ALL scan confirms the mail is genuinely gone
+│   │   ├── ArchiveMailResolver.php   # Locate-by-Message-ID + eager attachment-content caching, extracted so BounceController can reuse it — see "Bounce preview"
 │   │   ├── ArchiveMailCache.php      # APCu cache of a fully-resolved archived mail, keyed by list+Message-ID — see "Archive mail cache — performance"
+│   │   ├── AttachmentSafety.php      # isSafeInlineContent() magic-byte check + sanitizeFilename(), extracted so ModerationController can reuse it too
 │   │   ├── CachedArchivedMail.php    # Serializable snapshot of an IncomingMail — textHtml/textPlain + CachedAttachment[]
 │   │   ├── CachedAttachment.php      # Serializable snapshot of an IncomingMailAttachment, contents eagerly resolved
 │   │   ├── ArchiveHtmlSanitizer.php  # HTMLPurifier config + cid: rewriting + external-resource gating
 │   │   └── ByteFormatter.php         # Shared B/KB/MB/GB/TB formatting — PHP (ArchiveController) and the `formatBytes` Latte filter both use it
 │   ├── Mail/
 │   │   ├── MailProcessor.php         # Builds outgoing Email from IncomingMail; personalizes per recipient; enqueues
+│   │   ├── BounceHandler.php         # Detects + forwards a bounce to the list's owners as multipart/mixed — see "Bounce notice details" / "Bounce loop prevention"
 │   │   ├── HeaderFilter.php          # Reads Authentication-Results / arbitrary headers (readHeader) from raw header string
-│   │   ├── IncomingMailFilter.php    # Gates incoming mail (takes IncomingMail); returns FilterResult
+│   │   ├── IncomingMailFilter.php    # Gates incoming mail (takes IncomingMail); returns FilterResult — see "IncomingMailFilter — check order"
 │   │   ├── FilterResult.php          # final class (not enum — needs per-instance reason string): discard | bounce | reject | moderation | distribute
+│   │   ├── NotificationMailer.php    # Sender-facing "your mail is pending moderation" notice — see "Moderation"; sends every notification via NullSenderEnvelope + X-Listig-Auto/Auto-Submitted — see "Bounce loop prevention"
+│   │   ├── NullSenderEnvelope.php    # Envelope with MAIL FROM:<> (RFC 5321 null reverse-path), via Reflection — see "Bounce loop prevention"
+│   │   ├── RejectionNotifier.php     # Sender-facing reject notice for every reject.* reason, with the original mail attached — see "Making clear which mail a reject/pending notice is about"
+│   │   ├── ProcessingFailureTracker.php  # DB-backed per-mail attempt counter, bounds bin/worker.php's retry loop — see "Processing-failure retry limit"
+│   │   ├── ProcessingFailureNotifier.php # Owner-facing "mail could not be processed after N attempts" notice, original mail attached — see "Processing-failure retry limit"
 │   │   ├── SpamFilter.php            # Global content filter from filters: in config.yml; matches subject/body/from/to via str_contains or /regex/
 │   │   ├── BodyPersonalizer.php      # Replaces variables in decoded body/subject via VariableResolver
 │   │   ├── FooterAppender.php        # Appends footer to symfony/mime object (always if configured)
@@ -124,7 +145,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   ├── VariableFilter.php        # Applies |filter:args pipeline segments (match, lowercase, uppercase) to a resolved variable value
 │   │   └── Literal.php               # Marks a context value terminal (never recursively re-resolved) — wraps sender/recipient/Member data; see "Untrusted input in {} templates"
 │   ├── Config/
-│   │   ├── ListConfig.php            # Typed value object; property hooks; holds MemberResolver; createContext() for resolution
+│   │   ├── ListConfig.php            # Typed value object; property hooks; holds MemberResolver; createContext() for resolution; validates $name — see "Routes"
 │   │   ├── ConfigResolver.php        # Merges config.yml blocks: use:, priority, $VAR substitution
 │   │   ├── YamlIncludeResolver.php   # Resolves !include tags (see "File includes") for config.yml and YamlListProvider files
 │   │   └── Enum/
@@ -135,6 +156,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── Member/
 │   │   ├── Member.php                # Value object: email (required) + attributes (everything else, fully dynamic per resolver — see "Member attributes — fully dynamic")
 │   │   ├── MemberResolver.php        # Interface: getMembers(), getOwners(), findByEmail(), removeMember()
+│   │   ├── MemberResolverFactory.php # Builds a member-resolver sub-object (type: database/ldap/csv) from its config — see "member-resolver can be configured as a sub-object"
 │   │   ├── NullMemberResolver.php    # No-op implementation
 │   │   ├── InlineMemberResolver.php  # Resolves from inline config.yml member lists (plain "mail@x" string or firstname/lastname/mail/username map); removeMember is no-op
 │   │   ├── LdapMemberResolver.php    # Resolves via LDAP DNs; removeMember removes DN from member attribute
@@ -143,6 +165,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   └── AggregateMemberResolver.php # Searches all providers; used by AuthController
 │   ├── Provider/
 │   │   ├── ListProvider.php          # Interface: getLists(): ListConfig[], getList(string $name): ?ListConfig
+│   │   ├── AbstractListProvider.php  # Shared getLists()/getList()/reset()/resolvedProviderConfig(); subclasses implement loadLists() — see "Provider\AbstractListProvider"
 │   │   ├── LdapListProvider.php      # Reads mailGroup objects from LDAP; uses LdapMemberResolver internally
 │   │   ├── InlineListProvider.php    # Reads lists from config.yml; inline members or member-resolver; uses DatabaseConnectionFactory for DB member resolvers
 │   │   ├── DatabaseListProvider.php  # Reads lists from MariaDB config-table (EAV); uses DatabaseConnectionFactory for context-based DB connection
@@ -156,7 +179,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │                                 # closes and reopens connection when smtp-host/port/user/secure changes
 │   ├── Moderation/
 │   │   ├── ModerationMailer.php      # Sends moderation-request mail to owners
-│   │   └── ModerationChecker.php     # Checks DB for overdue moderation items, sends reminders
+│   │   ├── ModerationChecker.php     # Checks DB for overdue moderation items, sends reminders
+│   │   └── ModerationResponseHandler.php # Detects +accept-/+reject- in To (raw header, not lowercased $mail->to), verifies HMAC + owner, dispatches accept/reject — see "Moderation"
 │   ├── Token/
 │   │   └── TokenService.php          # Signs and verifies HMAC-SHA256 tokens
 │   ├── OpenIdConnect/                # Optional OIDC login — see "Authentication (OIDC)"
@@ -180,15 +204,18 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │       │   ├── DashboardController.php   # Member view: subscribed lists
 │       │   ├── ListController.php        # Owner manage page
 │       │   ├── ListApiController.php     # Bearer-token list management API: subscribe/unsubscribe/encrypt-password
-│       │   ├── ModerationController.php  # Accept/reject moderation items via API
+│       │   ├── ModerationController.php  # Accept/reject moderation items via API; preview a still-pending mail — see "Preview: pending mail"
+│       │   ├── BounceController.php      # Preview a bounce mail (show/frame/attachment), located by Message-ID like the archive viewer — see "Bounce preview"
 │       │   ├── QueueController.php       # Queue status API
 │       │   ├── UnsubscribeController.php
 │       │   └── ArchiveController.php     # Archive viewer: index/show/frame/attachment — see "Archive viewer"
-│       └── Middleware/
-│           ├── AuthMiddleware.php        # Validates session, injects user identity, redirects to /_/login if absent
-│           ├── OptionalAuthMiddleware.php # Like AuthMiddleware but never redirects — see "Archive viewer"
-│           ├── CsrfMiddleware.php        # Validates X-CSRF-Token on state-changing requests
-│           └── ApiTokenMiddleware.php    # Validates Bearer token against ListConfig::$apiToken
+│       ├── Middleware/
+│       │   ├── AuthMiddleware.php        # Validates session, injects user identity, redirects to /_/login if absent
+│       │   ├── OptionalAuthMiddleware.php # Like AuthMiddleware but never redirects — see "Archive viewer"
+│       │   ├── CsrfMiddleware.php        # Validates X-CSRF-Token on state-changing requests
+│       │   └── ApiTokenMiddleware.php    # Validates Bearer token against ListConfig::$apiToken
+│       ├── RequestPath.php               # relativeTarget() helper shared by AuthMiddleware/ArchiveController for the OIDC deep-link "next" redirect — see "Deep-link redirect-back"
+│       └── QuietNotFoundErrorHandler.php # Suppresses the verbose exception log for a plain 404 — see "Quiet 404 logging"
 ├── templates/
 │   ├── layout.latte           # Optionally imports /app/config/custom.latte (operator-mounted, not part of this tree) — see "Custom layout"
 │   ├── login.latte
@@ -200,19 +227,23 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   └── manage.latte
 │   └── archive/
 │       ├── index.latte        # Threaded table view, quick filter, pagination
-│       ├── show.latte         # Single message: metadata, attachments, embeds the frame
+│       ├── show.latte         # Single message: metadata, attachments, embeds the frame — reused by ModerationController/BounceController via $baseUrl/$backUrl/$allowDelete params
 │       ├── frame.latte        # Standalone doc for the sandboxed iframe — does NOT extend layout.latte
 │       └── login_required.latte
 ├── translations/
 │   ├── messages.de.yaml
 │   └── messages.en.yaml
 ├── migrations/
-│   └── 001_initial.sql        # includes archived_mail — see "Archive viewer"; applied automatically, see "Database migrations"
+│   ├── 001_initial.sql        # includes archived_mail — see "Archive viewer"; applied automatically, see "Database migrations"
+│   ├── 002_moderation_queue_mail_metadata.sql # adds subject/sender_name/sender_mail/mail_date to moderation_queue, not backfilled
+│   ├── 003_bounce_log_message_id.sql # adds message_id to bounce_log, not backfilled — see "Bounce preview"
+│   └── 004_processing_failures.sql   # new processing_failures table — see "Processing-failure retry limit"
 ├── docker/
 │   ├── Dockerfile             # php-fpm + nginx + worker, all in one image
 │   ├── entrypoint.sh          # ENTRYPOINT: runs bin/migrate.php, then execs CMD (supervisord)
 │   ├── compose.yaml           # Dev/build-from-source compose file
 │   ├── nginx.conf             # proxies to 127.0.0.1:9000 (same container)
+│   ├── php-fpm-pool.conf      # zz-listig.conf override — disables php-fpm's own access log — see "Access logging"
 │   ├── supervisord.conf       # manages php-fpm, nginx, worker as three processes
 │   └── php.ini                # display_errors=Off/log_errors=On — see "Security Notes"
 ├── deploy/                    # Simplest deployment: published image + MariaDB, no repo checkout — see "Docker Setup"
@@ -509,7 +540,7 @@ Every controller that renders a template, plus `QueueSender` (delivery-failure n
 
 This is a distinct concept from a *list's* `display-name` (see "`description` → `list-description`" for the analogous list-vs-member key-collision reasoning) — `app-name` names the whole Listig instance, not any one list.
 
-**Static assets**: `public/logo.svg` (full wordmark) and `public/logo-mark.svg` (icon only, no baked-in text — used in the header precisely so it stays correct next to a configurable `appName` instead of always visually saying "Listig") are served directly by nginx via the `location /` fallback's `try_files` (finds the real file before falling through to `index.php`), same as anything under `public/assets/` — no route or controller involved.
+**Static assets**: `public/assets/logo.svg` (full wordmark) and `public/assets/logo-mark.svg` (icon only, no baked-in text — used in the header precisely so it stays correct next to a configurable `appName` instead of always visually saying "Listig") are served directly by nginx's `location /assets/ { try_files $uri =404; }` block (see "Routes"), same as `style.css`/`script.js`/every other file there — no route or controller involved.
 
 ### OIDC login (`oidc-*`)
 
@@ -1043,7 +1074,7 @@ enum ArchiveMode: string { case Members = 'members'; case Owners = 'owners'; cas
 
 ```php
 class ListConfig {
-    public string $name;  // provider-agnostic identifier (LDAP: cn); constructor throws if this is "_" — reserved for /_/... system routes
+    public string $name;  // provider-agnostic identifier (LDAP: cn); constructor throws if this is "_" (reserved for /_/... system routes) or contains anything outside [A-Za-z0-9_-] — see "Routes"
     public string $mail;
     private array $raw;              // fully merged key-value map; null = not present, '' = explicitly empty
     private MemberResolver $members; // injected by ListProvider
@@ -1233,6 +1264,33 @@ CREATE TABLE bounce_log (
 
 Entries older than 90 days deleted each worker cycle.
 
+### `processing_failures`
+
+Added by `migrations/004_processing_failures.sql`. Tracks how many times `bin/worker.php` has
+retried a specific incoming mail after an exception anywhere in its per-mail processing pipeline
+— see "Processing-failure retry limit". Keyed the same way as `imap_seen`/`moderation_queue`,
+since it identifies the same kind of thing: one specific message on one specific list's IMAP
+mailbox, not-yet-resolved-either-way.
+
+```sql
+CREATE TABLE processing_failures (
+    id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    list_cn           VARCHAR(255) NOT NULL,
+    imap_uid          BIGINT UNSIGNED NOT NULL,
+    imap_uidvalidity  BIGINT UNSIGNED NOT NULL,
+    attempts          TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    last_error        TEXT NULL,
+    first_attempt_at  DATETIME NOT NULL,
+    last_attempt_at   DATETIME NOT NULL,
+    UNIQUE KEY uq_list_uid (list_cn, imap_uid, imap_uidvalidity)
+);
+```
+
+Normally short-lived — a row is deleted (`ProcessingFailureTracker::clear()`) the same cycle the
+mail either succeeds or hits `ProcessingFailureTracker::MAX_ATTEMPTS` and is given up on. Rows
+older than 31 days are swept as a safety net each worker cycle (same retention as `imap_seen`),
+in case the give-up sequence itself kept failing and left a row stuck.
+
 ---
 
 ## Core Processing Logic
@@ -1304,8 +1362,19 @@ loop forever:
         - DELETE FROM imap_seen WHERE seen_at < NOW() - INTERVAL 31 DAY
         - DELETE FROM rate_limit WHERE sent_at < NOW() - INTERVAL 1 HOUR
         - DELETE FROM bounce_log WHERE bounced_at < NOW() - INTERVAL 90 DAY
+        - DELETE FROM processing_failures WHERE last_attempt_at < NOW() - INTERVAL 31 DAY (safety net, see below)
     5. sleep(sleep-seconds, see 'worker.sleep-seconds' above)
 ```
+
+### Processing-failure retry limit (`ProcessingFailureTracker`, `ProcessingFailureNotifier`)
+
+Every branch of step 1c above (`ModerationResponseHandler::handle()`, `IncomingMailFilter::filter()`, `BounceHandler::handle()`, `RejectionNotifier::notify()`, `ModerationMailer::send()`, `MailProcessor::process()`, and the `markSeen()`/`archiveOrDelete()`/`ArchiveIndexer::index()` calls around them) runs inside one `try` per mail in `bin/worker.php`. Originally, an uncaught exception anywhere in there was just `error_log()`'d and the loop moved on to the next mail — but since none of `markSeen()`/`archiveOrDelete()` had run yet, the mail stayed unseen and was re-fetched and re-crashed on *every single subsequent cycle*, forever, with the only trace being that repeating log line. Confirmed live: a non-conformant Content-ID (see "Non-conformant Content-IDs" above, now separately fixed) retried every ~20s for several minutes straight with zero owner-facing signal.
+
+`ProcessingFailureTracker` (`src/Mail/ProcessingFailureTracker.php`) bounds this: a new `processing_failures` table (`migrations/004_processing_failures.sql`), keyed like `imap_seen`/`moderation_queue` by `(list_cn, imap_uid, imap_uidvalidity)`, tracks an `attempts` counter per mail — persisted in the DB, not an in-memory counter, so it survives a worker restart between cycles the same way `imap_seen` does. `bin/worker.php`'s per-mail `catch` now calls `recordFailure()` (upsert + return the new count) instead of just logging; while `attempts < ProcessingFailureTracker::MAX_ATTEMPTS` (3, matching `queue_recipients`' own give-up threshold — see "queue.failure_notice" — same "3 tries, then stop and tell someone" philosophy applied to incoming-mail processing instead of outgoing queue sending), it still just retries next cycle as before. Once the limit is reached, the mail is given up on: `ProcessingFailureNotifier::notify()` emails the list owners (translation key `processing_failure.owner_notice`, original mail attached as `message/rfc822`, same pattern as `BounceHandler`/`ModerationMailer`) with the mail's subject/sender, the attempt count, and the exception message, then `markSeen()` + `archiveOrDelete()` run so the mail finally leaves the retry loop (archived or deleted per the list's own `archive:` setting, same as any other terminal outcome), and the `processing_failures` row is cleared. A failure during this give-up sequence itself (owner notify, mark seen, archive) is caught separately and logged rather than crashing the whole worker cycle — the row is deliberately left in place so the mail is retried (and give-up re-attempted) next cycle instead of silently falling out of tracking.
+
+On the success path, `bin/worker.php`'s per-mail processing was refactored from a `continue`-heavy inline block into a closure (`$processIncomingMail`, still holding the exact same branch logic — every `continue;` became a `return;`) specifically so there is exactly one call site, right after it returns without throwing, to call `ProcessingFailureTracker::clear()` — regardless of which of the branches inside actually handled the mail. Without a single success point, clearing the tracker correctly would have needed a matching `clear()` call added at every one of the six `continue`/end-of-function exits inside the old inline block, an easy place to miss one and leave a stale row (or worse, an under-counted retry limit) behind.
+
+A `processing_failures` row is normally short-lived — cleared within the same cycle it either succeeds or hits the give-up path — so the cleanup-step `DELETE ... WHERE last_attempt_at < NOW() - INTERVAL 31 DAY` (same retention as `imap_seen`) is a safety net for the one case that doesn't self-resolve: the give-up sequence itself repeatedly failing (e.g. sending the owner notification keeps erroring), which would otherwise leave the row behind indefinitely.
 
 ### Sending batch (`QueueSender`)
 
@@ -1379,6 +1448,18 @@ Bounces are still checked before Authentication-Results and Subaddress validatio
 
 `readHeader()`'s "first occurrence anywhere in the text" behavior is safe for `Diagnostic-Code`/`Final-Recipient` specifically because a standard DSN's delivery-status part always precedes the attached original message, so there's no risk of accidentally matching something inside the original mail's own headers/body instead.
 
+#### Bounce loop prevention
+
+A bounce-forward (`BounceHandler::forwardToOwners()`) is itself an outgoing mail, sent via `NotificationMailer::sendToOwners()` — which means it can itself bounce. Without a guard against that, the new bounce would be logged and forwarded again exactly like any other, producing another notification for the owner's server to possibly reject again, and so on. Confirmed live: a single distributed mail rejected as spam by one owner's server produced roughly 100 consecutive bounces this way before the guards below existed.
+
+Three independent layers, from most to least targeted:
+
+1. **`NotificationMailer`'s own output is marked and de-fanged.** Every mail it sends (bounce forwards, moderation/unsubscribe notices, queue failure notices — anything routed through `NotificationMailer::send()`) carries an `X-Listig-Auto: notification` header (`NotificationMailer::AUTO_HEADER`) plus `Auto-Submitted: auto-generated`, and is sent through a null-sender envelope (`MAIL FROM:<>`, RFC 5321's null reverse-path — see `NullSenderEnvelope` below) rather than the implicit envelope-from-address `Mailer::send()` would otherwise derive from the `From:` header. A compliant receiving MTA is specifically supposed to never generate a DSN in response to a null-reverse-path message (that's the entire point of the convention — it's what real bounce/DSN messages themselves use as their own envelope sender, precisely so a bounce can't itself bounce) — so on a well-behaved server, the loop is cut off at the SMTP layer before a second bounce is even generated. `Auto-Submitted` is the same signal `IncomingMailFilter::isBounce()` already checks for on the *receiving* side (see "IncomingMailFilter — check order"), included here for the servers that do honor it even without full null-envelope handling.
+2. **`BounceHandler::isBounceOnOwnNotification()`** — the layer that actually matters when step 1 doesn't fully stop a bounce from arriving anyway (not every mail server is well-behaved). Mirrors `extractOriginalSender()`'s own approach: search for `X-Listig-Auto` only from the raw bounce MIME's first `message/rfc822` marker onward, i.e. inside the *attached original message*, not the outer bounce's own headers. If it's present, this bounce is a bounce *on one of Listig's own notifications* rather than on a genuine member/owner-authored mail — `handle()` still calls `logBounce()` (the manage page's bounce table stays a complete record either way), but skips `forwardToOwners()` entirely, so no second notification is ever generated in the first place.
+3. **Bounce-log circuit breaker** — a last-resort safety net for the case where even the attached-original detection above doesn't catch it (e.g. a DSN generator that reformats or truncates the attached original enough to lose the header). `BounceHandler::circuitBreakerTripped()` counts `bounce_log` rows for the list within the last `CIRCUIT_BREAKER_WINDOW_MINUTES` minutes (15, using the existing `idx_list_time (list_cn, bounced_at)` index — a single indexed `COUNT(*)`, not a new query shape) and skips `forwardToOwners()` once that count exceeds `CIRCUIT_BREAKER_THRESHOLD` (5) — capping the worst case at a handful of forwarded mails instead of the ~100 seen before this existed, regardless of what shape the loop takes.
+
+**`NullSenderEnvelope` (`src/Mail/NullSenderEnvelope.php`)** — symfony/mailer 7.4 (the exact version pinned in `composer.lock`) has no supported way to build an `Envelope` with an empty sender at all: `Address::__construct()` always validates via `egulias/email-validator` and rejects an empty address, `Envelope::setSender()` independently regex-validates for an `@`, and `Address` is `final`, so it can't be subclassed to skip validation either. `NullSenderEnvelope extends Envelope` (not final) and, in its own constructor, deliberately skips `parent::__construct()` (which would call the validating `setSender()`) — it builds an `Address` via `ReflectionClass::newInstanceWithoutConstructor()` with both private properties (`address`, `name`) set to `''` via `ReflectionProperty`, then writes that directly into `Envelope`'s own private `$sender` property, again via `ReflectionProperty`, bypassing `setSender()`'s validation a second time. This is Reflection reaching into a third-party library's private internals — a real trade-off, isolated deliberately in one small, single-purpose class rather than spread across `NotificationMailer` — but it's the only way to produce a literal `MAIL FROM:<>`: `SmtpTransport::doMailFromCommand()` builds that command straight from `getSender()->getEncodedAddress()` with no validation of its own, so an empty address there is handled correctly once it actually gets that far.
+
 ### Header filter
 
 `HeaderFilter::readAuthResults(string $headersRaw): array{spf, dkim}` — parses the `Authentication-Results` header from the raw header block and returns SPF/DKIM pass/fail strings.
@@ -1390,6 +1471,10 @@ Bounces are still checked before Authentication-Results and Subaddress validatio
 `buildOutgoingEmail()` copies `$mail->textHtml`/`$mail->textPlain` into the outgoing body verbatim — any `cid:` references an incoming HTML body contains (e.g. `<img src="cid:part1.ACmwPHTY.OIw3acmz@hengeb.de">`) are never rewritten, so whichever attachment part they point at must survive distribution with the *same* Content-ID and an `inline` disposition, or the reference resolves to nothing in the recipient's mail client. `Email::attach()` cannot do this: it always builds a plain `DataPart` with `Content-Disposition: attachment` and no `Content-ID` at all, regardless of what the original attachment looked like — silently breaking every embedded image on every distributed mail (confirmed live: an incoming mail with one `cid:`-embedded image and one ordinary attached image produced identical `attachment`-disposition parts for both, and Thunderbird rendered a broken-image icon where the embed should have been). `Email::embed()` isn't a fix either — it calls `(new DataPart(...))->asInline()`, but has no parameter for pinning a *specific* pre-existing Content-ID; without one it lazily generates its own via `getContentId()`'s `generateContentId()` fallback, which would never match the id already baked into the copied HTML body.
 
 The fix: for each `IncomingMailAttachment` where `$attachment->disposition === 'inline'` and `$attachment->contentId` is non-empty, build the part manually — `(new DataPart($attachment->getContents(), $attachment->name, $contentType))->asInline()->setContentId($attachment->contentId)`, added via `$email->addPart()` — preserving the exact original id (`IncomingMailAttachment::$contentId` is already bare, without angle brackets, matching both `DataPart::setContentId()`'s expected format and the bare `cid:...` reference already in the HTML). Every other attachment (no Content-ID, or `disposition === 'attachment'`) continues through the plain `$email->attach(...)` path unchanged.
+
+**Non-conformant Content-IDs** — `DataPart::setContentId()` requires an "@" (RFC 2045-style msg-id syntax: `local-part@domain`) and throws `InvalidArgumentException` otherwise; the same requirement is enforced a second time, independently, wherever `getPreparedHeaders()` actually serializes the id (`Headers::setHeaderBody('Id', 'Content-ID', ...)` → `IdentificationHeader::setIds()` → `new Address($id)`, which runs the same "does it look like `local-part@domain`" validation) — so there is no way to bypass the first check (e.g. writing `$this->cid` directly) and still emit a genuinely non-conformant `Content-ID` header via symfony/mime's normal API. Confirmed live from a real sender (an Authentik-generated notification via Amazon SES): `Content-ID: <logo>` — no `@` at all — which, uncaught, crashed `MailProcessor::process()` entirely before any recipient was enqueued; `bin/worker.php`'s outer per-mail `catch` then logged the error and `continue`d, leaving the mail unseen and unarchived, so it was refetched and re-crashed on *every single worker cycle* indefinitely (see "Processing-failure retry limit" below for why that no longer happens either way).
+
+Falling back to a plain (non-inline) attachment for such a part would "fix" the crash but silently break the embed for every recipient, even though the original, non-conformant mail displayed it just fine in the sender's own client — not an acceptable trade-off. The actual fix: `buildOutgoingEmail()` first scans every inline attachment's Content-ID; any that doesn't contain `@` gets a synthesized replacement (`$cid . '@listig.invalid'` — the same `.invalid` (RFC 2606) placeholder-domain convention already used for `ReplyToBehavior::Nobody`'s `noreply@{domain}.invalid`, i.e. syntactically valid and deliberately never meant to be dereferenced) recorded in a `$cidRewrites` map. Every `cid:$oldId` occurrence in `$mail->textHtml` is then rewritten to `cid:$newId` **before** the body is set on the outgoing `Email` — the reference and the embed must always agree on the same id, or it resolves to nothing either way, so the body has to be fixed up first. The attachment loop then calls `setContentId($cidRewrites[$cid] ?? $cid)`, and only if *that* still throws (some other, still-unfixable malformation) does it fall back to the old safety net: `try`/`catch (\Throwable)`, plain `$email->attach(...)`, logged via `error_log()` — matching the same "malformed value from the sending MTA, skip and move on" philosophy as the header-preservation loop below, just as a last resort rather than the first response to a merely-missing `@`.
 
 ### Headers to set on outgoing mail
 
@@ -1974,8 +2059,21 @@ Setting `$_SESSION['oidc_next']` on the initial leg needs an explicit `session_s
 Every route not scoped to a specific list lives under the reserved `/_/` prefix. List-scoped routes
 are a single bare path segment (`/{listname}`), which can never collide with a `/_/...` route
 regardless of registration order, since the latter always has ≥2 segments with a static first
-segment — the only requirement is that no list is ever named `_` (enforced fail-fast in
+segment — one requirement is that no list is ever named `_` (enforced fail-fast in
 `ListConfig::__construct()`, see "ListConfig with property hooks").
+
+`ListConfig::__construct()` also fail-fast rejects a list name containing anything outside
+`[A-Za-z0-9_-]` (`ListConfig::VALID_NAME_PATTERN`) — a positive allowlist, not a blocklist of
+specific bad characters. This exists specifically to keep a name from colliding with
+`docker/nginx.conf`'s `location ~ \.php$ { return 404; }`: that rule matches on the URL path
+alone, with no awareness of which names are actually configured lists, so a list literally named
+e.g. `news.php` would have every one of its web routes (manage page, archive viewer, unsubscribe
+link, moderation preview, List Management API) silently 404 at the nginx layer, before Slim ever
+sees the request — while mail distribution over IMAP/SMTP (which never touches nginx) kept working
+regardless, making the list look fine until someone actually clicked a generated link. Since every
+provider constructs its lists through this one class, the check applies uniformly regardless of
+where the name comes from (LDAP `cn`, a `config-table`/CSV/database row, a `list-providers`/`lists:`
+YAML key).
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
@@ -2010,16 +2108,21 @@ segment — the only requirement is that no list is ever named `_` (enforced fai
 | POST | `/{listname}/encrypt-password` | Bearer | List Management API: encrypt + persist a password |
 | GET | `/_/health` | — | Health check: DB + LDAP reachability |
 
-Static assets (CSS/images), once added, belong under `public/assets/` as plain files — never routed
-through Slim at all. nginx (`docker/nginx.conf`) has an explicit
-`location /assets/ { try_files $uri =404; }` block serving these directly, and a fallback
-`location / { try_files $uri /index.php$is_args$args; }` that only reaches the Slim front controller
-when no real file matches — so `public/assets/...` needs no reserved-name carve-out of its own.
-`public/logo.svg`/`public/logo-mark.svg` (see "App name (`app-name`)") predate that convention and sit
-directly under `public/` instead — served the same way, via the `location /` fallback's `try_files`
-finding the real file before it ever reaches `index.php`, so no nginx change was needed for them either.
-Only `index.php` itself is ever passed to php-fpm (`location = /index.php`); any other `.php` request
-is rejected with `404` (`location ~ \.php$ { return 404; }`).
+Static assets (CSS/JS/images) live under `public/assets/` as plain files — `style.css`, `script.js`
+plus per-page JS (`archive-index.js`, `archive-show.js`, `list-manage.js`), and `logo.svg`/
+`logo-mark.svg` (see "App name (`app-name`)") — never routed through Slim at all. nginx
+(`docker/nginx.conf`) has an explicit `location /assets/ { try_files $uri =404; }` block serving
+these directly, and a fallback `location / { try_files $uri /index.php$is_args$args; }` that only
+reaches the Slim front controller when no real file matches — so `public/assets/...` needs no
+reserved-name carve-out of its own. `public/favicon.ico`/`.png`/`.svg` sit directly under `public/`
+instead (outside `/assets/`) and are picked up the same way, via the `location /` fallback finding
+the real file before it reaches `index.php` — only `favicon.ico` is actually referenced anywhere
+(the browser's own default `/favicon.ico` request; `layout.latte` has no explicit `<link rel="icon">`
+of its own, so an operator wanting the `.png`/`.svg` variant linked needs to add one via the
+`custom_head` block, see "Custom layout"). Only `index.php` itself is ever passed to php-fpm
+(`location = /index.php`); any other `.php` request is rejected with `404`
+(`location ~ \.php$ { return 404; }` — see "Quiet 404 logging" for how that interacts with Slim's
+own exception logging).
 
 ### Member dashboard (`/`)
 

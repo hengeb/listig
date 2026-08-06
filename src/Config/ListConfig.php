@@ -23,6 +23,20 @@ class ListConfig
      */
     private const string RESERVED_NAME = '_';
 
+    /**
+     * Letters, digits, underscore, hyphen only — a positive allowlist rather than
+     * blocking specific bad characters one at a time. In particular this rules out
+     * a dot, so a name like "news.php" is rejected here rather than silently
+     * producing a list whose every web route (manage page, archive viewer,
+     * unsubscribe link, moderation preview, List Management API) 404s at the nginx
+     * layer before Slim ever sees the request — docker/nginx.conf's
+     * `location ~ \.php$ { return 404; }` matches on the URL path alone, with no
+     * awareness of which names are actually configured lists. Mail distribution
+     * over IMAP/SMTP would keep working regardless (it never touches nginx), which
+     * would make such a list look fine until someone actually clicked a link.
+     */
+    private const string VALID_NAME_PATTERN = '/^[A-Za-z0-9_-]+$/';
+
     public function __construct(
         public readonly string $name,
         public readonly string $mail,
@@ -38,6 +52,11 @@ class ListConfig
         if ($this->name === self::RESERVED_NAME) {
             throw new \RuntimeException(
                 "List name '_' is reserved for system routes (/_/...) and cannot be used"
+            );
+        }
+        if (!preg_match(self::VALID_NAME_PATTERN, $this->name)) {
+            throw new \RuntimeException(
+                "List name '{$this->name}' is invalid — only letters, digits, underscore, and hyphen are allowed"
             );
         }
     }

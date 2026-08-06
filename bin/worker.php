@@ -7,16 +7,20 @@ use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Imap\ImapArchiver;
 use Hengeb\Listig\Imap\ImapMailboxFactory;
 use Hengeb\Listig\Imap\ImapPoller;
+use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\BounceHandler;
 use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
 use Hengeb\Listig\Mail\MailProcessor;
+use Hengeb\Listig\Mail\ProcessingFailureNotifier;
+use Hengeb\Listig\Mail\ProcessingFailureTracker;
 use Hengeb\Listig\Mail\RejectionNotifier;
 use Hengeb\Listig\Moderation\ModerationChecker;
 use Hengeb\Listig\Moderation\ModerationMailer;
 use Hengeb\Listig\Moderation\ModerationResponseHandler;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\Queue\QueueSender;
+use PhpImap\IncomingMail;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
@@ -59,6 +63,8 @@ try {
     $moderationResponseHandler  = $container->get(ModerationResponseHandler::class);
     $bounceHandler              = $container->get(BounceHandler::class);
     $rejectionNotifier          = $container->get(RejectionNotifier::class);
+    $processingFailureTracker   = $container->get(ProcessingFailureTracker::class);
+    $processingFailureNotifier  = $container->get(ProcessingFailureNotifier::class);
     $queueSender                = $container->get(QueueSender::class);
     $db                         = $container->get(PDO::class);
 
@@ -86,6 +92,96 @@ try {
 // would keep returning the mtime from the very first call.
 $configPath  = $container->get('config.path');
 $configMtime = @filemtime($configPath) ?: null;
+
+/**
+ * Processes a single already-fetched incoming mail through the full filter
+ * pipeline. Uses `return` (not `continue`) for every terminal outcome so the
+ * caller has exactly one place — right after this call returns without
+ * throwing — to clear any processing_failures bookkeeping for this UID (see
+ * ProcessingFailureTracker), regardless of which branch below actually
+ * handled it.
+ */
+$processIncomingMail = function (
+    IncomingMail $mail,
+    string $rawMime,
+    int $uid,
+    int $uidValidity,
+    ListConfig $list,
+) use (
+    $moderationResponseHandler,
+    $headerFilter,
+    $mailFilter,
+    $bounceHandler,
+    $imapPoller,
+    $imapArchiver,
+    $rejectionNotifier,
+    $moderationMailer,
+    $mailProcessor,
+    $archiveIndexer,
+): void {
+    // Owner replies to +accept-{token}/+reject-{token} — handled separately,
+    // never subject to the normal incoming-mail filter chain. This is the
+    // reply mail's own UID (not the original moderated mail's, which
+    // ModerationResponseHandler::processAccept()/processReject() already
+    // archives/deletes via its own uid from the token payload) — without
+    // archiveOrDelete() here too, every accept/reject reply piled up in the
+    // inbox forever, marked seen but never actually removed, unlike every
+    // other terminal outcome (bounce/reject/distribute) below.
+    if ($moderationResponseHandler->handle($mail, $list)) {
+        $imapPoller->markSeen($list, $uid, $uidValidity);
+        $imapArchiver->archiveOrDelete($list, $uid);
+        return;
+    }
+
+    $authResults = $headerFilter->readAuthResults($mail->headersRaw ?? '');
+    $result      = $mailFilter->filter($mail, $list, $rawMime, $authResults);
+
+    if ($result->isDiscard) {
+        $imapPoller->markSeen($list, $uid, $uidValidity);
+        // True for a `filters:` rule with `action: discard` (see
+        // SpamFilter/FilterResult::$forceDelete) — unlike the X-Loop
+        // discard, that one is meant to actually go away, deleted
+        // outright regardless of the list's own archive: setting.
+        if ($result->forceDelete) {
+            $imapArchiver->delete($list, $uid);
+        }
+        return;
+    }
+
+    if ($result->isBounce) {
+        $bounceHandler->handle($list, $mail, $rawMime);
+        $imapPoller->markSeen($list, $uid, $uidValidity);
+        $imapArchiver->archiveOrDelete($list, $uid);
+        return;
+    }
+
+    if ($result->isReject) {
+        $rejectionNotifier->notify($list, $mail, $rawMime, $result->reason, $result->reasonParams);
+        $imapPoller->markSeen($list, $uid, $uidValidity);
+        // forceDelete (a `filters:` spam match, see FilterResult) skips
+        // the list's own archive: setting entirely — every other reject
+        // reason still goes through the normal archiveOrDelete().
+        if ($result->forceDelete) {
+            $imapArchiver->delete($list, $uid);
+        } else {
+            $imapArchiver->archiveOrDelete($list, $uid);
+        }
+        return;
+    }
+
+    if ($result->isModeration) {
+        $moderationMailer->send($list, $mail, $uid, $uidValidity, $rawMime);
+        $imapPoller->markSeen($list, $uid, $uidValidity);
+        return;
+    }
+
+    if ($result->isDistribute) {
+        $mailProcessor->process($mail, $rawMime, $list);
+        $imapPoller->markSeen($list, $uid, $uidValidity);
+        $imapArchiver->archiveOrDelete($list, $uid);
+        $archiveIndexer->index($list, $mail);
+    }
+};
 
 error_log('Listig worker started');
 
@@ -115,70 +211,38 @@ while (true) {
             $mail        = $mailData['mail']; // IncomingMail
 
             try {
-                // Owner replies to +accept-{token}/+reject-{token} — handled separately,
-                // never subject to the normal incoming-mail filter chain. This is the
-                // reply mail's own UID (not the original moderated mail's, which
-                // ModerationResponseHandler::processAccept()/processReject() already
-                // archives/deletes via its own uid from the token payload) — without
-                // archiveOrDelete() here too, every accept/reject reply piled up in the
-                // inbox forever, marked seen but never actually removed, unlike every
-                // other terminal outcome (bounce/reject/distribute) below.
-                if ($moderationResponseHandler->handle($mail, $list)) {
-                    $imapPoller->markSeen($list, $uid, $uidValidity);
-                    $imapArchiver->archiveOrDelete($list, $uid);
-                    continue;
-                }
-
-                $authResults = $headerFilter->readAuthResults($mail->headersRaw ?? '');
-                $result      = $mailFilter->filter($mail, $list, $rawMime, $authResults);
-
-                if ($result->isDiscard) {
-                    $imapPoller->markSeen($list, $uid, $uidValidity);
-                    // True for a `filters:` rule with `action: discard` (see
-                    // SpamFilter/FilterResult::$forceDelete) — unlike the X-Loop
-                    // discard, that one is meant to actually go away, deleted
-                    // outright regardless of the list's own archive: setting.
-                    if ($result->forceDelete) {
-                        $imapArchiver->delete($list, $uid);
-                    }
-                    continue;
-                }
-
-                if ($result->isBounce) {
-                    $bounceHandler->handle($list, $mail, $rawMime);
-                    $imapPoller->markSeen($list, $uid, $uidValidity);
-                    $imapArchiver->archiveOrDelete($list, $uid);
-                    continue;
-                }
-
-                if ($result->isReject) {
-                    $rejectionNotifier->notify($list, $mail, $rawMime, $result->reason, $result->reasonParams);
-                    $imapPoller->markSeen($list, $uid, $uidValidity);
-                    // forceDelete (a `filters:` spam match, see FilterResult) skips
-                    // the list's own archive: setting entirely — every other reject
-                    // reason still goes through the normal archiveOrDelete().
-                    if ($result->forceDelete) {
-                        $imapArchiver->delete($list, $uid);
-                    } else {
-                        $imapArchiver->archiveOrDelete($list, $uid);
-                    }
-                    continue;
-                }
-
-                if ($result->isModeration) {
-                    $moderationMailer->send($list, $mail, $uid, $uidValidity, $rawMime);
-                    $imapPoller->markSeen($list, $uid, $uidValidity);
-                    continue;
-                }
-
-                if ($result->isDistribute) {
-                    $mailProcessor->process($mail, $rawMime, $list);
-                    $imapPoller->markSeen($list, $uid, $uidValidity);
-                    $imapArchiver->archiveOrDelete($list, $uid);
-                    $archiveIndexer->index($list, $mail);
-                }
+                $processIncomingMail($mail, $rawMime, $uid, $uidValidity, $list);
+                $processingFailureTracker->clear($list->name, $uid, $uidValidity);
             } catch (\Throwable $e) {
                 error_log("Listig: Error processing mail UID $uid for list {$list->name}: " . $e->getMessage());
+
+                // Without a bound, a mail that reliably crashes processing (a
+                // malformed header, an unexpected library exception, ...) would be
+                // re-fetched and re-crash on every single cycle forever — never
+                // marked seen, never archived, with no signal beyond this log line.
+                // See ProcessingFailureTracker.
+                $attempts = $processingFailureTracker->recordFailure($list->name, $uid, $uidValidity, $e->getMessage());
+                if ($attempts < ProcessingFailureTracker::MAX_ATTEMPTS) {
+                    continue;
+                }
+
+                error_log(
+                    "Listig: Giving up on mail UID $uid for list {$list->name} after $attempts failed attempts — "
+                    . 'notifying the owner(s) and archiving.'
+                );
+                try {
+                    $processingFailureNotifier->notify($list, $mail, $rawMime, $e, $attempts);
+                    $imapPoller->markSeen($list, $uid, $uidValidity);
+                    $imapArchiver->archiveOrDelete($list, $uid);
+                    $processingFailureTracker->clear($list->name, $uid, $uidValidity);
+                } catch (\Throwable $giveUpError) {
+                    // A failure while giving up (owner notify, mark seen, archive)
+                    // must not crash the whole worker cycle — log it and leave the
+                    // processing_failures row in place so this mail is retried
+                    // again next cycle (attempts keeps climbing, give-up is
+                    // attempted again) instead of silently vanishing from tracking.
+                    error_log("Listig: Failed to finalize give-up for UID $uid, list {$list->name}: " . $giveUpError->getMessage());
+                }
             }
         }
 
@@ -210,6 +274,11 @@ while (true) {
         $db->exec("DELETE FROM imap_seen WHERE seen_at < NOW() - INTERVAL 31 DAY");
         $db->exec("DELETE FROM rate_limit WHERE sent_at < NOW() - INTERVAL 1 HOUR");
         $db->exec("DELETE FROM bounce_log WHERE bounced_at < NOW() - INTERVAL 90 DAY");
+        // Safety net only — a row here is normally cleared within one cycle of
+        // reaching ProcessingFailureTracker::MAX_ATTEMPTS (see above); this just
+        // catches one that got stuck (e.g. the give-up notification/archive call
+        // itself kept failing) so it doesn't linger in the table forever.
+        $db->exec("DELETE FROM processing_failures WHERE last_attempt_at < NOW() - INTERVAL 31 DAY");
     } catch (\Throwable $e) {
         error_log("Listig: Cleanup failed: " . $e->getMessage());
     }

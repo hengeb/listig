@@ -56,6 +56,11 @@ bounce:
     subject: "[Bounce] %list%: von %sender%"
     body: "Für die Liste %list% ist ein Bounce eingegangen.\n\nUrsprünglicher Absender: %original_sender%\nFehlgeschlagener Empfänger: %failed_recipient%\nUrsache: %reason%\n\nVon: %sender%\nBetreff: %subject%\n\nDer ursprüngliche Bounce ist angehängt."
 
+processing_failure:
+  owner_notice:
+    subject: "[%list%] Mail konnte nicht verarbeitet werden"
+    body: "Eine eingehende Mail für die Liste %list% konnte nach %attempts% Versuchen nicht verarbeitet werden und wurde archiviert bzw. gelöscht, ohne verteilt zu werden.\n\nVon: %sender%\nBetreff: %subject%\n\nFehler: %error%\n\nDie ursprüngliche Mail ist angehängt."
+
 queue:
   failure_notice:
     subject: "[%list%] Zustellungsfehler für %recipient%"

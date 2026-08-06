@@ -101,9 +101,40 @@ class MailProcessor
         $email = new Email();
         $email->subject($mail->subject ?? '');
 
+        $attachments = $mail->getAttachments();
+
+        // DataPart::setContentId() (symfony/mime) requires a valid RFC 2045-style
+        // msg-id ("local-part@domain") and throws InvalidArgumentException
+        // otherwise — confirmed live from a real sender (an Authentik-generated
+        // notification via Amazon SES) using a bare Content-ID: <logo>, no "@" at
+        // all. Falling back to a plain (non-inline) attachment for such a part
+        // would "fix" the crash but silently break the embed on every recipient's
+        // side, even though the original, non-conformant mail displayed it fine —
+        // not acceptable. Instead, synthesize a valid id for every offending
+        // Content-ID up front and rewrite each matching `cid:` reference in the
+        // HTML body to the same new id, *before* the body is set — the reference
+        // and the embed must always agree on the same id, or it resolves to
+        // nothing either way. The '.invalid' suffix mirrors the existing
+        // `noreply@{domain}.invalid` convention (ReplyToBehavior::Nobody) — a
+        // syntactically valid, deliberately non-resolvable placeholder domain
+        // (RFC 2606), never meant to be dereferenced.
+        $cidRewrites = [];
+        foreach ($attachments as $attachment) {
+            $cid = $attachment->contentId ?? '';
+            if ($attachment->disposition === 'inline' && $cid !== '' && !str_contains($cid, '@')) {
+                $cidRewrites[$cid] = $cid . '@listig.invalid';
+            }
+        }
+
         // Body
-        if ($mail->textHtml !== null && $mail->textHtml !== '') {
-            $email->html($mail->textHtml);
+        $textHtml = $mail->textHtml;
+        if ($cidRewrites !== [] && $textHtml !== null) {
+            foreach ($cidRewrites as $oldCid => $newCid) {
+                $textHtml = str_replace("cid:$oldCid", "cid:$newCid", $textHtml);
+            }
+        }
+        if ($textHtml !== null && $textHtml !== '') {
+            $email->html($textHtml);
             if ($mail->textPlain !== null && $mail->textPlain !== '') {
                 $email->text($mail->textPlain);
             }
@@ -111,26 +142,39 @@ class MailProcessor
             $email->text($mail->textPlain);
         }
 
-        // Attachments. $mail->textHtml is copied into the outgoing body verbatim
-        // above — any cid: references it contains are never rewritten — so an
-        // attachment that's actually an embedded image (Content-Disposition:
-        // inline with a Content-ID, matching such a cid: reference) must keep
-        // both on the outgoing copy, or the reference resolves to nothing once
+        // Attachments. Any cid: reference in the (possibly just-rewritten) HTML
+        // body above must keep pointing at a real part with a matching Content-ID
+        // and an `inline` disposition, or the reference resolves to nothing once
         // the recipient's mail client looks for it. Email::attach() always
         // creates a plain Content-Disposition: attachment part with no Content-ID
         // at all, silently breaking every embedded image on every distributed
         // mail; DataPart::asInline()/setContentId() (the same two primitives
         // Email::embed() itself calls, just without a way to pin a *specific*
         // pre-existing id) preserve the original inline part faithfully.
-        foreach ($mail->getAttachments() as $attachment) {
+        foreach ($attachments as $attachment) {
             $contentType = $attachment->mimeType ?? 'application/octet-stream';
-            if ($attachment->disposition === 'inline' && ($attachment->contentId ?? '') !== '') {
-                $part = new DataPart($attachment->getContents(), $attachment->name, $contentType);
-                $part->asInline()->setContentId($attachment->contentId);
-                $email->addPart($part);
-            } else {
-                $email->attach($attachment->getContents(), $attachment->name, $contentType);
+            $cid = $attachment->contentId ?? '';
+            if ($attachment->disposition === 'inline' && $cid !== '') {
+                try {
+                    $part = new DataPart($attachment->getContents(), $attachment->name, $contentType);
+                    $part->asInline()->setContentId($cidRewrites[$cid] ?? $cid);
+                    $email->addPart($part);
+                    continue;
+                } catch (\Throwable $e) {
+                    // Last-resort safety net for a Content-ID broken in some other,
+                    // still-unfixable way (not just missing "@") — same "malformed
+                    // value from the sending MTA, skip and move on" philosophy as the
+                    // header-preservation loop below: fall back to a plain attachment
+                    // rather than blocking distribution of an otherwise-fine mail. The
+                    // cid: reference in the body then shows as a broken image on the
+                    // recipient's side.
+                    error_log(
+                        "Listig: Failed to preserve inline Content-ID '$cid' on outgoing mail, "
+                        . 'attaching as a plain attachment instead: ' . $e->getMessage()
+                    );
+                }
             }
+            $email->attach($attachment->getContents(), $attachment->name, $contentType);
         }
 
         // Threading and identification headers worth preserving. symfony/mime enforces

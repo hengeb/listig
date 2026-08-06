@@ -56,6 +56,11 @@ bounce:
     subject: "[Bounce] %list%: from %sender%"
     body: "A bounce was received for list %list%.\n\nOriginal sender: %original_sender%\nFailed recipient: %failed_recipient%\nReason: %reason%\n\nFrom: %sender%\nSubject: %subject%\n\nThe original bounce is attached."
 
+processing_failure:
+  owner_notice:
+    subject: "[%list%] Mail could not be processed"
+    body: "An incoming mail for list %list% could not be processed after %attempts% attempts and has been archived or deleted without being distributed.\n\nFrom: %sender%\nSubject: %subject%\n\nError: %error%\n\nThe original mail is attached."
+
 queue:
   failure_notice:
     subject: "[%list%] Delivery failure for %recipient%"
