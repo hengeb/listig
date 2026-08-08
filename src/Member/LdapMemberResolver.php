@@ -140,19 +140,34 @@ class LdapMemberResolver implements MemberResolver
     /**
      * Exposes every attribute of the directory entry under its own name (e.g.
      * {cn}, {givenName}, {sn}, {employeeNumber}, {businessCategory}, ...) — no
-     * fixed mapping to firstname/lastname/pronoun/etc. A list defines its own
-     * mapping as a normal config key, e.g. `pronoun: "{businessCategory}"` or
-     * `firstname: "{givenName}"`, resolved lazily per recipient — see
+     * fixed mapping to pronoun/title/etc. A list can still define its own
+     * mapping as a normal config key for anything not covered below, e.g.
+     * `pronoun: "{businessCategory}"`, resolved lazily per recipient — see
      * MailProcessor::buildRecipientContext() and CLAUDE.md "Pronoun / salutation
      * personalization".
      *
-     * The one exception is 'username': it is duplicated from 'cn' under this
-     * well-known key because two privacy-sensitive call sites need a non-email
-     * identifier with no list/alias context available to fall back to a
-     * per-list mapping — MailProcessor's unsubscribe-token signing and
-     * X-Original-Sender header, and AuthController's login-token signing, which
-     * runs before any specific list is known at all (AggregateMemberResolver
-     * searches across all of them). Every other attribute stays fully dynamic.
+     * Two exceptions, both populated here unconditionally/as-fallback rather
+     * than requiring a per-list config alias, since `firstname`/`lastname` are
+     * meant to be usable for a person's name everywhere in this codebase
+     * (mail personalization, {sender-name}, resolveMemberDisplayName() in the
+     * owner/member UI, ...) without every LDAP-backed list having to redefine
+     * the same `firstname: "{givenName}"` / `lastname: "{sn}"` aliases:
+     * - 'username': duplicated from 'cn' unconditionally — two privacy-sensitive
+     *   call sites need a non-email identifier with no list/alias context
+     *   available to fall back to a per-list mapping — MailProcessor's
+     *   unsubscribe-token signing and X-Original-Sender header, and
+     *   AuthController's login-token signing, which runs before any specific
+     *   list is known at all (AggregateMemberResolver searches across all of
+     *   them).
+     * - 'firstname'/'lastname': filled in from 'givenName'/'sn' — the standard
+     *   inetOrgPerson attributes an LDAP schema already guarantees — only as a
+     *   fallback (`isset()`-guarded), so a directory that happens to carry its
+     *   own real 'firstname'/'lastname' attributes (non-standard, but not
+     *   impossible) is never overwritten by this convenience copy. A list-level
+     *   `firstname:`/`lastname:` config alias (still supported, unchanged) is
+     *   evaluated for a member's *own* attributes first anyway — see
+     *   ListConfig::resolveMemberDisplayName() — so this fallback is what
+     *   actually fires whenever no such alias is configured at all.
      */
     private function entryToMember(Entry $entry): Member
     {
@@ -167,6 +182,12 @@ class LdapMemberResolver implements MemberResolver
         }
         if (isset($attributes['cn'])) {
             $attributes['username'] = $attributes['cn'];
+        }
+        if (!isset($attributes['firstname']) && isset($attributes['givenName'])) {
+            $attributes['firstname'] = $attributes['givenName'];
+        }
+        if (!isset($attributes['lastname']) && isset($attributes['sn'])) {
+            $attributes['lastname'] = $attributes['sn'];
         }
 
         return new Member($mail, $attributes);

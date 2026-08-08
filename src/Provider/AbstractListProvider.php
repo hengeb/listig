@@ -91,13 +91,22 @@ abstract class AbstractListProvider implements ListProvider
     }
 
     /**
-     * Raw values for $key at all three levels a list can now configure
-     * members/owners/member-resolver/owner-resolver/senders/restricted-members
-     * at — global (root config.yml), this provider, and one specific list —
-     * not yet normalized or merged. Each caller decides how to combine its own
-     * three raw values (concatenation for senders/restricted-members,
-     * MemberResolverFactory::buildSources() for resolver composition, ...).
-     * See CLAUDE.md "Global / provider / list levels".
+     * Every raw value contributing to $key across all three levels a list can
+     * configure members/owners/member-resolver/owner-resolver/senders/
+     * restricted-members at — global (root config.yml), this provider, and one
+     * specific list — not yet normalized or merged. Each caller decides how to
+     * combine the returned values (concatenation for senders/restricted-members,
+     * MemberResolverFactory::buildSources() for resolver composition, ...) —
+     * every element is an independent additional source, so the caller should
+     * simply fold over all of them uniformly rather than assuming a fixed
+     * position/count. See CLAUDE.md "Global / provider / list levels".
+     *
+     * More than one raw value can come from the global or provider level each:
+     * a `use:`-referenced named block's own value for $key is just as much a
+     * source as the level's own direct value — see
+     * ConfigResolver::getGlobalScopedSources()/getProviderScopedSources(). The
+     * list level stays a single value, since a list's own `lists:` entry has no
+     * `use:` mechanism of its own.
      *
      * $listConfig is the list's own already-merged raw config (provider-native
      * listDef/description[]/config-table row, further merged with the
@@ -105,13 +114,13 @@ abstract class AbstractListProvider implements ListProvider
      * whatever a subclass already has in hand for this one list before
      * building its ListConfig.
      *
-     * @return array{0: mixed, 1: mixed, 2: mixed}
+     * @return array<int, mixed>
      */
     protected function scopedLevels(string $key, array $listConfig): array
     {
         return [
-            $this->configResolver->getGlobalScoped()[$key] ?? null,
-            $this->providerConfig[$key] ?? null,
+            ...$this->configResolver->getGlobalScopedSources($key),
+            ...$this->configResolver->getProviderScopedSources($key, $this->providerConfig),
             $listConfig[$key] ?? null,
         ];
     }

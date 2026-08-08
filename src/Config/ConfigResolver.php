@@ -11,9 +11,9 @@ class ConfigResolver
     private array $listProviderConfigs = [];
     private array $filters = [];
     private array $lists = [];
-    private array $globalScoped = [];
+    private array $globalScopedSources = [];
 
-    /** Root keys forming the global level of the three-level (global/provider/list) member/owner/sender/restriction mechanism — see getGlobalScoped(). */
+    /** Root keys forming the global level of the three-level (global/provider/list) member/owner/sender/restriction mechanism — see getGlobalScopedSources(). */
     private const array SCOPED_KEYS = ['members', 'owners', 'member-resolver', 'owner-resolver', 'senders', 'restricted-members'];
 
     public function __construct(string $configPath)
@@ -69,17 +69,44 @@ class ConfigResolver
     }
 
     /**
-     * The global (root config.yml) level of `members:`/`owners:`/`member-resolver:`/
-     * `owner-resolver:`/`senders:`/`restricted-members:` — the outermost of the
-     * three levels (global, provider, list) every one of these six keys can be
-     * set at, always combined additively. See CLAUDE.md "Global / provider /
-     * list levels".
+     * All raw values contributing to $key at the GLOBAL (config.yml root) level —
+     * the outermost of the three levels (global, provider, list) every one of the
+     * six scoped keys (`members:`/`owners:`/`member-resolver:`/`owner-resolver:`/
+     * `senders:`/`restricted-members:`) can be set at. More than one raw value can
+     * contribute here: the root's own direct value (if set) first, then each
+     * root-level `use:`-referenced named block's own value for $key, in `use:`
+     * order — every one of these is an independent additional source, never one
+     * overriding another. See CLAUDE.md "Global / provider / list levels".
      *
-     * @return array<string, mixed> key => raw value, or null if not set at this level
+     * @return array<int, mixed>
      */
-    public function getGlobalScoped(): array
+    public function getGlobalScopedSources(string $key): array
     {
-        return $this->globalScoped;
+        return $this->globalScopedSources[$key] ?? [];
+    }
+
+    /**
+     * Symmetric with getGlobalScopedSources(), one level down: all raw values
+     * contributing to $key at the PROVIDER level for one specific provider's raw
+     * config — that provider's own direct value (if set) first, then each of the
+     * provider's own `use:`-referenced named blocks' value for $key, in that
+     * provider's own `use:` order.
+     *
+     * @param array<string, mixed> $providerConfig the provider's raw list-providers.<name> map
+     * @return array<int, mixed>
+     */
+    public function getProviderScopedSources(string $key, array $providerConfig): array
+    {
+        $sources = [];
+        if (array_key_exists($key, $providerConfig)) {
+            $sources[] = $providerConfig[$key];
+        }
+        foreach (self::normalizeUse($providerConfig['use'] ?? []) as $blockName) {
+            if (array_key_exists($key, $this->namedBlocks[$blockName] ?? [])) {
+                $sources[] = $this->namedBlocks[$blockName][$key];
+            }
+        }
+        return $sources;
     }
 
     /**
@@ -203,8 +230,21 @@ class ConfigResolver
             $config['lists'] ?? []
         );
 
+        // Every raw value contributing to each scoped key at the GLOBAL level —
+        // the root's own direct value first, then each root-level use:-referenced
+        // named block's own value for the key, in `use:` order. See
+        // getGlobalScopedSources().
         foreach (self::SCOPED_KEYS as $key) {
-            $this->globalScoped[$key] = $this->substituteEnvVars($config[$key] ?? null);
+            $sources = [];
+            if (array_key_exists($key, $config)) {
+                $sources[] = $this->substituteEnvVars($config[$key]);
+            }
+            foreach ($this->defaultConfig['use'] ?? [] as $blockName) {
+                if (array_key_exists($key, $this->namedBlocks[$blockName] ?? [])) {
+                    $sources[] = $this->namedBlocks[$blockName][$key];
+                }
+            }
+            $this->globalScopedSources[$key] = $sources;
         }
     }
 

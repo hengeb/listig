@@ -166,9 +166,15 @@ class ListConfig
      * config and the member's own attributes (which must come first, and be
      * Literal-wrapped, exactly like MailProcessor::buildRecipientContext() —
      * mail-derived member data must never be re-parsed as a further template,
-     * see "Untrusted input in {} templates"). Falls back to `username` (see
-     * "Privacy-preserving `username`") when both resolve empty — e.g. no
-     * firstname/lastname alias configured at all.
+     * see "Untrusted input in {} templates"). Falls back to the member's own
+     * email when both resolve empty — e.g. an owner added via a bare-string
+     * `owners:` entry (global/provider/list level, see "Global / provider /
+     * list levels") carries no attributes at all, so there's nothing for
+     * {firstname}/{lastname} to resolve even when a list otherwise has a
+     * working alias for real directory-backed members. Resolved with
+     * `quiet: true` (see VariableResolver's own docblock) — a bare-string
+     * entry having no name to show is the expected, routine case for this
+     * method specifically, not a misconfiguration worth an error_log line.
      */
     public function resolveMemberDisplayName(Member $member): string
     {
@@ -176,10 +182,10 @@ class ListConfig
         $memberContext['mail'] = new Literal($member->email);
         $contexts = [$this->createContext(), $memberContext];
 
-        $firstname = VariableResolver::resolve('{firstname}', $contexts);
-        $lastname = VariableResolver::resolve('{lastname}', $contexts);
+        $firstname = VariableResolver::resolve('{firstname}', $contexts, quiet: true);
+        $lastname = VariableResolver::resolve('{lastname}', $contexts, quiet: true);
 
-        return trim("$firstname $lastname") ?: ($member->attributes['username'] ?? '');
+        return trim("$firstname $lastname") ?: $member->email;
     }
 
     /** Returns the matching entry from getOwners(), scoped to this list, or null. */

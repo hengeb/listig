@@ -86,8 +86,8 @@ class SubaddressListProvider extends AbstractListProvider
             // — member-resolver:/members: are never consulted for the member role
             // here, only owner-resolver:/owners: are.
             $memberResolver = $this->memberResolverFactory->buildComposedResolver(
-                [null, null, null],
-                [null, null, null],
+                [],
+                [],
                 $this->scopedLevels('owner-resolver', $listConfig),
                 $this->scopedLevels('owners', $listConfig),
                 $this->resolvedProviderConfig(),

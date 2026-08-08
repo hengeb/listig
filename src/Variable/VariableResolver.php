@@ -56,12 +56,28 @@ namespace Hengeb\Listig\Variable;
  * entirely (the whitelist only gates the top-level placeholder, not what a
  * resolved value's own nested '{}' syntax would otherwise trigger).
  *
- * A key not found in any context resolves to an empty string (logged), not a
- * literal {key} left in the output — member attributes are fully dynamic (see
- * Member::$attributes), so "this recipient simply has no pronoun/title/whatever"
- * is an expected, per-recipient condition, not a config error; leaking raw
- * {key} syntax into a sent mail would be worse than a quiet blank. Genuine
- * config typos are still visible via the error_log, same as cycle detection.
+ * A key not found in any context resolves to an empty string (logged by
+ * default), not a literal {key} left in the output — member attributes are
+ * fully dynamic (see Member::$attributes), so "this recipient simply has no
+ * pronoun/title/whatever" is an expected, per-recipient condition, not a
+ * config error; leaking raw {key} syntax into a sent mail would be worse than
+ * a quiet blank. Genuine config typos are still visible via the error_log,
+ * same as cycle detection.
+ *
+ * The `$quiet` parameter (default false) suppresses that "not found" log line
+ * specifically — for a call site where an absent key is not just expected but
+ * routine, and logging it would be pure noise rather than something an
+ * operator could act on. `ListConfig::resolveMemberDisplayName()` is the one
+ * caller that passes `quiet: true`: a member/owner added via a bare-string
+ * `members:`/`owners:` entry (any level — see "Global / provider / list
+ * levels") carries no attributes at all by design, so {firstname}/{lastname}
+ * failing to resolve for it is the normal case, not a misconfiguration —
+ * unlike, say, a missing variable in a mail body/footer, which usually does
+ * indicate a real typo and should keep logging. $quiet threads through
+ * recursive resolution and the filter-arg resolution below (a nested
+ * placeholder failing quietly too), but never suppresses the cycle-detection
+ * or blocked-key log lines — those represent a genuine problem regardless of
+ * which call site triggered them.
  *
  * Usage:
  *   $result = VariableResolver::resolve($template, [$listContext, $mailContext], ResolutionPurpose::Disclosed);
@@ -96,10 +112,11 @@ class VariableResolver
         array $contexts,
         ResolutionPurpose $purpose = ResolutionPurpose::Disclosed,
         array $visited = [],
+        bool $quiet = false,
     ): string {
         return self::walkPlaceholders(
             $template,
-            fn(string $inner): string => self::resolvePlaceholder($inner, $contexts, $purpose, $visited),
+            fn(string $inner): string => self::resolvePlaceholder($inner, $contexts, $purpose, $visited, $quiet),
         );
     }
 
@@ -159,7 +176,7 @@ class VariableResolver
         return $result;
     }
 
-    private static function resolvePlaceholder(string $inner, array $contexts, ResolutionPurpose $purpose, array $visited): string
+    private static function resolvePlaceholder(string $inner, array $contexts, ResolutionPurpose $purpose, array $visited, bool $quiet = false): string
     {
         [$key, $filters] = self::splitKeyAndFilters($inner);
 
@@ -175,17 +192,19 @@ class VariableResolver
             // attribute is exactly the case VariableFilter's 'default' filter
             // documents itself as handling (see its docblock), so an absent
             // key must still reach it, not bypass filters entirely.
-            error_log("Listig: Variable '$key' not found, substituting empty string");
+            if (!$quiet) {
+                error_log("Listig: Variable '$key' not found, substituting empty string");
+            }
             $value = '';
         } elseif ($recursable && str_contains($value, '{')) {
-            $value = self::resolve($value, $contexts, $purpose, [...$visited, $key]);
+            $value = self::resolve($value, $contexts, $purpose, [...$visited, $key], $quiet);
         }
 
         foreach ($filters as $filter) {
             // A filter's args may themselves contain {} placeholders (e.g.
             // "default:system@{domain|default:localhost}") — resolve those
             // first, so VariableFilter::apply() always sees plain text.
-            $resolvedFilter = str_contains($filter, '{') ? self::resolve($filter, $contexts, $purpose, $visited) : $filter;
+            $resolvedFilter = str_contains($filter, '{') ? self::resolve($filter, $contexts, $purpose, $visited, $quiet) : $filter;
             $value = VariableFilter::apply($resolvedFilter, $value);
         }
 

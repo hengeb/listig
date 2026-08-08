@@ -112,10 +112,10 @@ class MemberResolverFactory
      * hardcoded LdapMemberResolver, which (unlike every other provider type) is
      * never expressed via member-resolver: at all (see CLAUDE.md "type: ldap").
      *
-     * @param array{0: mixed, 1: mixed, 2: mixed} $memberResolverLevels member-resolver: at global/provider/list
-     * @param array{0: mixed, 1: mixed, 2: mixed} $membersLevels members: at global/provider/list
-     * @param array{0: mixed, 1: mixed, 2: mixed} $ownerResolverLevels owner-resolver: at global/provider/list
-     * @param array{0: mixed, 1: mixed, 2: mixed} $ownersLevels owners: at global/provider/list
+     * @param array<int, mixed> $memberResolverLevels member-resolver: sources, global/provider/list (see AbstractListProvider::scopedLevels())
+     * @param array<int, mixed> $membersLevels members: sources, global/provider/list
+     * @param array<int, mixed> $ownerResolverLevels owner-resolver: sources, global/provider/list
+     * @param array<int, mixed> $ownersLevels owners: sources, global/provider/list
      */
     public function buildComposedResolver(
         array $memberResolverLevels,
@@ -142,7 +142,7 @@ class MemberResolverFactory
     }
 
     /**
-     * @param array{0: mixed, 1: mixed, 2: mixed} $levels
+     * @param array<int, mixed> $levels
      * @return MemberResolver[]
      */
     private function buildSourcesFromLevels(array $levels, array $resolvedProviderConfig): array
