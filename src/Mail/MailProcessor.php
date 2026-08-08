@@ -212,7 +212,6 @@ class MailProcessor
 
         // Original recipient context
         $email->getHeaders()->addTextHeader('X-Original-To', implode(', ', array_keys($mail->to)));
-        $email->getHeaders()->addTextHeader('X-Forwarded-From', $mail->fromAddress ?? '');
 
         // Visible To/Cc: the original recipients, never the expanded member list (see
         // "Envelope separation" — actual delivery is per-recipient via Envelope, this
