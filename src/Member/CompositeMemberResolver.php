@@ -6,10 +6,12 @@ namespace Hengeb\Listig\Member;
 
 /**
  * Combines multiple independent MemberResolver sources for one list — built by
- * MemberResolverFactory::applyOverride() to let a list's members/owners come
- * from more than one place at once (e.g. LDAP directory membership plus a
- * database of external members, or LDAP owners plus a couple of inline
- * system-administrator addresses). See CLAUDE.md "Root-level lists:".
+ * MemberResolverFactory::buildComposedResolver() to let a list's members/owners
+ * come from more than one place, and more than one level (global/provider/list,
+ * always additive), at once (e.g. LDAP directory membership plus a database of
+ * external members, or LDAP owners plus a couple of inline system-administrator
+ * addresses configured at provider level). See CLAUDE.md "Global / provider /
+ * list levels".
  *
  * $memberSources and $ownerSources are independent — getMembers() only ever
  * queries the former, getOwners() only the latter, even if the same resolver

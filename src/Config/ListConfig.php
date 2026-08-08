@@ -49,6 +49,13 @@ class ListConfig
          * per incoming mail by MailProcessor rather than statically at startup.
          */
         public readonly ?array $subaddressMemberTemplates = null,
+        /**
+         * Already fully assembled for this one list from all three levels
+         * (global/provider/list `restricted-members:`, see CLAUDE.md "Global /
+         * provider / list levels") by whichever ListProvider built this
+         * ListConfig — see isSenderRestricted()/isReceiverRestricted().
+         */
+        private readonly RestrictionList $restrictions = new RestrictionList([]),
     ) {
         if ($this->name === self::RESERVED_NAME) {
             throw new \RuntimeException(
@@ -100,6 +107,18 @@ class ListConfig
      */
     public bool $supportsUnsubscribe {
         get => $this->memberResolver->supportsRemoval();
+    }
+
+    /** A `restricted-members:` hit (any of the three levels) blocking $email from posting to this list — see CLAUDE.md "Sender restrictions". */
+    public function isSenderRestricted(string $email): bool
+    {
+        return $this->restrictions->isSendRestricted($this->name, $email);
+    }
+
+    /** A `restricted-members:` hit with `receive: false` also blocking $email from receiving mail distributed by this list. */
+    public function isReceiverRestricted(string $email): bool
+    {
+        return $this->restrictions->isReceiveRestricted($this->name, $email);
     }
 
     /** @throws \RuntimeException if the underlying member store cannot accept new members */
@@ -460,9 +479,13 @@ class ListConfig
      * (`key1,, key2`, a trailing comma, ...) can never leave a spurious
      * empty-string entry in the result the way plain `explode()` would.
      *
+     * Shared with every ListProvider's senders:/restricted-members: level-gathering
+     * (the LDAP description[] string case — see CLAUDE.md "Global / provider /
+     * list levels").
+     *
      * @return string[]
      */
-    private static function splitCommaList(string $raw): array
+    public static function splitCommaList(string $raw): array
     {
         $raw = trim($raw);
         if ($raw === '') {

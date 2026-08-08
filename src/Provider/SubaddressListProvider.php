@@ -6,10 +6,9 @@ namespace Hengeb\Listig\Provider;
 
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
-use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\MemberResolverFactory;
-use Hengeb\Listig\Member\NullMemberResolver;
 use Hengeb\Listig\Variable\ResolutionPurpose;
 use Hengeb\Listig\Variable\VariableResolver;
 
@@ -41,11 +40,20 @@ class SubaddressListProvider extends AbstractListProvider
     protected function loadLists(): array
     {
         $lists = [];
+
+        // member-resolver:/owner-resolver:/owners:/senders:/restricted-members: are
+        // excluded from the plain raw-config merge below — see InlineListProvider for
+        // the identical pattern and CLAUDE.md "Global / provider / list levels".
+        // members: is excluded too, but for a different reason here: for type:
+        // subaddress it's never a set of real members, it's the {subaddress}-template
+        // mechanism (see class docblock) — it's read separately below as
+        // $memberTemplates and never fed into the members: composition at all.
+        $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners', 'senders', 'restricted-members']);
+
         foreach ($this->providerConfig['lists'] ?? [] as $listName => $listDef) {
             // Root-level `lists: <name>:` — see InlineListProvider for the identical
             // pattern and CLAUDE.md "Root-level lists:".
             $rootOverride = $this->configResolver->getListOverride($listName);
-            $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
 
             $listOverrides = array_diff_key($listDef, $excludedKeys);
             $listOverrides = array_merge($listOverrides, array_diff_key($rootOverride, $excludedKeys));
@@ -67,11 +75,37 @@ class SubaddressListProvider extends AbstractListProvider
                 throw new \RuntimeException("List '$listName' has no list-mail (resolved to an empty value) in provider '{$this->name}'");
             }
 
-            $memberResolver  = new InlineMemberResolver([], $listDef['owners'] ?? null, new NullMemberResolver());
-            $memberResolver  = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
             $memberTemplates = $listDef['members'] ?? [];
 
-            $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver, $memberTemplates);
+            // $listConfig for scopedLevels() combines this provider's own listDef
+            // with the root-level lists: override — both are per-list sources, see
+            // CLAUDE.md "Root-level lists:".
+            $listConfig = array_merge($listDef, $rootOverride);
+
+            // getMembers() is always empty for type: subaddress (see class docblock)
+            // — member-resolver:/members: are never consulted for the member role
+            // here, only owner-resolver:/owners: are.
+            $memberResolver = $this->memberResolverFactory->buildComposedResolver(
+                [null, null, null],
+                [null, null, null],
+                $this->scopedLevels('owner-resolver', $listConfig),
+                $this->scopedLevels('owners', $listConfig),
+                $this->resolvedProviderConfig(),
+            );
+
+            $raw['senders'] = array_merge(...array_map(
+                fn($v) => is_string($v) ? ListConfig::splitCommaList($v) : ($v ?? []),
+                $this->scopedLevels('senders', $listConfig),
+            ));
+
+            $restrictions = new RestrictionList(array_merge(...array_map(
+                fn($v) => is_string($v)
+                    ? array_map(fn(string $mail) => ['mail' => $mail], ListConfig::splitCommaList($v))
+                    : ($v ?? []),
+                $this->scopedLevels('restricted-members', $listConfig),
+            )));
+
+            $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver, $memberTemplates, $restrictions);
         }
 
         return $lists;

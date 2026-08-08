@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Provider;
 
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Crypto\PasswordCrypto;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
 use Hengeb\Listig\Member\LdapMemberResolver;
@@ -77,10 +78,10 @@ class LdapListProvider extends AbstractListProvider
 
         // Parse description[] key:value pairs
         $descriptions = $entry->getAttribute('description') ?? [];
-        $listOverrides = [];
+        $descriptionOverrides = [];
         foreach ($descriptions as $desc) {
             if (preg_match('/^([^:]+):(.*)$/', $desc, $m)) {
-                $listOverrides[trim($m[1])] = trim($m[2]);
+                $descriptionOverrides[trim($m[1])] = trim($m[2]);
             }
         }
 
@@ -88,29 +89,53 @@ class LdapListProvider extends AbstractListProvider
         // $VAR), a password stored directly in LDAP's description[] should be
         // encrypted — see PasswordCrypto::warnIfPlaintext().
         foreach (['password', 'mail-password', 'imap-password', 'smtp-password'] as $key) {
-            PasswordCrypto::warnIfPlaintext($key, $listOverrides[$key] ?? '', "LDAP description[] for list '$name'");
+            PasswordCrypto::warnIfPlaintext($key, $descriptionOverrides[$key] ?? '', "LDAP description[] for list '$name'");
         }
 
         // Root-level `lists: <name>:` — see InlineListProvider for the identical
         // pattern and CLAUDE.md "Root-level lists:". Unlike the description[]-parsed
-        // $listOverrides above (a flat string per key), $rootOverride is genuine YAML
-        // and takes priority on a plain key conflict — merged in last, member-resolver:/
-        // owner-resolver:/members:/owners: excluded (consumed separately below, via
-        // applyOverride(), never as plain raw config).
+        // $descriptionOverrides above (a flat string per key), $rootOverride is
+        // genuine YAML and takes priority on a plain key conflict. member-resolver:/
+        // owner-resolver:/members:/owners:/senders:/restricted-members: are excluded
+        // from the plain raw-config merge below — see CLAUDE.md "Global / provider /
+        // list levels" — and gathered separately via scopedLevels() instead.
         $rootOverride = $this->configResolver->getListOverride($name);
-        $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
-        $listOverrides = array_merge($listOverrides, array_diff_key($rootOverride, $excludedKeys));
+        $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners', 'senders', 'restricted-members']);
+        $listOverrides = array_merge(array_diff_key($descriptionOverrides, $excludedKeys), array_diff_key($rootOverride, $excludedKeys));
 
         $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
         $raw['name'] = $name;
         $raw['mail'] = $mail;
 
-        // LDAP directory membership is always the base — root-level lists: can only
-        // add extra sources on top (see applyOverride()), never replace it.
-        $memberResolver = $this->createMemberResolver();
-        $memberResolver = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
+        // $listConfig for scopedLevels() combines the description[]-parsed entries
+        // (list-level, may include a scalar `senders:`/`restricted-members:` string)
+        // with the root-level lists: override.
+        $listConfig = array_merge($descriptionOverrides, $rootOverride);
 
-        return new ListConfig($name, $mail, $raw, $memberResolver);
+        // LDAP directory membership is always included ($extraBase) — the other
+        // configured levels only ever add to it, never replace it.
+        $memberResolver = $this->memberResolverFactory->buildComposedResolver(
+            $this->scopedLevels('member-resolver', $listConfig),
+            $this->scopedLevels('members', $listConfig),
+            $this->scopedLevels('owner-resolver', $listConfig),
+            $this->scopedLevels('owners', $listConfig),
+            $this->resolvedProviderConfig(),
+            $this->createMemberResolver(),
+        );
+
+        $raw['senders'] = array_merge(...array_map(
+            fn($v) => is_string($v) ? ListConfig::splitCommaList($v) : ($v ?? []),
+            $this->scopedLevels('senders', $listConfig),
+        ));
+
+        $restrictions = new RestrictionList(array_merge(...array_map(
+            fn($v) => is_string($v)
+                ? array_map(fn(string $mail) => ['mail' => $mail], ListConfig::splitCommaList($v))
+                : ($v ?? []),
+            $this->scopedLevels('restricted-members', $listConfig),
+        )));
+
+        return new ListConfig($name, $mail, $raw, $memberResolver, restrictions: $restrictions);
     }
 
     /**

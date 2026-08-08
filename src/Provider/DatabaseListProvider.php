@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Provider;
 
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Crypto\PasswordCrypto;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
 use Hengeb\Listig\Member\MemberResolverFactory;
@@ -81,23 +82,45 @@ class DatabaseListProvider extends AbstractListProvider
         // Root-level `lists: <name>:` — see InlineListProvider for the identical
         // pattern and CLAUDE.md "Root-level lists:". config-table rows are plain
         // key/value TEXT pairs, so member-resolver:/owner-resolver: (structured,
-        // possibly nested config) can never come from $rows — root lists: is the
-        // only way to add extra sources for a type: database list too.
+        // possibly nested config) can never come from $rows — but a scalar
+        // `senders:`/`restricted-members:` string can, so all six keys are
+        // excluded from the plain raw-config merge below and gathered separately
+        // via scopedLevels() instead — see CLAUDE.md "Global / provider / list
+        // levels".
         $rootOverride = $this->configResolver->getListOverride($name);
-        $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
-        $listOverrides = array_merge($rows, array_diff_key($rootOverride, $excludedKeys));
+        $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners', 'senders', 'restricted-members']);
+        $listOverrides = array_merge(array_diff_key($rows, $excludedKeys), array_diff_key($rootOverride, $excludedKeys));
 
         $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
         $raw['name'] = $name;
         $raw['mail'] = $mail;
 
-        $memberResolver = $this->memberResolverFactory->create(
-            $this->providerConfig['member-resolver'] ?? null,
+        // $listConfig for scopedLevels() combines the config-table row (list-level,
+        // may include a scalar `senders:`/`restricted-members:` string) with the
+        // root-level lists: override.
+        $listConfig = array_merge($rows, $rootOverride);
+
+        $memberResolver = $this->memberResolverFactory->buildComposedResolver(
+            $this->scopedLevels('member-resolver', $listConfig),
+            $this->scopedLevels('members', $listConfig),
+            $this->scopedLevels('owner-resolver', $listConfig),
+            $this->scopedLevels('owners', $listConfig),
             $this->resolvedProviderConfig(),
         );
-        $memberResolver = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
 
-        return new ListConfig($name, $mail, $raw, $memberResolver);
+        $raw['senders'] = array_merge(...array_map(
+            fn($v) => is_string($v) ? ListConfig::splitCommaList($v) : ($v ?? []),
+            $this->scopedLevels('senders', $listConfig),
+        ));
+
+        $restrictions = new RestrictionList(array_merge(...array_map(
+            fn($v) => is_string($v)
+                ? array_map(fn(string $mail) => ['mail' => $mail], ListConfig::splitCommaList($v))
+                : ($v ?? []),
+            $this->scopedLevels('restricted-members', $listConfig),
+        )));
+
+        return new ListConfig($name, $mail, $raw, $memberResolver, restrictions: $restrictions);
     }
 
     public function setListConfigValue(string $listName, string $key, string $value): void

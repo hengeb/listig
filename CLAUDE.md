@@ -146,8 +146,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   └── Literal.php               # Marks a context value terminal (never recursively re-resolved) — wraps sender/recipient/Member data; see "Untrusted input in {} templates"
 │   ├── Config/
 │   │   ├── ListConfig.php            # Typed value object; property hooks; holds MemberResolver; createContext() for resolution; validates $name — see "Routes"
-│   │   ├── ConfigResolver.php        # Merges config.yml blocks: use:, priority, $VAR substitution; also parses root lists:/restricted-members: — see "Root-level lists:"
-│   │   ├── RestrictionList.php       # Sender restrictions (send/receive, list-scoped or global) from root restricted-members: — see "Sender restrictions"
+│   │   ├── ConfigResolver.php        # Merges config.yml blocks: use:, priority, $VAR substitution; also parses root lists:/restricted-members:/the global level of members:/owners:/member-resolver:/owner-resolver:/senders: — see "Global / provider / list levels"
+│   │   ├── RestrictionList.php       # Sender restrictions (send/receive) — one instance built per list from its own global+provider+list levels — see "Sender restrictions"
 │   │   ├── YamlIncludeResolver.php   # Resolves !include tags (see "File includes") for config.yml and YamlListProvider files
 │   │   └── Enum/
 │   │       ├── ReplyToBehavior.php   # 'list' | 'sender' | 'both' | 'nobody'
@@ -157,8 +157,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── Member/
 │   │   ├── Member.php                # Value object: email (required) + attributes (everything else, fully dynamic per resolver — see "Member attributes — fully dynamic")
 │   │   ├── MemberResolver.php        # Interface: getMembers(), getOwners(), findByEmail(), removeMember()
-│   │   ├── MemberResolverFactory.php # Builds member-resolver source(s) (type: database/ldap/csv, single or composable list) from config — see "Root-level lists:"
-│   │   ├── CompositeMemberResolver.php # Combines multiple independent MemberResolver sources for one list — see "Root-level lists:"
+│   │   ├── MemberResolverFactory.php # Builds member-resolver source(s) (type: database/ldap/csv, single or composable list) and composes all three levels into one resolver — see "Global / provider / list levels"
+│   │   ├── CompositeMemberResolver.php # Combines multiple independent MemberResolver sources (any level) for one list — see "Global / provider / list levels"
 │   │   ├── NullMemberResolver.php    # No-op implementation
 │   │   ├── InlineMemberResolver.php  # Resolves from inline config.yml member lists (plain "mail@x" string or firstname/lastname/mail/username map); removeMember is no-op
 │   │   ├── LdapMemberResolver.php    # Resolves via LDAP DNs; removeMember removes DN from member attribute
@@ -472,8 +472,8 @@ lists:
       - type: database               # additive — LDAP membership is never replaced, only supplemented
         members-table: newsletter_externals
   vereinsliste:
-    owners:                          # additive here too, despite the familiar members:/owners: name —
-      - admin1@example.org           # see "Root-level lists: is additive" below
+    owners:                          # additive too — see "Global / provider / list levels" below
+      - admin1@example.org
       - admin2@example.org
   standalone:                        # not produced by ANY configured provider at all
     list-mail: standalone@example.org
@@ -491,19 +491,59 @@ Two things happen, matched purely by list name:
 1. **A name also produced by a configured provider** (any type — LDAP, database, inline, yaml, subaddress) gets the root `lists:` entry merged in as an *additional* per-list source, on top of whatever that provider already resolved for it.
 2. **A name produced by no provider at all** is defined from scratch via an **implicit `type: inline` provider** — `list-providers:` can be omitted entirely; using only `lists:` behaves exactly like `list-providers: { inline: { lists: <the same content> } }`. Implemented in the composite `ListProvider` built in `config/container.php`: after collecting every configured provider's `getLists()`, any root `lists:` name not among them is built via a synthetic `InlineListProvider('_root', $configResolver, ['lists' => <only the missing names>], $dbFactory)`. Built **lazily**, only once actually needed (not at container-build time) and cached for the rest of the cycle — eagerly resolving it would mean calling `getLists()` on every provider (including LDAP/database ones) just to find out which names are missing, forcing a premature connection even for a request that never touches those lists (see "Worker loop — config reload").
 
-**`ConfigResolver::getListOverride(string $name): array`** (`$this->lists[$name] ?? []`) and **`getListOverrideNames(): array`** — `lists:` is parsed once in `processConfig()`, the same root-special-case treatment as `list-providers`/`filters` (excluded from the "is_array → named block" branch).
+**`ConfigResolver::getListOverride(string $name): array`** (`$this->lists[$name] ?? []`) and **`getListOverrideNames(): array`** — `lists:` is parsed once in `processConfig()`, the same root-special-case treatment as `list-providers`/`filters` (excluded from the "is_array → named block" branch). A list's own provider-native `lists:` entry (LDAP `description[]`, a `config-table` row, or a provider's own `lists:` node for `type: inline`/`yaml`/`subaddress`) and this root-level override are merged into a single per-list source *before* being handed to the three-level mechanism below — see "Global / provider / list levels" — so the "list level" there always means the union of both.
 
-**Every list-provider integrates it the same mechanical way**, at its own list-construction site (`InlineListProvider`/`YamlListProvider`/`SubaddressListProvider`'s `loadLists()`, `LdapListProvider`/`DatabaseListProvider`'s per-list load method):
-- The root override is merged into that provider's own per-list overrides (`array_merge($listOverrides, array_diff_key($rootOverride, $excludedKeys))`, root wins on a plain-key conflict — merged in *after* the provider-native source, e.g. LDAP `description[]`) before the usual `ConfigResolver::resolveListConfig()` call. `member-resolver`/`owner-resolver`/`members`/`owners` are excluded from this plain merge (`$excludedKeys`) — they're never meaningful as raw `$raw[...]` values, only as input to the resolver composition below.
-- After building that provider's own base `MemberResolver` (however it normally does — `LdapMemberResolver`, `MemberResolverFactory::create()`, ...), it's passed through `MemberResolverFactory::applyOverride($base, $rootOverride, $resolvedProviderConfig)`.
+### Global / provider / list levels (`members:`, `owners:`, `member-resolver:`, `owner-resolver:`, `senders:`, `restricted-members:`)
 
-**`MemberResolverFactory::buildSources(array|null $config, array $resolvedProviderConfig): array`** (`MemberResolver[]`) normalizes a `member-resolver:`/`owner-resolver:`/`members:`/`owners:` value into independent sources: `null`/`[]` → none; a single resolver-config map (has `type:` ∈ `database`/`ldap`/`csv`) → one element via the pre-existing `create()` (unchanged, backward-compatible); a sequential list → each entry classified the same way, a resolver-config becomes a real resolver, anything else (a bare string, or a map without a recognized `type:` — the exact shape `members:`/`owners:` entries already use) becomes a single-entry `InlineMemberResolver` (populated as *both* members and owners of itself — harmless, since a source built here only ever lands in one of `CompositeMemberResolver`'s two source lists, so only the matching side is ever queried). `InlineMemberResolver::toMember()` was made `public static` (was `private`) so this — and `ListConfig::$authorizedSenders`, see "Zusätzliche Absender" below — can reuse the exact same string/map-to-`Member` conversion `members:`/`owners:` already used.
+Six config keys — five documented individually below (`senders:`, `restricted-members:`) plus the `members:`/`owners:`/`member-resolver:`/`owner-resolver:` keys already introduced under "`lists:` format" — share one mechanism: each can be set at **any or all** of three levels, and every level that sets it **always adds to** the others, never replaces:
 
-**`MemberResolverFactory::applyOverride(MemberResolver $base, array $override, array $resolvedProviderConfig): MemberResolver`** — builds extra sources from `$override['member-resolver'] ?? []` merged with `$override['members'] ?? []` (both accepted, concatenated — see "Root-level lists: is additive" below), same for owners; returns `$base` unchanged if there's nothing to add (so a list not mentioned in `lists:` takes the exact same code path as before this feature existed), otherwise wraps everything in a new `CompositeMemberResolver`.
+```yaml
+# Global — applies to every list in the whole instance
+owners:
+  - superadmin@example.org
+
+list-providers:
+  staff:
+    type: ldap
+    ...
+    # Provider — applies to every list this provider produces
+    senders:
+      - mail: it-support@example.org
+    lists:
+      newsletter:
+        # List — applies only to this one list
+        member-resolver:
+          - type: database
+            members-table: newsletter_externals
+        restricted-members:          # no lists:/except: needed — see "Sender restrictions" below
+          - mail: abuser@example.org
+            until: "2026-08-20"
+```
+
+`newsletter` above ends up with: LDAP directory membership (its provider's own native mechanism) **plus** the database source **plus** `superadmin@example.org` as an owner **plus** `it-support@example.org` as an authorized sender **plus** the one restriction entry — every level's contribution is a strict addition, never a replacement of another level's.
+
+This is a **deliberate behavior change from an earlier version of this codebase**: a list's own inline `members:`/`owners:` used to *replace* what `member-resolver:` produced for that list (`InlineMemberResolver`'s old fallback-chain design). That exclusivity is gone — **every level, including list level, is now purely additive**. A list that previously used its own inline `members:` specifically to override its `member-resolver:` now gets the *union* of both instead; if that's not wanted, remove the `member-resolver:`/`owner-resolver:` (or the relevant global/provider-level entries) rather than relying on the list-level entry to exclude them.
+
+**`AbstractListProvider::scopedLevels(string $key, array $listConfig): array`** — the shared primitive every list provider calls once per key, per list, returning the three raw values `[global, provider, list]` (any of which may be `null`), identically for all six keys — no per-key special-casing. `$listConfig` is the list's own already-merged raw source (provider-native `lists:` entry + root-level `lists:` override, see above); global comes from `ConfigResolver::getGlobalScoped()[$key]`; provider comes from the provider's own resolved config directly (`$this->providerConfig[$key]`).
+
+**`ConfigResolver::getGlobalScoped(): array`** — all six keys (`members`/`owners`/`member-resolver`/`owner-resolver`/`senders`/`restricted-members`) are root-level keys excluded from the normal "is_array → named block" detection in `processConfig()` (same special-casing as `list-providers`/`filters`/`lists`) and collected into one map, `$VAR`-substituted like everything else — `restricted-members:` used to keep its own separate root getter/property from Round 1 (predating the other five), since folded into this same generic mechanism for uniformity; there's no behavioral difference (the format each level's raw value is expected in never changed), purely a code simplification.
+
+**`MemberResolverFactory::buildSources(array|null $config, array $resolvedProviderConfig): array`** (`MemberResolver[]`) — unchanged from before this generalization: normalizes a single level's raw `member-resolver:`/`owner-resolver:`/`members:`/`owners:` value into independent sources. `null`/`[]` → none; a single resolver-config map (has `type:` ∈ `database`/`ldap`/`csv`) → one element via the pre-existing `create()`; a sequential list → each entry classified the same way, a resolver-config becomes a real resolver, anything else (a bare string, or a map without a recognized `type:` — the exact shape `members:`/`owners:` entries already use) becomes a single-entry `InlineMemberResolver` (populated as *both* members and owners of itself — harmless, since a source built here only ever lands in one of `CompositeMemberResolver`'s two source lists, so only the matching side is ever queried). `InlineMemberResolver::toMember()` is `public static` so this — and `ListConfig::$authorizedSenders`, see "Additional senders" below — can reuse the exact same string/map-to-`Member` conversion `members:`/`owners:` already used.
+
+**`MemberResolverFactory::buildComposedResolver(array $memberResolverLevels, array $membersLevels, array $ownerResolverLevels, array $ownersLevels, array $resolvedProviderConfig, ?MemberResolver $extraBase = null): MemberResolver`** — builds the final resolver for one list from all three levels of both `member-resolver:`+`members:` (member role) and `owner-resolver:`+`owners:` (owner role), calling `buildSources()` once per level and concatenating every level's sources (`array_merge`, order: `$extraBase`, then member-resolver global/provider/list, then members global/provider/list — same pattern for owners) into a single `CompositeMemberResolver`. `$extraBase`, when given, is unconditionally included in both roles — `LdapListProvider`'s own hardcoded `LdapMemberResolver`, which (unlike every other provider type) is never itself expressed via `member-resolver:` (see "type: ldap"). No "return unchanged if nothing configured" special case is needed — `CompositeMemberResolver` with empty source arrays already behaves like an empty resolver on its own.
 
 **`src/Member/CompositeMemberResolver.php`** (`implements MemberResolver`) — combines independent `$memberSources`/`$ownerSources` arrays. `getMembers()`/`getOwners()` query only their own role's sources and merge-dedupe by lowercased email (first source in configuration order wins on an attribute conflict). `findByEmail()` searches both. `addMember()` tries each member source in order, the first that doesn't throw wins (most resolvers can't signal "not applicable" any other way — `DatabaseMemberResolver` upserts unconditionally, so it always "succeeds"; only `LdapMemberResolver` throws when no matching directory entry exists — so listing LDAP before a database fallback means "prefer LDAP if the person has an entry there"). `removeMember()` calls every source with `supportsRemoval()`, not just the first — the same address can plausibly be a member via more than one source at once, and each source's own `removeMember()` is already a silent no-op when the address isn't actually present there.
 
-**Root-level `lists:` is additive, never replacing a provider's own base membership** — this is the entire point: an LDAP directory's membership is never lost just because a database source was added on top for one specific list. This is a **deliberately different semantic from the same `members:`/`owners:` keys used inside a provider's own native `lists:` node** (`list-providers: X: lists: Y: members:`, `type: inline`/`type: yaml`) — there, `InlineMemberResolver`'s pre-existing exclusive-override behavior (fully replaces, never merges — see `InlineMemberResolver.php`) is completely unchanged, untouched by this feature. The distinction is purely about *where* the key is written: the provider's own `lists:` node is the authoritative definition; the root `lists:` is always a supplementary enrichment layer, evaluated *after* whatever the provider-native mechanism already produced.
+**`InlineMemberResolver`** — no fallback/override concept anymore: `__construct(array $members, array $owners)` takes two required, non-nullable arrays and nothing else. `supportsRemoval()` is unconditionally `false` (previously depended on whether a fallback was given) — correct, since `CompositeMemberResolver::supportsRemoval()` is already `true` as soon as *any* one of its sources supports it, independent of what any single inline source reports.
+
+**Each provider gathers all six keys the same mechanical way**, at its own list-construction site (`InlineListProvider`/`YamlListProvider`/`SubaddressListProvider`'s `loadLists()`, `LdapListProvider`/`DatabaseListProvider`'s per-list load method): all six (`member-resolver`, `owner-resolver`, `members`, `owners`, `senders`, `restricted-members`) are excluded from the plain `$raw` config merge (`ConfigResolver::mergeBlock()` replaces rather than combines, so these six are never meaningful as plain `$raw[...]` values) and instead gathered explicitly via `scopedLevels()`:
+- `member-resolver`/`members`/`owner-resolver`/`owners` → `MemberResolverFactory::buildComposedResolver()`.
+- `senders` → each level normalized (a string is split via `ListConfig::splitCommaList()`, an array/null used as-is) and concatenated into `$raw['senders']` — consumed by `ListConfig::$authorizedSenders` exactly as before, just now sourced from three levels instead of one.
+- `restricted-members` → each level normalized the same way (a string becomes one `['mail' => ...]` entry per address, an array/null used as-is) and concatenated into a single `RestrictionList` instance, passed as `ListConfig`'s new `$restrictions` constructor argument — see "Sender restrictions".
+
+`SubaddressListProvider` is the one exception: `members:` at any level is *never* fed into the member-resolver composition for it, since for `type: subaddress` that key means the `{subaddress}`-template mechanism instead (`getMembers()` is always empty by design — see "type: subaddress"); only `owner-resolver:`/`owners:` go through the normal three-level composition there.
+
+`filters:` deliberately does **not** get this three-level treatment — `SpamFilter`'s rule-based, `action:`-driven mechanism is structurally different enough (no resolver/addition concept to generalize) that unifying it wouldn't simplify anything; it stays a single, global, root-only key exactly as before.
 
 ### `list-mail`
 
@@ -656,7 +696,9 @@ list-providers:
 3. `use:` blocks in `list-provider` (merged; do not override direct root-level values)
 4. Direct key-values in `list-provider` (override everything from 1–3)
 5. Per-list key-values from the provider (LDAP: `description[]`; database: `config-table` rows; inline: list-level keys)
-6. Root-level `lists: <name>:` (see "Root-level `lists:`") — highest priority, applies uniformly regardless of provider type. Not part of the plain-value merge for `member-resolver:`/`owner-resolver:`/`members:`/`owners:` specifically — those are additive extra sources (`MemberResolverFactory::applyOverride()`), never a value that overrides level 5's own member/owner data.
+6. Root-level `lists: <name>:` (see "Root-level `lists:`") — highest priority, applies uniformly regardless of provider type.
+
+`members:`/`owners:`/`member-resolver:`/`owner-resolver:`/`senders:`/`restricted-members:` are exempt from this plain-value priority chain entirely — see "Global / provider / list levels": all three of their own levels (global, provider, list — the last being the union of level 5 and level 6 above) are always additive, never one overriding another.
 
 ### Key value states
 
@@ -836,16 +878,18 @@ Each `description` value is a `key:value` string. These have the highest priorit
 
 ### Additional senders (`senders:`)
 
-A third category alongside members/owners/public: addresses allowed to post **without** becoming a member or owner — e.g. a board that should be able to write to the list but must not receive owner-only bounce mail (`NotificationMailer::sendToOwners()`/`BounceHandler` only ever address actual owners, untouched by this feature). Same inline entry shape as `members:`/`owners:` (a plain string, or a map with a required `mail` plus any other attribute keys), settable per list — via a provider's own `lists:` node, or via the general root-level `lists:` mechanism above (works uniformly for every provider type, LDAP included):
+A third category alongside members/owners/public: addresses allowed to post **without** becoming a member or owner — e.g. a board that should be able to write to the list but must not receive owner-only bounce mail (`NotificationMailer::sendToOwners()`/`BounceHandler` only ever address actual owners, untouched by this feature). Same inline entry shape as `members:`/`owners:` (a plain string, or a map with a required `mail` plus any other attribute keys), settable at any of the three levels — global (every list), provider (every list of that provider), or list (via a provider's own `lists:` node, or the root-level `lists:` mechanism) — see "Global / provider / list levels", always additive across all three:
 
 ```yaml
-lists:
-  vereinsliste:
-    senders:
-      - mail: chair@example.org
+list-providers:
+  main:
+    lists:
+      vereinsliste:
+        senders:
+          - mail: chair@example.org
 ```
 
-`ListConfig::$authorizedSenders` (`Member[]`) reads `$raw['senders']`, accepting the same dual string-or-array shape `personalizeKeys`/`reservedSubaddresses` already handle: a plain YAML array (inline config.yml, root `lists:`) is used as-is; a single comma-separated **string** — the shape an LDAP `description:senders:a@x.org, b@x.org` entry produces, since `description[]` is a flat, multi-valued attribute with no nested structure — is split via the pre-existing `splitCommaList()` first. Either way each entry is converted via the now-`public` `InlineMemberResolver::toMember()`.
+`ListConfig::$authorizedSenders` (`Member[]`) reads `$raw['senders']`, already gathered from all three levels by the provider (see "Global / provider / list levels") — each level normalized through the same dual string-or-array shape `personalizeKeys`/`reservedSubaddresses` already handle: a plain YAML array is used as-is; a single comma-separated **string** — the shape an LDAP `description:senders:a@x.org, b@x.org` entry or a `config-table` row produces, since neither has nested structure — is split via `ListConfig::splitCommaList()` first. Either way each entry is converted via the `public` `InlineMemberResolver::toMember()`.
 
 `ListConfig::isAuthorizedSender()`/`findAuthorizedSender()` are consulted in two places:
 - `IncomingMailFilter::checkPostAccess()`/`requiresModeration()` — the same early-return that already exempts owners (`if ($list->isOwnedBy($senderEmail) || $list->isAuthorizedSender($senderEmail)) { return null; }` / `return false;`) — bypasses `post-access-public: deny`/`post-access-members: moderate` without granting any other owner privilege.
@@ -853,9 +897,10 @@ lists:
 
 ### Sender restrictions (`restricted-members:`)
 
-A single root-level mechanism (like `filters:`/`banned`-style global rules) for both a temporary, single-list write-only mute and a permanent, instance-wide send-**and**-receive ban — deliberately **one** schema rather than two separate ones, since both are the same underlying statement ("this address, this restriction, this scope") differing only in field values:
+A mechanism (like `filters:`/`banned`-style global rules) for both a temporary, single-list write-only mute and a permanent, instance-wide send-**and**-receive ban — deliberately **one** schema rather than two separate ones, since both are the same underlying statement ("this address, this restriction, this scope") differing only in field values. Like the other five keys under "Global / provider / list levels", settable at any of the three levels, always additive:
 
 ```yaml
+# Global — every list, unless narrowed by lists:/except: below
 restricted-members:
   - mail: abuser@example.org
     lists: [mylist]              # scoped to these list(s); omitted entirely = every list
@@ -865,14 +910,27 @@ restricted-members:
     # no "lists:" -> every list
   - mail: partial@example.org
     except: [board-internal]      # blocked everywhere except this one list
+
+list-providers:
+  main:
+    lists:
+      board-internal:
+        # List level — lists:/except: are never needed here: an entry declared on
+        # one specific list is only ever gathered into that one list's own
+        # RestrictionList instance in the first place (see below), so it's
+        # implicitly scoped to just this list already.
+        restricted-members:
+          - mail: troll@example.org
 ```
 
-Deliberately **not** part of the `lists:` mechanism above — that one is always tied to exactly one list name, and "applies everywhere" (no `lists:` key at all) can't be expressed that way. `restricted-members:` stays its own simple root key, parsed once in `ConfigResolver::processConfig()` (same root-special-case as `filters:`/`lists:`) via `getRestrictedMembers()`.
+**Per-list construction, not one global instance** — each list provider builds its **own** `RestrictionList` for each list it produces, from that one list's own three gathered levels (global + this provider + this list, concatenated), and passes it as `ListConfig`'s `$restrictions` constructor argument. `ListConfig::isSenderRestricted(string $email)`/`isReceiverRestricted(string $email)` delegate to it with the list's own name already bound — no list name parameter needed from the caller, and no global container-wide `RestrictionList` service exists anymore.
 
-**`src/Config/RestrictionList.php`** — constructed once from `getRestrictedMembers()` (mirrors `SpamFilter`'s own "parsed once, evaluated per list" construction from `getFilters()`), injected into both `IncomingMailFilter` and `MailProcessor`. `isSendRestricted(string $listName, string $email)`/`isReceiveRestricted(...)` both walk the same entry list: an entry matches if the email matches (case-insensitive), it hasn't expired (`until` unset or still in the future), `lists:` is unset or contains `$listName`, and `except:` is unset or does **not** contain `$listName`. `isReceiveRestricted()` additionally requires `receive: false` on the entry. `except:` is deliberately **not** validated against `lists:` being absent — both filters just run independently in sequence, `except` wins on the (rare) case of a list appearing in both.
+**`lists:`/`except:` on a provider- or list-level entry need no special handling** — `RestrictionList::matches()` is completely unchanged: it checks `lists:`/`except:` against the list name it's given, regardless of which level an entry came from. This is automatically correct precisely *because* each list's `RestrictionList` instance only ever contains that one list's own already-gathered entries — a provider-level entry with no `lists:`/`except:` of its own reaches only the `RestrictionList` instances of that provider's own lists in the first place, so "applies to every list" already means "every list of this provider" without any extra filtering. A list-level entry that happened to carry a `lists:`/`except:` naming a *different* list would simply be inert — harmless, not worth guarding against.
 
-- **Sending**: `IncomingMailFilter::checkPostAccess()` checks `isSendRestricted()` **first**, before even the owner/`senders:` early-return — an instance-wide ban is meant to be absolute, overriding owner status too. Rejects with `reject.sender_restricted`, going through the normal `RejectionNotifier` pipeline like any other `reject.*` reason (no silent discard).
-- **Receiving**: `MailProcessor::resolveRecipients()` filters `isReceiveRestricted($list->name, $member->email)` out of the expanded recipient list, alongside the pre-existing original-To/Cc exclusion — this is what lets a receive-restriction override even a still-active LDAP group membership (see "Member attributes — fully dynamic": `getMembers()` reflects the directory live; this filter runs *after* that, independent of what the directory itself reports).
+**`src/Config/RestrictionList.php`** (unchanged internals) — `isSendRestricted(string $listName, string $email)`/`isReceiveRestricted(...)` walk the entry list: an entry matches if the email matches (case-insensitive), it hasn't expired (`until` unset or still in the future), `lists:` is unset or contains `$listName`, and `except:` is unset or does **not** contain `$listName`. `isReceiveRestricted()` additionally requires `receive: false` on the entry. `except:` is deliberately **not** validated against `lists:` being absent — both filters just run independently in sequence, `except` wins on the (rare) case of a list appearing in both.
+
+- **Sending**: `IncomingMailFilter::checkPostAccess()` checks `$list->isSenderRestricted($senderEmail)` **first**, before even the owner/`senders:` early-return — an instance-wide ban is meant to be absolute, overriding owner status too. Rejects with `reject.sender_restricted`, going through the normal `RejectionNotifier` pipeline like any other `reject.*` reason (no silent discard).
+- **Receiving**: `MailProcessor::resolveRecipients()` filters `$list->isReceiverRestricted($member->email)` out of the expanded recipient list, alongside the pre-existing original-To/Cc exclusion — this is what lets a receive-restriction override even a still-active LDAP group membership (see "Member attributes — fully dynamic": `getMembers()` reflects the directory live; this filter runs *after* that, independent of what the directory itself reports).
 
 ### Archive access levels
 
@@ -1066,7 +1124,7 @@ interface MemberResolver {
 | `LdapMemberResolver` | `ldap` | Resolves member/owner DNs via LDAP; every directory attribute except `mail` becomes a `Member::$attributes` entry under its own name (plus a `username` = `cn` convenience copy — see "Member attributes — fully dynamic"); `removeMember` removes the DN from the `member` attribute; `supportsRemoval` always `true`; `addMember` adds it — but only if a directory entry matching the email already exists, else throws |
 | `DatabaseMemberResolver` | `database` | `SELECT *`s `members-table` via `DatabaseConnectionFactory` + context config, exposing every non-reserved column as an attribute; `removeMember` sets `is_member = 0`, then deletes row if `is_member = 0 AND is_owner = 0`; `supportsRemoval` always `true`; `addMember` upserts dynamically from `Member::$attributes` (validated as SQL identifiers), preserving existing `is_owner` |
 | `CsvMemberResolver` | `csv` | Reads/writes a flat CSV file (`name,mail,is_member,is_owner` reserved, any other header column exposed as an attribute), shared across lists like `members-table`; re-reads on every call, writes take an exclusive `flock`; `supportsRemoval` always `true`; `addMember` extends the header for new attribute keys — see "CSV member file format" |
-| `InlineMemberResolver` | — | Resolves inline config.yml `members`/`owners`; each entry is a plain email string or a map with a required `mail` key plus any other keys, all becoming attributes verbatim. `members` and `owners` are independent — either can be `null` (not configured inline) to defer to a wrapped fallback `MemberResolver` instead. On the static-inline side (`$members !== null`), `removeMember` throws (a request-scoped in-memory removal can never persist — config.yml is never rewritten, and a fresh instance is built from it on every request anyway) and `supportsRemoval` is `false`; on the deferred side, both pass through to the fallback |
+| `InlineMemberResolver` | — | A fixed, statically-configured set of members/owners — the "bare inline entry" building block for one level (global/provider/list) of `members:`/`owners:`, or one entry of `member-resolver:`/`owner-resolver:` that isn't a resolver config (see "Global / provider / list levels"). Each entry is a plain email string or a map with a required `mail` key plus any other keys, all becoming attributes verbatim. `removeMember` always throws (a request-scoped in-memory removal can never persist — config.yml is never rewritten, and a fresh instance is built from it on every request anyway) and `supportsRemoval` is always `false` — no fallback/override concept anymore; combining an `InlineMemberResolver` with any other source (from any level) is `CompositeMemberResolver`'s job |
 | `NullMemberResolver` | — | Returns empty arrays; `removeMember` is a no-op; `supportsRemoval` `false` (no backing store at all); `addMember` throws |
 | `AggregateMemberResolver` | — | Searches across all providers; used by `AuthController` to find any list a user belongs to; `supportsRemoval` `false`; `addMember`/mutating calls throw (lookup only) |
 
@@ -1074,9 +1132,9 @@ interface MemberResolver {
 
 `supportsRemoval()` — checked via `ListConfig::$supportsUnsubscribe` (a property hook, like every other derived `ListConfig` value — see "ListConfig with property hooks" — not a method, since `MemberResolver::supportsRemoval()` itself is; the interface it belongs to is method-based throughout) — lets a caller find out *before* calling `removeMember()` whether it would actually persist anything, rather than either silently no-op'ing (previously the case for `NullMemberResolver` and static-inline `InlineMemberResolver`, both of which "succeeded" without ever removing anyone) or throwing. `DashboardController` only shows the "Unsubscribe" link when `allowLeave === Direct` *and* `$supportsUnsubscribe`; `UnsubscribeController`'s direct-unsubscribe branch and `ListApiController::unsubscribe()` (`DELETE /{listname}/{mail}`) both check it (or catch the `\RuntimeException`) before claiming success — see "Unsubscribe endpoint".
 
-`member-resolver` can be configured as a sub-object on `type: inline` and `type: database` providers, with `type: database`, `type: ldap`, or `type: csv` (`{type: csv, file: /path/to/members.csv}`) — and, since `MemberResolverFactory::buildSources()`, as a *list* of such sub-objects too, combined via `CompositeMemberResolver` (see "Root-level `lists:`"). `type: ldap` (the list provider) always uses `LdapMemberResolver` as the base for every list it produces, independent of any `member-resolver` sub-object — a root-level `lists: <name>: member-resolver:` can still add *extra* sources on top of it (never replace it) for one specific list, the same mechanism `type: database` gets too.
+`member-resolver`/`owner-resolver` can be configured as a sub-object on `type: inline` and `type: database` providers, with `type: database`, `type: ldap`, or `type: csv` (`{type: csv, file: /path/to/members.csv}`) — and, since `MemberResolverFactory::buildSources()`, as a *list* of such sub-objects (or bare inline entries) too. `type: ldap` (the list provider) always includes `LdapMemberResolver` for every list it produces (`$extraBase` in `MemberResolverFactory::buildComposedResolver()`), independent of any `member-resolver`/`owner-resolver` configured at any level for it — every configured level only ever adds to it, never replaces it.
 
-For `type: inline` and `type: yaml`: `members` and `owners` can be overridden inline independently — e.g. a list can define inline `owners` while `members` still comes from the configured `member-resolver` (database/ldap/csv), or vice versa. `InlineMemberResolver` is constructed with the configured `member-resolver` as its fallback whenever either key is present, and defers per-field to that fallback for whichever of `members`/`owners` was not given inline. If neither is defined, the list uses the `member-resolver` directly (or has no members if none is configured — no error).
+For `type: inline` and `type: yaml`: `members`/`owners`/`member-resolver`/`owner-resolver` are all independently additive across all three levels (global/provider/list) — see "Global / provider / list levels" for the full mechanism and the deliberate behavior change from the old exclusive-override design. A list with none of the six keys set at any level (global, provider, or list) simply gets an empty `CompositeMemberResolver` for that role — no members, no error.
 
 ### Database table structures
 

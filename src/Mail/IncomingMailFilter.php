@@ -6,7 +6,6 @@ namespace Hengeb\Listig\Mail;
 
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\ListConfig;
-use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\RateLimit\RateLimiter;
 use PhpImap\IncomingMail;
 
@@ -16,7 +15,6 @@ class IncomingMailFilter
         private readonly RateLimiter $rateLimiter,
         private readonly HeaderFilter $headerFilter,
         private readonly SpamFilter $spamFilter,
-        private readonly RestrictionList $restrictionList,
     ) {
     }
 
@@ -146,21 +144,22 @@ class IncomingMailFilter
     }
 
     /**
-     * A `restricted-members:` hit (see RestrictionList — list-scoped or
-     * instance-wide, see CLAUDE.md "Sperren (restricted-members:)") is checked
-     * first and overrides everything below it, including owner status: a
-     * global ban is meant to be absolute, even for someone who's still an
-     * owner. Owners and `senders:` (see ListConfig::$authorizedSenders — a
-     * poster without becoming a member/owner, e.g. a board that shouldn't
-     * receive owner-only bounce mail) then always pass, no config key of their
-     * own (see CLAUDE.md "post-access-members"/"post-access-public"). A member
-     * or public sender with PostAccess::Deny is rejected here; Allow and
-     * Moderate both pass — the Allow/Moderate distinction is decided later, by
-     * requiresModeration(), after rate limiting has had a chance to run.
+     * A `restricted-members:` hit (see ListConfig::isSenderRestricted() /
+     * RestrictionList — global, provider, or list level, see CLAUDE.md "Global
+     * / provider / list levels") is checked first and overrides everything
+     * below it, including owner status: a global ban is meant to be absolute,
+     * even for someone who's still an owner. Owners and `senders:` (see
+     * ListConfig::$authorizedSenders — a poster without becoming a
+     * member/owner, e.g. a board that shouldn't receive owner-only bounce
+     * mail) then always pass, no config key of their own (see CLAUDE.md
+     * "post-access-members"/"post-access-public"). A member or public sender
+     * with PostAccess::Deny is rejected here; Allow and Moderate both pass —
+     * the Allow/Moderate distinction is decided later, by requiresModeration(),
+     * after rate limiting has had a chance to run.
      */
     private function checkPostAccess(ListConfig $list, string $senderEmail): ?FilterResult
     {
-        if ($this->restrictionList->isSendRestricted($list->name, $senderEmail)) {
+        if ($list->isSenderRestricted($senderEmail)) {
             return FilterResult::reject('reject.sender_restricted');
         }
 

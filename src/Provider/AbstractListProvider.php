@@ -89,4 +89,30 @@ abstract class AbstractListProvider implements ListProvider
     {
         return $this->resolvedProviderConfigCache ??= $this->configResolver->resolveListConfig($this->providerConfig);
     }
+
+    /**
+     * Raw values for $key at all three levels a list can now configure
+     * members/owners/member-resolver/owner-resolver/senders/restricted-members
+     * at — global (root config.yml), this provider, and one specific list —
+     * not yet normalized or merged. Each caller decides how to combine its own
+     * three raw values (concatenation for senders/restricted-members,
+     * MemberResolverFactory::buildSources() for resolver composition, ...).
+     * See CLAUDE.md "Global / provider / list levels".
+     *
+     * $listConfig is the list's own already-merged raw config (provider-native
+     * listDef/description[]/config-table row, further merged with the
+     * root-level `lists:` override — see CLAUDE.md "Root-level lists:") —
+     * whatever a subclass already has in hand for this one list before
+     * building its ListConfig.
+     *
+     * @return array{0: mixed, 1: mixed, 2: mixed}
+     */
+    protected function scopedLevels(string $key, array $listConfig): array
+    {
+        return [
+            $this->configResolver->getGlobalScoped()[$key] ?? null,
+            $this->providerConfig[$key] ?? null,
+            $listConfig[$key] ?? null,
+        ];
+    }
 }

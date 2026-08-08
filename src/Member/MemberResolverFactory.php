@@ -7,10 +7,12 @@ namespace Hengeb\Listig\Member;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
 
 /**
- * Builds the MemberResolver configured under a list-providers entry's optional
- * `member-resolver` block (`database` | `ldap` | none). Shared by
- * InlineListProvider, DatabaseListProvider, and YamlListProvider, which all
- * support the same sub-config shape.
+ * Builds member/owner resolvers from config.yml's `member-resolver:`/
+ * `owner-resolver:`/`members:`/`owners:` — a single resolver-config
+ * (`database`/`ldap`/`csv`), a list of them mixed with bare inline entries
+ * (buildSources()), or the full three-level (global/provider/list) additive
+ * composition for one list (buildComposedResolver()). Shared by every list
+ * provider.
  */
 class MemberResolverFactory
 {
@@ -101,34 +103,53 @@ class MemberResolverFactory
     }
 
     /**
-     * Wraps $base with any extra member/owner sources found in $override
-     * (root-level `lists: <name>:` — see CLAUDE.md "Root-level lists:") —
-     * additive, never replacing $base, so a list's own directory/database
-     * membership is never lost, only supplemented. `member-resolver:`/
-     * `owner-resolver:` and `members:`/`owners:` are equally valid here (the
-     * latter just for the common case of adding a few bare addresses, without
-     * needing to spell out a full resolver-config).
+     * Builds the final MemberResolver for one list, composing every configured
+     * source across all three levels (global config.yml root, provider, list —
+     * see CLAUDE.md "Global / provider / list levels") for both roles, always
+     * additively — there is no more "base vs. override" distinction; every
+     * source, from any level, simply contributes to the union. $extraBase, when
+     * given, is unconditionally included in both roles — LdapListProvider's own
+     * hardcoded LdapMemberResolver, which (unlike every other provider type) is
+     * never expressed via member-resolver: at all (see CLAUDE.md "type: ldap").
      *
-     * @param array<string, mixed> $override
+     * @param array{0: mixed, 1: mixed, 2: mixed} $memberResolverLevels member-resolver: at global/provider/list
+     * @param array{0: mixed, 1: mixed, 2: mixed} $membersLevels members: at global/provider/list
+     * @param array{0: mixed, 1: mixed, 2: mixed} $ownerResolverLevels owner-resolver: at global/provider/list
+     * @param array{0: mixed, 1: mixed, 2: mixed} $ownersLevels owners: at global/provider/list
      */
-    public function applyOverride(MemberResolver $base, array $override, array $resolvedProviderConfig): MemberResolver
+    public function buildComposedResolver(
+        array $memberResolverLevels,
+        array $membersLevels,
+        array $ownerResolverLevels,
+        array $ownersLevels,
+        array $resolvedProviderConfig,
+        ?MemberResolver $extraBase = null,
+    ): MemberResolver {
+        $base = $extraBase !== null ? [$extraBase] : [];
+
+        $memberSources = array_merge(
+            $base,
+            $this->buildSourcesFromLevels($memberResolverLevels, $resolvedProviderConfig),
+            $this->buildSourcesFromLevels($membersLevels, $resolvedProviderConfig),
+        );
+        $ownerSources = array_merge(
+            $base,
+            $this->buildSourcesFromLevels($ownerResolverLevels, $resolvedProviderConfig),
+            $this->buildSourcesFromLevels($ownersLevels, $resolvedProviderConfig),
+        );
+
+        return new CompositeMemberResolver($memberSources, $ownerSources);
+    }
+
+    /**
+     * @param array{0: mixed, 1: mixed, 2: mixed} $levels
+     * @return MemberResolver[]
+     */
+    private function buildSourcesFromLevels(array $levels, array $resolvedProviderConfig): array
     {
-        $extraMembers = array_merge(
-            $this->buildSources($override['member-resolver'] ?? null, $resolvedProviderConfig),
-            $this->buildSources($override['members'] ?? null, $resolvedProviderConfig),
-        );
-        $extraOwners = array_merge(
-            $this->buildSources($override['owner-resolver'] ?? null, $resolvedProviderConfig),
-            $this->buildSources($override['owners'] ?? null, $resolvedProviderConfig),
-        );
-
-        if ($extraMembers === [] && $extraOwners === []) {
-            return $base;
-        }
-
-        return new CompositeMemberResolver(
-            [$base, ...$extraMembers],
-            [$base, ...($extraOwners !== [] ? $extraOwners : [$base])],
-        );
+        return array_merge(...array_map(
+            fn($raw) => $this->buildSources($raw, $resolvedProviderConfig),
+            $levels,
+        ));
     }
 }

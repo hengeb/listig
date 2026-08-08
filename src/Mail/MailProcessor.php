@@ -7,7 +7,6 @@ namespace Hengeb\Listig\Mail;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\ListConfig;
-use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Queue\QueueWriter;
@@ -32,7 +31,6 @@ class MailProcessor
         private readonly string $hostname,
         private readonly Logger $logger,
         private readonly TranslatorInterface $translator,
-        private readonly RestrictionList $restrictionList,
     ) {
     }
 
@@ -436,7 +434,7 @@ class MailProcessor
         return array_values(array_filter(
             $members,
             fn(Member $m) => !in_array(strtolower($m->email), $excluded, true)
-                && !$this->restrictionList->isReceiveRestricted($list->name, $m->email)
+                && !$list->isReceiverRestricted($m->email)
         ));
     }
 

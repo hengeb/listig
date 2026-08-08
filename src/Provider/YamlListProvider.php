@@ -6,9 +6,9 @@ namespace Hengeb\Listig\Provider;
 
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Config\YamlIncludeResolver;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
-use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\MemberResolverFactory;
 use Hengeb\Listig\Variable\ResolutionPurpose;
 use Hengeb\Listig\Variable\VariableResolver;
@@ -40,16 +40,16 @@ class YamlListProvider extends AbstractListProvider
         if (!is_array($data)) {
             throw new \RuntimeException("Invalid YAML list provider file: $yamlFile (provider '{$this->name}')");
         }
-        $defaultMemberResolver = $this->memberResolverFactory->create(
-            $this->providerConfig['member-resolver'] ?? null,
-            $this->resolvedProviderConfig(),
-        );
+
+        // members:/owners:/member-resolver:/owner-resolver:/senders:/restricted-members:
+        // are excluded from the plain raw-config merge below — see InlineListProvider for
+        // the identical pattern and CLAUDE.md "Global / provider / list levels".
+        $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners', 'senders', 'restricted-members']);
 
         foreach ($data['lists'] ?? [] as $listName => $listDef) {
             // Root-level `lists: <name>:` — see InlineListProvider for the identical
             // pattern and CLAUDE.md "Root-level lists:".
             $rootOverride = $this->configResolver->getListOverride($listName);
-            $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
 
             $listOverrides = array_diff_key($listDef, $excludedKeys);
             $listOverrides = array_merge($listOverrides, array_diff_key($rootOverride, $excludedKeys));
@@ -71,22 +71,32 @@ class YamlListProvider extends AbstractListProvider
                 throw new \RuntimeException("List '$listName' has no list-mail (resolved to an empty value) in provider '{$this->name}'");
             }
 
-            // Per-list inline members/owners override the default member-resolver
-            // independently — e.g. inline owners with members still coming from
-            // the configured member-resolver (database/ldap/csv).
-            if (isset($listDef['members']) || isset($listDef['owners'])) {
-                $memberResolver = new InlineMemberResolver(
-                    $listDef['members'] ?? null,
-                    $listDef['owners'] ?? null,
-                    $defaultMemberResolver,
-                );
-            } else {
-                $memberResolver = $defaultMemberResolver;
-            }
+            // $listConfig for scopedLevels() combines this provider's own listDef
+            // with the root-level lists: override — both are per-list sources, see
+            // CLAUDE.md "Root-level lists:".
+            $listConfig = array_merge($listDef, $rootOverride);
 
-            $memberResolver = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
+            $memberResolver = $this->memberResolverFactory->buildComposedResolver(
+                $this->scopedLevels('member-resolver', $listConfig),
+                $this->scopedLevels('members', $listConfig),
+                $this->scopedLevels('owner-resolver', $listConfig),
+                $this->scopedLevels('owners', $listConfig),
+                $this->resolvedProviderConfig(),
+            );
 
-            $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver);
+            $raw['senders'] = array_merge(...array_map(
+                fn($v) => is_string($v) ? ListConfig::splitCommaList($v) : ($v ?? []),
+                $this->scopedLevels('senders', $listConfig),
+            ));
+
+            $restrictions = new RestrictionList(array_merge(...array_map(
+                fn($v) => is_string($v)
+                    ? array_map(fn(string $mail) => ['mail' => $mail], ListConfig::splitCommaList($v))
+                    : ($v ?? []),
+                $this->scopedLevels('restricted-members', $listConfig),
+            )));
+
+            $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver, restrictions: $restrictions);
         }
 
         return $lists;

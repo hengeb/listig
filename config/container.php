@@ -12,7 +12,6 @@ use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
-use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Logging\LogLevel;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Crypto\KeyDerivation;
@@ -364,19 +363,11 @@ $builder->addDefinitions([
         return new SpamFilter($c->get(ConfigResolver::class)->getFilters(), $c->get(Logger::class));
     },
 
-    // Global, list-independent (or list-scoped, see RestrictionList) sender
-    // restrictions — rules from the top-level restricted-members: section, same
-    // "parsed once, evaluated per list" pattern as SpamFilter above.
-    RestrictionList::class => function (ContainerInterface $c): RestrictionList {
-        return new RestrictionList($c->get(ConfigResolver::class)->getRestrictedMembers());
-    },
-
     IncomingMailFilter::class => function (ContainerInterface $c): IncomingMailFilter {
         return new IncomingMailFilter(
             $c->get(RateLimiter::class),
             $c->get(HeaderFilter::class),
             $c->get(SpamFilter::class),
-            $c->get(RestrictionList::class),
         );
     },
 
@@ -390,7 +381,6 @@ $builder->addDefinitions([
             $c->get('app.hostname'),
             $c->get(Logger::class),
             $c->get(TranslatorInterface::class),
-            $c->get(RestrictionList::class),
         );
     },
 

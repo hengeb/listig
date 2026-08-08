@@ -11,7 +11,10 @@ class ConfigResolver
     private array $listProviderConfigs = [];
     private array $filters = [];
     private array $lists = [];
-    private array $restrictedMembers = [];
+    private array $globalScoped = [];
+
+    /** Root keys forming the global level of the three-level (global/provider/list) member/owner/sender/restriction mechanism — see getGlobalScoped(). */
+    private const array SCOPED_KEYS = ['members', 'owners', 'member-resolver', 'owner-resolver', 'senders', 'restricted-members'];
 
     public function __construct(string $configPath)
     {
@@ -66,14 +69,17 @@ class ConfigResolver
     }
 
     /**
-     * Global, list-independent sender restrictions from the top-level
-     * `restricted-members:` section — see RestrictionList.
+     * The global (root config.yml) level of `members:`/`owners:`/`member-resolver:`/
+     * `owner-resolver:`/`senders:`/`restricted-members:` — the outermost of the
+     * three levels (global, provider, list) every one of these six keys can be
+     * set at, always combined additively. See CLAUDE.md "Global / provider /
+     * list levels".
      *
-     * @return array<int, array<string, mixed>>
+     * @return array<string, mixed> key => raw value, or null if not set at this level
      */
-    public function getRestrictedMembers(): array
+    public function getGlobalScoped(): array
     {
-        return $this->restrictedMembers;
+        return $this->globalScoped;
     }
 
     /**
@@ -155,7 +161,7 @@ class ConfigResolver
     /**
      * The config.yml root is the default block (see CLAUDE.md "Configuration priority").
      * A root key is either:
-     * - 'list-providers' / 'filters' / 'lists' / 'restricted-members': handled separately below.
+     * - 'list-providers' / 'filters' / 'lists' / SCOPED_KEYS: handled separately below.
      * - 'use': the list of named blocks to merge into the default.
      * - a scalar value: a direct default key-value.
      * - an array/map value: a named block — inert unless referenced via some `use:`
@@ -166,7 +172,7 @@ class ConfigResolver
         $defaultConfig = [];
 
         foreach ($config as $key => $value) {
-            if ($key === 'list-providers' || $key === 'filters' || $key === 'lists' || $key === 'restricted-members') {
+            if ($key === 'list-providers' || $key === 'filters' || $key === 'lists' || in_array($key, self::SCOPED_KEYS, true)) {
                 continue;
             }
             if ($key === 'use') {
@@ -197,10 +203,9 @@ class ConfigResolver
             $config['lists'] ?? []
         );
 
-        $this->restrictedMembers = array_map(
-            fn(array $r) => $this->substituteEnvVars($r),
-            $config['restricted-members'] ?? []
-        );
+        foreach (self::SCOPED_KEYS as $key) {
+            $this->globalScoped[$key] = $this->substituteEnvVars($config[$key] ?? null);
+        }
     }
 
     private function mergeBlock(array $base, array $override): array
