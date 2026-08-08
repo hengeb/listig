@@ -213,6 +213,12 @@ $builder->addDefinitions([
         // ArchiveController uses for the collapsed-summary "%size%" param, see
         // Archive\ByteFormatter's docblock.
         $latte->addFilter('formatBytes', \Hengeb\Listig\Archive\ByteFormatter::format(...));
+        // Using $this in templates is deprecated since Latte 3.1 (and will
+        // eventually be a hard error). Latte auto-injects the current
+        // Template instance into any custom function whose first parameter
+        // is typed Runtime\Template, so this is the supported replacement —
+        // used by custom.latte to walk getReferringTemplate() chains.
+        $latte->addFunction('getTemplate', fn(\Latte\Runtime\Template $template) => $template);
         return $latte;
     },
 
