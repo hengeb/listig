@@ -36,7 +36,17 @@ class InlineListProvider extends AbstractListProvider
         );
 
         foreach ($this->providerConfig['lists'] ?? [] as $listName => $listDef) {
-            $listOverrides = array_diff_key($listDef, array_flip(['members', 'owners']));
+            // Root-level `lists: <name>:` — an additional, highest-priority per-list
+            // source layered on top of this provider's own listDef, matched purely by
+            // name. See CLAUDE.md "Root-level lists:". member-resolver:/owner-resolver:/
+            // members:/owners: are excluded from the plain raw-config merge below (they
+            // never fed into $raw even for listDef, see the same array_diff_key below) —
+            // they're consumed separately by applyOverride() further down instead.
+            $rootOverride = $this->configResolver->getListOverride($listName);
+            $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
+
+            $listOverrides = array_diff_key($listDef, $excludedKeys);
+            $listOverrides = array_merge($listOverrides, array_diff_key($rootOverride, $excludedKeys));
             $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
             $raw['name'] = $listName;
 
@@ -67,6 +77,10 @@ class InlineListProvider extends AbstractListProvider
             } else {
                 $memberResolver = $defaultMemberResolver;
             }
+
+            // Root-level lists: additions on top, additive (never replaces
+            // $memberResolver) — see MemberResolverFactory::applyOverride().
+            $memberResolver = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
 
             $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver);
         }

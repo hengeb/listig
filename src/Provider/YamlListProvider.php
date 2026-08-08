@@ -46,7 +46,13 @@ class YamlListProvider extends AbstractListProvider
         );
 
         foreach ($data['lists'] ?? [] as $listName => $listDef) {
-            $listOverrides = array_diff_key($listDef, array_flip(['members', 'owners']));
+            // Root-level `lists: <name>:` — see InlineListProvider for the identical
+            // pattern and CLAUDE.md "Root-level lists:".
+            $rootOverride = $this->configResolver->getListOverride($listName);
+            $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
+
+            $listOverrides = array_diff_key($listDef, $excludedKeys);
+            $listOverrides = array_merge($listOverrides, array_diff_key($rootOverride, $excludedKeys));
             $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
             $raw['name'] = $listName;
 
@@ -77,6 +83,8 @@ class YamlListProvider extends AbstractListProvider
             } else {
                 $memberResolver = $defaultMemberResolver;
             }
+
+            $memberResolver = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
 
             $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver);
         }

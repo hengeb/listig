@@ -8,6 +8,7 @@ use Hengeb\Listig\Config\Enum\AllowLeave;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
+use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Member\MemberResolver;
 use Hengeb\Listig\Member\NullMemberResolver;
@@ -176,6 +177,38 @@ class ListConfig
     public function isOwnedBy(string $email): bool
     {
         return $this->findOwnerInList($email) !== null;
+    }
+
+    /**
+     * `senders:` — addresses allowed to post without being a member or owner
+     * (e.g. a board that may write to the list but shouldn't receive owner-only
+     * bounce mail). Inline entries only (same shape as members:/owners:), no
+     * resolver composition — see CLAUDE.md "Zusätzliche Absender".
+     *
+     * $raw['senders'] is a plain YAML array when set via inline config.yml or
+     * root-level `lists:`, but a single comma-separated string when it comes
+     * from an LDAP `description[]` entry (a flat, multi-valued attribute with
+     * no nested structure) — same dual shape personalizeKeys/reservedSubaddresses
+     * already handle, reusing splitCommaList() for the string case.
+     *
+     * @return Member[]
+     */
+    public array $authorizedSenders {
+        get {
+            $raw = $this->raw['senders'] ?? [];
+            $entries = is_string($raw) ? self::splitCommaList($raw) : $raw;
+            return array_map(InlineMemberResolver::toMember(...), $entries);
+        }
+    }
+
+    public function isAuthorizedSender(string $email): bool
+    {
+        return self::matchEmail($email, $this->authorizedSenders) !== null;
+    }
+
+    public function findAuthorizedSender(string $email): ?Member
+    {
+        return self::matchEmail($email, $this->authorizedSenders);
     }
 
     /** @param Member[] $members */

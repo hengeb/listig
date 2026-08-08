@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Provider;
 
+use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Database\DatabaseConnectionFactory;
 use Hengeb\Listig\Member\InlineMemberResolver;
+use Hengeb\Listig\Member\MemberResolverFactory;
 use Hengeb\Listig\Member\NullMemberResolver;
 use Hengeb\Listig\Variable\ResolutionPurpose;
 use Hengeb\Listig\Variable\VariableResolver;
@@ -22,12 +25,30 @@ use Hengeb\Listig\Variable\VariableResolver;
  */
 class SubaddressListProvider extends AbstractListProvider
 {
+    private readonly MemberResolverFactory $memberResolverFactory;
+
+    public function __construct(
+        string $name,
+        ConfigResolver $configResolver,
+        array $providerConfig,
+        private readonly ?DatabaseConnectionFactory $dbFactory = null,
+    ) {
+        parent::__construct($name, $configResolver, $providerConfig);
+        $this->memberResolverFactory = new MemberResolverFactory($this->dbFactory);
+    }
+
     /** @see AbstractListProvider::loadLists() */
     protected function loadLists(): array
     {
         $lists = [];
         foreach ($this->providerConfig['lists'] ?? [] as $listName => $listDef) {
-            $listOverrides = array_diff_key($listDef, array_flip(['members', 'owners']));
+            // Root-level `lists: <name>:` — see InlineListProvider for the identical
+            // pattern and CLAUDE.md "Root-level lists:".
+            $rootOverride = $this->configResolver->getListOverride($listName);
+            $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
+
+            $listOverrides = array_diff_key($listDef, $excludedKeys);
+            $listOverrides = array_merge($listOverrides, array_diff_key($rootOverride, $excludedKeys));
             $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
             $raw['name'] = $listName;
 
@@ -47,6 +68,7 @@ class SubaddressListProvider extends AbstractListProvider
             }
 
             $memberResolver  = new InlineMemberResolver([], $listDef['owners'] ?? null, new NullMemberResolver());
+            $memberResolver  = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
             $memberTemplates = $listDef['members'] ?? [];
 
             $lists[$listName] = new ListConfig($listName, $mail, $raw, $memberResolver, $memberTemplates);

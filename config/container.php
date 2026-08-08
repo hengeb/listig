@@ -12,6 +12,7 @@ use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Logging\LogLevel;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Crypto\KeyDerivation;
@@ -261,22 +262,30 @@ $builder->addDefinitions([
             $type = $configResolver->resolveListConfig($config)['type'] ?? '';
             $type = $type !== '' ? $type : $name;
             $provider = match ($type) {
-                'ldap' => new \Hengeb\Listig\Provider\LdapListProvider($name, $configResolver, $config),
+                'ldap' => new \Hengeb\Listig\Provider\LdapListProvider($name, $configResolver, $config, $dbFactory),
                 'inline' => new \Hengeb\Listig\Provider\InlineListProvider($name, $configResolver, $config, $dbFactory),
                 'database' => new \Hengeb\Listig\Provider\DatabaseListProvider($name, $configResolver, $config, $dbFactory),
                 'yaml' => new \Hengeb\Listig\Provider\YamlListProvider($name, $configResolver, $config, $dbFactory),
-                'subaddress' => new \Hengeb\Listig\Provider\SubaddressListProvider($name, $configResolver, $config),
+                'subaddress' => new \Hengeb\Listig\Provider\SubaddressListProvider($name, $configResolver, $config, $dbFactory),
                 default => throw new \RuntimeException("Unknown list provider type \"$type\" for provider \"$name\""),
             };
             $providers[] = $provider;
         }
 
         // Composite provider that searches all
-        return new class($providers) implements ListProvider {
-            public function __construct(private readonly array $providers) {}
+        return new class($providers, $configResolver, $dbFactory) implements ListProvider {
+            /** @var array<string, \Hengeb\Listig\Config\ListConfig>|null */
+            private ?array $implicitLists = null;
+
+            public function __construct(
+                private readonly array $providers,
+                private readonly ConfigResolver $configResolver,
+                private readonly DatabaseConnectionFactory $dbFactory,
+            ) {}
 
             public function getLists(): array {
-                return array_merge(...array_map(fn($p) => $p->getLists(), $this->providers));
+                $lists = array_merge(...array_map(fn($p) => $p->getLists(), $this->providers));
+                return array_merge($lists, array_values($this->implicitLists($lists)));
             }
 
             public function getList(string $name): ?\Hengeb\Listig\Config\ListConfig {
@@ -284,7 +293,8 @@ $builder->addDefinitions([
                     $list = $p->getList($name);
                     if ($list !== null) return $list;
                 }
-                return null;
+                $realLists = array_merge(...array_map(fn($p) => $p->getLists(), $this->providers));
+                return $this->implicitLists($realLists)[$name] ?? null;
             }
 
             public function setListConfigValue(string $listName, string $key, string $value): void {
@@ -301,6 +311,45 @@ $builder->addDefinitions([
                 foreach ($this->providers as $p) {
                     $p->reset();
                 }
+                $this->implicitLists = null;
+            }
+
+            /**
+             * Root-level `lists:` names that no configured provider produced are
+             * defined from scratch via an implicit `type: inline` provider — see
+             * CLAUDE.md "Root-level lists:". Built lazily (only once actually
+             * needed, not at container-build time) and cached for the rest of
+             * this cycle/request, same lifetime as $this->providers' own internal
+             * per-cycle caching.
+             *
+             * @param \Hengeb\Listig\Config\ListConfig[] $realLists already produced by the configured providers
+             * @return array<string, \Hengeb\Listig\Config\ListConfig>
+             */
+            private function implicitLists(array $realLists): array {
+                if ($this->implicitLists !== null) {
+                    return $this->implicitLists;
+                }
+
+                $claimed = array_map(fn($l) => $l->name, $realLists);
+                $missingNames = array_diff($this->configResolver->getListOverrideNames(), $claimed);
+
+                $lists = [];
+                foreach ($missingNames as $name) {
+                    $lists[$name] = $this->configResolver->getListOverride($name);
+                }
+
+                $provider = new \Hengeb\Listig\Provider\InlineListProvider(
+                    '_root',
+                    $this->configResolver,
+                    ['lists' => $lists],
+                    $this->dbFactory,
+                );
+
+                $this->implicitLists = [];
+                foreach ($provider->getLists() as $list) {
+                    $this->implicitLists[$list->name] = $list;
+                }
+                return $this->implicitLists;
             }
         };
     },
@@ -315,8 +364,20 @@ $builder->addDefinitions([
         return new SpamFilter($c->get(ConfigResolver::class)->getFilters(), $c->get(Logger::class));
     },
 
+    // Global, list-independent (or list-scoped, see RestrictionList) sender
+    // restrictions — rules from the top-level restricted-members: section, same
+    // "parsed once, evaluated per list" pattern as SpamFilter above.
+    RestrictionList::class => function (ContainerInterface $c): RestrictionList {
+        return new RestrictionList($c->get(ConfigResolver::class)->getRestrictedMembers());
+    },
+
     IncomingMailFilter::class => function (ContainerInterface $c): IncomingMailFilter {
-        return new IncomingMailFilter($c->get(RateLimiter::class), $c->get(HeaderFilter::class), $c->get(SpamFilter::class));
+        return new IncomingMailFilter(
+            $c->get(RateLimiter::class),
+            $c->get(HeaderFilter::class),
+            $c->get(SpamFilter::class),
+            $c->get(RestrictionList::class),
+        );
     },
 
     MailProcessor::class => function (ContainerInterface $c): MailProcessor {
@@ -329,6 +390,7 @@ $builder->addDefinitions([
             $c->get('app.hostname'),
             $c->get(Logger::class),
             $c->get(TranslatorInterface::class),
+            $c->get(RestrictionList::class),
         );
     },
 

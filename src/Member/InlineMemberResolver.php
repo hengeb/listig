@@ -33,7 +33,8 @@ class InlineMemberResolver implements MemberResolver
         $this->owners = $owners !== null ? array_map(self::toMember(...), $owners) : null;
     }
 
-    private static function toMember(string|array $entry): Member
+    /** Shared with MemberResolverFactory::buildSources() and ListConfig::$authorizedSenders. */
+    public static function toMember(string|array $entry): Member
     {
         if (is_string($entry)) {
             return new Member($entry);

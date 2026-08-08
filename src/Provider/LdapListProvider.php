@@ -4,15 +4,29 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Provider;
 
+use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Crypto\PasswordCrypto;
+use Hengeb\Listig\Database\DatabaseConnectionFactory;
 use Hengeb\Listig\Member\LdapMemberResolver;
+use Hengeb\Listig\Member\MemberResolverFactory;
 use Symfony\Component\Ldap\Entry;
 use Symfony\Component\Ldap\Ldap;
 
 class LdapListProvider extends AbstractListProvider
 {
     private ?Ldap $ldap = null;
+    private readonly MemberResolverFactory $memberResolverFactory;
+
+    public function __construct(
+        string $name,
+        ConfigResolver $configResolver,
+        array $providerConfig,
+        private readonly ?DatabaseConnectionFactory $dbFactory = null,
+    ) {
+        parent::__construct($name, $configResolver, $providerConfig);
+        $this->memberResolverFactory = new MemberResolverFactory($this->dbFactory);
+    }
 
     /** @see AbstractListProvider::loadLists() */
     protected function loadLists(): ?array
@@ -77,11 +91,24 @@ class LdapListProvider extends AbstractListProvider
             PasswordCrypto::warnIfPlaintext($key, $listOverrides[$key] ?? '', "LDAP description[] for list '$name'");
         }
 
+        // Root-level `lists: <name>:` — see InlineListProvider for the identical
+        // pattern and CLAUDE.md "Root-level lists:". Unlike the description[]-parsed
+        // $listOverrides above (a flat string per key), $rootOverride is genuine YAML
+        // and takes priority on a plain key conflict — merged in last, member-resolver:/
+        // owner-resolver:/members:/owners: excluded (consumed separately below, via
+        // applyOverride(), never as plain raw config).
+        $rootOverride = $this->configResolver->getListOverride($name);
+        $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
+        $listOverrides = array_merge($listOverrides, array_diff_key($rootOverride, $excludedKeys));
+
         $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
         $raw['name'] = $name;
         $raw['mail'] = $mail;
 
+        // LDAP directory membership is always the base — root-level lists: can only
+        // add extra sources on top (see applyOverride()), never replace it.
         $memberResolver = $this->createMemberResolver();
+        $memberResolver = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
 
         return new ListConfig($name, $mail, $raw, $memberResolver);
     }

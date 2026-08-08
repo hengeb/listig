@@ -10,6 +10,8 @@ class ConfigResolver
     private array $defaultConfig = [];
     private array $listProviderConfigs = [];
     private array $filters = [];
+    private array $lists = [];
+    private array $restrictedMembers = [];
 
     public function __construct(string $configPath)
     {
@@ -41,6 +43,37 @@ class ConfigResolver
     public function getFilters(): array
     {
         return $this->filters;
+    }
+
+    /**
+     * Root-level `lists:` — a map keyed by list name, matched against every list any
+     * configured provider produces (LDAP, database, inline, yaml, subaddress) and
+     * merged in as an additional, highest-priority per-list source; a name with no
+     * matching provider-produced list is instead used to define a brand-new list via
+     * an implicit `type: inline` provider. See CLAUDE.md "Root-level lists:".
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function getListOverride(string $name): array
+    {
+        return $this->lists[$name] ?? [];
+    }
+
+    /** @return string[] */
+    public function getListOverrideNames(): array
+    {
+        return array_keys($this->lists);
+    }
+
+    /**
+     * Global, list-independent sender restrictions from the top-level
+     * `restricted-members:` section — see RestrictionList.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getRestrictedMembers(): array
+    {
+        return $this->restrictedMembers;
     }
 
     /**
@@ -122,7 +155,7 @@ class ConfigResolver
     /**
      * The config.yml root is the default block (see CLAUDE.md "Configuration priority").
      * A root key is either:
-     * - 'list-providers' / 'filters': handled separately below.
+     * - 'list-providers' / 'filters' / 'lists' / 'restricted-members': handled separately below.
      * - 'use': the list of named blocks to merge into the default.
      * - a scalar value: a direct default key-value.
      * - an array/map value: a named block — inert unless referenced via some `use:`
@@ -133,7 +166,7 @@ class ConfigResolver
         $defaultConfig = [];
 
         foreach ($config as $key => $value) {
-            if ($key === 'list-providers' || $key === 'filters') {
+            if ($key === 'list-providers' || $key === 'filters' || $key === 'lists' || $key === 'restricted-members') {
                 continue;
             }
             if ($key === 'use') {
@@ -157,6 +190,16 @@ class ConfigResolver
         $this->filters = array_map(
             fn(array $f) => $this->substituteEnvVars($f),
             $config['filters'] ?? []
+        );
+
+        $this->lists = array_map(
+            fn(array $l) => $this->substituteEnvVars($l),
+            $config['lists'] ?? []
+        );
+
+        $this->restrictedMembers = array_map(
+            fn(array $r) => $this->substituteEnvVars($r),
+            $config['restricted-members'] ?? []
         );
     }
 

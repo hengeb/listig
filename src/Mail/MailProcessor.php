@@ -7,6 +7,7 @@ namespace Hengeb\Listig\Mail;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Queue\QueueWriter;
@@ -31,6 +32,7 @@ class MailProcessor
         private readonly string $hostname,
         private readonly Logger $logger,
         private readonly TranslatorInterface $translator,
+        private readonly RestrictionList $restrictionList,
     ) {
     }
 
@@ -41,7 +43,11 @@ class MailProcessor
 
         $senderEmail    = $incomingMail->fromAddress ?? '';
         $rawFromHeader  = $this->extractFromHeader($headersRaw);
-        $senderMember   = $list->findMemberByEmail($senderEmail) ?? new Member($senderEmail);
+        // findAuthorizedSender() covers a `senders:` poster who is neither a
+        // member nor an owner (see ListConfig::$authorizedSenders) — without
+        // it, {sender-*} personalization (e.g. the From display name) would
+        // silently degrade to just the bare address for such a sender.
+        $senderMember   = $list->findMemberByEmail($senderEmail) ?? $list->findAuthorizedSender($senderEmail) ?? new Member($senderEmail);
 
         // Build the outgoing Email from the parsed incoming mail
         $email = $this->buildOutgoingEmail($incomingMail);
@@ -423,9 +429,14 @@ class MailProcessor
             ? $this->resolveTemplateMembers($list->subaddressMemberTemplates, $mailContexts)
             : $list->getMembers();
 
+        // Receive-restricted (restricted-members: ... receive: false) — unlike a
+        // plain send-only restriction, this must exclude the address from
+        // distribution too, regardless of what the list's own member-resolver
+        // (even LDAP) still reports.
         return array_values(array_filter(
             $members,
             fn(Member $m) => !in_array(strtolower($m->email), $excluded, true)
+                && !$this->restrictionList->isReceiveRestricted($list->name, $m->email)
         ));
     }
 

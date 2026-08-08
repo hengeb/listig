@@ -35,6 +35,7 @@ reject:
   size_exceeded: "Mail überschreitet die maximale Größe von %max_size% Bytes"
   members_denied: "Listenmitglieder dürfen aktuell nicht an diese Liste posten"
   public_denied: "Nur Listenmitglieder dürfen an diese Liste posten"
+  sender_restricted: "Diese Adresse ist derzeit vom Schreiben auf dieser Liste ausgeschlossen"
   rate_limited: "Rate-Limit überschritten"
   no_owners: "Diese Liste erfordert eine Freigabe, hat aber keine Listeninhaber, die diese erteilen könnten"
   moderation_declined: "Von einem Listeninhaber abgelehnt."

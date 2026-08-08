@@ -78,7 +78,16 @@ class DatabaseListProvider extends AbstractListProvider
             PasswordCrypto::warnIfPlaintext($key, $rows[$key] ?? '', "config-table row for list '$name'");
         }
 
-        $raw = $this->configResolver->resolveListConfig($this->providerConfig, $rows);
+        // Root-level `lists: <name>:` — see InlineListProvider for the identical
+        // pattern and CLAUDE.md "Root-level lists:". config-table rows are plain
+        // key/value TEXT pairs, so member-resolver:/owner-resolver: (structured,
+        // possibly nested config) can never come from $rows — root lists: is the
+        // only way to add extra sources for a type: database list too.
+        $rootOverride = $this->configResolver->getListOverride($name);
+        $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners']);
+        $listOverrides = array_merge($rows, array_diff_key($rootOverride, $excludedKeys));
+
+        $raw = $this->configResolver->resolveListConfig($this->providerConfig, $listOverrides);
         $raw['name'] = $name;
         $raw['mail'] = $mail;
 
@@ -86,6 +95,7 @@ class DatabaseListProvider extends AbstractListProvider
             $this->providerConfig['member-resolver'] ?? null,
             $this->resolvedProviderConfig(),
         );
+        $memberResolver = $this->memberResolverFactory->applyOverride($memberResolver, $rootOverride, $this->resolvedProviderConfig());
 
         return new ListConfig($name, $mail, $raw, $memberResolver);
     }
