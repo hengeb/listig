@@ -55,6 +55,17 @@ class ConfigResolver
      * matching provider-produced list is instead used to define a brand-new list via
      * an implicit `type: inline` provider. See CLAUDE.md "Root-level lists:".
      *
+     * Combined from every source the same way the six scoped keys are (see
+     * getGlobalScopedSources()) — the root's own direct `lists:` map plus each
+     * root-level `use:`-referenced named block's own `lists:` map, in `use:`
+     * order, with the root's own direct value merged in last/highest-priority.
+     * Unlike the scoped keys, this is a per-list-name key merge (`array_merge()`,
+     * not concatenation) rather than an additive list of independent sources —
+     * `lists:` is a map, not a list of entries, so two sources defining the same
+     * list just combine that one list's own keys, later source winning on a
+     * plain-key conflict (same "use: blocks, then direct overrides" priority as
+     * everything else at this level).
+     *
      * @return array<string, array<string, mixed>>
      */
     public function getListOverride(string $name): array
@@ -225,10 +236,20 @@ class ConfigResolver
             $config['filters'] ?? []
         );
 
-        $this->lists = array_map(
-            fn(array $l) => $this->substituteEnvVars($l),
-            $config['lists'] ?? []
-        );
+        // Root-level lists: merged from every source (see getListOverride()'s
+        // docblock) — use:-referenced named blocks first, in use: order (their
+        // content is already $VAR-substituted, see the namedBlocks assignment
+        // above), then the root's own direct lists: value merged in last.
+        $listsMerged = [];
+        foreach ($this->defaultConfig['use'] ?? [] as $blockName) {
+            foreach ($this->namedBlocks[$blockName]['lists'] ?? [] as $listName => $override) {
+                $listsMerged[$listName] = array_merge($listsMerged[$listName] ?? [], $override);
+            }
+        }
+        foreach ($config['lists'] ?? [] as $listName => $override) {
+            $listsMerged[$listName] = array_merge($listsMerged[$listName] ?? [], $this->substituteEnvVars($override));
+        }
+        $this->lists = $listsMerged;
 
         // Every raw value contributing to each scoped key at the GLOBAL level —
         // the root's own direct value first, then each root-level use:-referenced
