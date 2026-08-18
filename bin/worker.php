@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 use Hengeb\Listig\Archive\ArchiveIndexer;
+use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Imap\ImapArchiver;
 use Hengeb\Listig\Imap\ImapMailboxFactory;
 use Hengeb\Listig\Imap\ImapPoller;
@@ -54,6 +55,7 @@ try {
     $imapPoller                = $container->get(ImapPoller::class);
     $imapArchiver               = $container->get(ImapArchiver::class);
     $archiveIndexer             = $container->get(ArchiveIndexer::class);
+    $archiveSynchronizer        = $container->get(ArchiveSynchronizer::class);
     $imapMailboxFactory         = $container->get(ImapMailboxFactory::class);
     $mailFilter                 = $container->get(IncomingMailFilter::class);
     $headerFilter               = $container->get(HeaderFilter::class);
@@ -251,6 +253,20 @@ while (true) {
             $imapArchiver->deleteOldMails($list);
         } catch (\Throwable $e) {
             error_log("Listig: deleteOldMails failed for list {$list->name}: " . $e->getMessage());
+        }
+
+        // Delete archived mail older than this list's own archive-max-age (if
+        // configured — see ListConfig::$archiveMaxAgeCutoff). Only reconcile the
+        // archived_mail index (ArchiveSynchronizer::sync(), a full folder scan) when
+        // something was actually pruned — most cycles prune nothing once a list has
+        // caught up, so this stays cheap in the common case.
+        try {
+            $pruned = $imapArchiver->pruneArchive($list);
+            if ($pruned > 0) {
+                $archiveSynchronizer->sync($list);
+            }
+        } catch (\Throwable $e) {
+            error_log("Listig: pruneArchive failed for list {$list->name}: " . $e->getMessage());
         }
     }
 

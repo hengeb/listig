@@ -84,4 +84,42 @@ class ImapArchiver
             $mailbox->expungeDeletedMails();
         }
     }
+
+    /**
+     * Deletes archived mail older than the list's own `archive-max-age` (see
+     * ListConfig::$archiveMaxAgeCutoff) from the archive folder — a sibling of
+     * deleteOldMails() above, but targeting the archive folder instead of INBOX,
+     * and using a per-list configurable cutoff instead of the fixed 30 days.
+     * A no-op (returns 0) when archiving is off, no max-age is configured, or
+     * IMAP isn't set up for this list. Callers (bin/worker.php) should reconcile
+     * archived_mail via ArchiveSynchronizer::sync() when the return value is > 0
+     * — this method deliberately never touches the database itself (only
+     * IMAP-specific classes may touch IMAP; only database-specific classes may
+     * run SQL — see CLAUDE.md "Coding Conventions").
+     */
+    public function pruneArchive(ListConfig $list): int
+    {
+        if ($list->archive === ArchiveMode::Off || $list->archiveMaxAgeCutoff === null || !$list->isImapConfigured) {
+            return 0;
+        }
+
+        $mailbox = $this->mailboxFactory->getMailbox($list);
+        // Absolute, top-level path — see getAbsoluteFolderPath()'s docblock for why
+        // this can't just be relative to whatever mailbox is currently selected.
+        $mailbox->switchMailbox($list->archiveFolder);
+
+        $uids = $mailbox->searchMailbox('BEFORE ' . $list->archiveMaxAgeCutoff->format('d-M-Y'));
+        foreach ($uids as $uid) {
+            try {
+                $mailbox->deleteMail($uid);
+            } catch (\Throwable $e) {
+                error_log("Listig: Failed to prune archived mail UID $uid for list {$list->name}: " . $e->getMessage());
+            }
+        }
+        if (!empty($uids)) {
+            $mailbox->expungeDeletedMails();
+        }
+
+        return count($uids);
+    }
 }

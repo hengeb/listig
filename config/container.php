@@ -219,6 +219,32 @@ $builder->addDefinitions([
         // is typed Runtime\Template, so this is the supported replacement —
         // used by custom.latte to walk getReferringTemplate() chains.
         $latte->addFunction('getTemplate', fn(\Latte\Runtime\Template $template) => $template);
+        // The originally-requested template's path, relative to templates/ (e.g.
+        // "dashboard.latte", "list/manage.latte") — usable from within any
+        // included/imported file too, in particular custom.latte, so an
+        // operator's custom_header/custom_head/etc. block can render differently
+        // depending on which page is actually being shown. {layout}/{extends}
+        // (layout.latte) doesn't change $this — a {block} defined in the entry
+        // template still runs as that same Template instance — but {import}
+        // (custom.latte) does create a separate Template instance, linked back via
+        // getReferringTemplate()/getReferenceType() ('import') to whichever
+        // template imported it. Walking that chain to its root (referring
+        // template === null) therefore always lands on the template Engine::
+        // renderToString() was originally called with, regardless of how many
+        // layers of {layout}/{import} sit between it and the call site. getName()
+        // returns the exact string passed to renderToString() — every controller
+        // passes `__DIR__ . '/../../../templates/...'`, so the '..' segments stay
+        // in the string unresolved; stripping everything up to and including the
+        // last '/templates/' is what turns that into the clean relative form.
+        $latte->addFunction('getTemplateName', function (\Latte\Runtime\Template $template): string {
+            $root = $template;
+            while ($root->getReferringTemplate() !== null) {
+                $root = $root->getReferringTemplate();
+            }
+            $name = $root->getName();
+            $pos = strrpos($name, '/templates/');
+            return $pos !== false ? substr($name, $pos + strlen('/templates/')) : $name;
+        });
         return $latte;
     },
 
@@ -479,8 +505,12 @@ $builder->addDefinitions([
     },
 
     // Detects a trusted large provider's SMTP-level "rejected as spam" response —
-    // see SpamRejectionDetector for why the trust list is hardcoded, not config.yml.
-    SpamRejectionDetector::class => fn() => new SpamRejectionDetector(),
+    // see SpamRejectionDetector for the built-in baseline plus the optional
+    // root-level reliable-spam-reporters: config.yml key that extends it.
+    SpamRejectionDetector::class => function (ContainerInterface $c): SpamRejectionDetector {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        return new SpamRejectionDetector($cfg['reliable-spam-reporters'] ?? []);
+    },
 
     QueueSender::class => function (ContainerInterface $c): QueueSender {
         return new QueueSender(

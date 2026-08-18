@@ -27,6 +27,19 @@ use Symfony\Component\Mime\Address;
  * `MAIL FROM:<%s>` command straight from `getSender()->getEncodedAddress()`
  * with no validation of its own, so an empty address there correctly
  * produces the literal `MAIL FROM:<>` line.
+ *
+ * Setting a `Return-Path` header on the message instead is not an alternative
+ * here, even though symfony/mailer's own `DelayedEnvelope::getSenderFromHeaders()`
+ * does check `Return-Path` (after `Sender`, before `From`) when deriving an
+ * envelope from message headers. That derivation only ever runs when
+ * `Mailer::send()` is called with `$envelope === null` — `AbstractTransport::send()`
+ * builds a `DelayedEnvelope` via `Envelope::create($message)` exactly in that
+ * case, never otherwise. Every call site in this codebase (`QueueSender::sendOne()`,
+ * `NotificationMailer::send()`) always passes an explicit `Envelope`/
+ * `NullSenderEnvelope` instance, so that header-derivation path is never reached
+ * regardless of what headers the message carries — a `Return-Path` header would
+ * be silently ignored for envelope purposes. This Reflection-based subclass
+ * remains the only way to produce `MAIL FROM:<>` with symfony/mailer 7.4.
  */
 final class NullSenderEnvelope extends Envelope
 {

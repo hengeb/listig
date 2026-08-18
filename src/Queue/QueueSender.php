@@ -29,12 +29,19 @@ class QueueSender
 
     public function sendBatch(int $batchSize = 50): void
     {
+        // last_attempt_at ASC stays the primary order — a never-attempted or
+        // longest-waiting recipient is still served first, so a persistent backlog
+        // can't starve a retry indefinitely. RAND() only breaks ties *within* the
+        // same priority (e.g. a whole batch just enqueued with last_attempt_at
+        // NULL, or several retries from the same prior cycle) — without it, the
+        // same recipient/provider tended to always be first in line for a given
+        // send, which meant one specific mailbox got hit first on every mass send.
         $stmt = $this->db->prepare(
             'SELECT qr.id, qr.mail_queue_id, qr.envelope_to, mq.list_cn, mq.batch_id, mq.mime
              FROM queue_recipients qr
              JOIN mail_queue mq ON mq.id = qr.mail_queue_id
              WHERE qr.status = \'pending\'
-             ORDER BY qr.last_attempt_at ASC, qr.id ASC
+             ORDER BY qr.last_attempt_at ASC, RAND()
              LIMIT :limit'
         );
         $stmt->bindValue('limit', $batchSize, PDO::PARAM_INT);

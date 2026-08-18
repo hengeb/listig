@@ -318,6 +318,44 @@ class ListConfig
         get => $this->resolve((string) ($this->raw['archive-folder'] ?? 'Archive'));
     }
 
+    /**
+     * Raw archive-max-age config value (already {}-resolved) as an operator wrote
+     * it, e.g. "30 days" — null if not configured (unbounded retention). Exposed
+     * separately from $archiveMaxAgeCutoff below so the manage page's overview
+     * table can show the human-readable duration itself, not a computed date.
+     */
+    public ?string $archiveMaxAge {
+        get {
+            $raw = $this->resolve((string) ($this->raw['archive-max-age'] ?? ''));
+            return $raw === '' ? null : $raw;
+        }
+    }
+
+    /**
+     * How long archived mail is kept before ImapArchiver::pruneArchive() deletes it
+     * from the archive folder — parsed from $archiveMaxAge (PHP's \DateTimeImmutable
+     * constructor accepts relative-time strings like "30 days", same format
+     * ImapArchiver::deleteOldMails() already uses internally for the fixed 30-day
+     * INBOX rule). null (not configured, the default) means unbounded retention —
+     * unchanged, pre-existing behavior. Throws on an unparseable value (fail-fast,
+     * same philosophy as an invalid filters: regex or a missing $VAR) — caught at
+     * pruneArchive()'s one call site in bin/worker.php, isolated per list so one
+     * list's typo doesn't crash the cycle.
+     */
+    public ?\DateTimeImmutable $archiveMaxAgeCutoff {
+        get {
+            $raw = $this->archiveMaxAge;
+            if ($raw === null) {
+                return null;
+            }
+            try {
+                return new \DateTimeImmutable("-$raw");
+            } catch (\Throwable $e) {
+                throw new \RuntimeException("List '{$this->name}' has an invalid archive-max-age value '$raw' (expected e.g. \"30 days\"): " . $e->getMessage());
+            }
+        }
+    }
+
     public int $maxPerSender {
         get => (int) $this->resolve((string) ($this->raw['max-per-sender'] ?? 5));
     }

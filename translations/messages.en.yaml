@@ -110,6 +110,8 @@ list:
     reply_to: "Reply-to"
     access_members: "Members access"
     access_public: "Public access"
+    archive: "Archive"
+    archive_unlimited: "unlimited"
     moderation_queue: "Moderation queue"
     received: "Received"
     actions: "Actions"

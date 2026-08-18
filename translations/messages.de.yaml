@@ -110,6 +110,8 @@ list:
     reply_to: "Antworten an"
     access_members: "Zugang Mitglieder"
     access_public: "Zugang öffentlich"
+    archive: "Archiv"
+    archive_unlimited: "unbefristet"
     moderation_queue: "Moderationswarteschlange"
     received: "Eingegangen"
     actions: "Aktionen"

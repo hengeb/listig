@@ -38,6 +38,9 @@
         <tr><th>{$translator->trans('list.manage.reply_to')}</th><td>{$list->replyTo->value}</td></tr>
         <tr><th>{$translator->trans('list.manage.access_members')}</th><td>{$list->postAccessMembers->value}</td></tr>
         <tr><th>{$translator->trans('list.manage.access_public')}</th><td>{$list->postAccessPublic->value}</td></tr>
+        <tr><th>{$translator->trans('list.manage.archive')}</th><td>
+            {$list->archive->value}{if $list->archive->value !== 'off'} ({$list->archiveMaxAge ?? $translator->trans('list.manage.archive_unlimited')}){/if}
+        </td></tr>
     </table>
 </div>
 
