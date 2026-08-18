@@ -31,6 +31,25 @@ class ImapPoller
 
         $mailbox = $this->mailboxFactory->getMailbox($list);
 
+        // Explicitly (re-)select INBOX rather than assuming the mailbox is
+        // already positioned there. This used to be a safe assumption for
+        // free — ImapMailboxFactory::createMailbox() always constructs a
+        // fresh connection pointed at INBOX, and every worker cycle used to
+        // get a brand new one (see ImapMailboxFactory's own docblock). Now
+        // that the connection cache survives across cycles,
+        // ImapArchiver::pruneArchive() (which runs after poll() within the
+        // same cycle, for the same list, on the very same cached Mailbox
+        // object) leaves the shared connection switched to the list's
+        // archive folder and never switches it back — so on the *next*
+        // cycle, without this, poll() would silently search/fetch from the
+        // archive folder instead of INBOX. This is the first IMAP-touching
+        // call for a list in every cycle (see bin/worker.php's loop order),
+        // so fixing the folder here also restores the correct starting state
+        // for archiveOrDelete()/deleteOldMails() later in the same cycle,
+        // which rely on the same "currently on INBOX" assumption but never
+        // select it themselves.
+        $mailbox->switchMailbox('INBOX');
+
         $uidValidity = $mailbox->statusMailbox()->uidvalidity ?? 0;
 
         $this->handleUidValidityChange($list->name, (int) $uidValidity);

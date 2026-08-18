@@ -6,7 +6,6 @@ declare(strict_types=1);
 use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Imap\ImapArchiver;
-use Hengeb\Listig\Imap\ImapMailboxFactory;
 use Hengeb\Listig\Imap\ImapPoller;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\BounceHandler;
@@ -56,7 +55,6 @@ try {
     $imapArchiver               = $container->get(ImapArchiver::class);
     $archiveIndexer             = $container->get(ArchiveIndexer::class);
     $archiveSynchronizer        = $container->get(ArchiveSynchronizer::class);
-    $imapMailboxFactory         = $container->get(ImapMailboxFactory::class);
     $mailFilter                 = $container->get(IncomingMailFilter::class);
     $headerFilter               = $container->get(HeaderFilter::class);
     $mailProcessor              = $container->get(MailProcessor::class);
@@ -192,6 +190,12 @@ while (true) {
     $currentConfigMtime = @filemtime($configPath) ?: null;
     if ($currentConfigMtime !== $configMtime) {
         error_log('Listig: config.yml changed on disk — restarting worker to reload configuration.');
+        // No ImapMailboxFactory::reset() call needed here (and none existed
+        // here before either) — exit(0) ends the process immediately, and the
+        // OS reclaims every open IMAP socket along with it. supervisord's
+        // autorestart then builds a brand new process (and therefore a brand
+        // new, empty connection cache) from scratch, same as any other
+        // config-reload restart.
         exit(0);
     }
 
@@ -299,9 +303,15 @@ while (true) {
         error_log("Listig: Cleanup failed: " . $e->getMessage());
     }
 
-    // Drop cached IMAP connections before the (potentially long) sleep so the next
-    // cycle starts fresh rather than risking a stale/dropped connection going unnoticed.
-    $imapMailboxFactory->reset();
+    // IMAP connections are deliberately NOT dropped here anymore — see
+    // ImapMailboxFactory's own docblock. They now survive across cycles;
+    // getMailbox() itself detects and transparently replaces a connection
+    // that died while idle (server-side timeout, a dropped TCP session, ...)
+    // the next time it's actually needed, so a fixed per-cycle reset() is no
+    // longer necessary to avoid getting stuck on a stale connection — it
+    // would only have meant paying for a fresh LOGIN/TLS handshake every
+    // single cycle, for every list, regardless of whether the existing
+    // connection was still perfectly healthy.
 
     // Drop each list-provider's cached directory data (LDAP entries, DB
     // config-table rows, a type: yaml file's contents, ...) too — without this,
