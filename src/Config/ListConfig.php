@@ -236,12 +236,31 @@ class ListConfig
         return self::matchEmail($email, $this->authorizedSenders);
     }
 
-    /** @param Member[] $members */
+    /**
+     * Matches $email against each member's primary address (Member::$email) or
+     * any of their `mail-aliases` — an extra attribute every resolver type can
+     * populate its own way (LDAP: every `mail` value beyond the first;
+     * inline/yaml: a `mail-aliases:` YAML list or string; csv/database: an
+     * ordinary extra column) but which always ends up the same comma-separated
+     * string shape, see CLAUDE.md "Additional addresses per member
+     * (`mail-aliases`)". This is what makes findMemberInList()/findOwnerInList()
+     * — and therefore isMember()/isOwnedBy(), the actual post-access gate in
+     * IncomingMailFilter — recognize a sender writing from any address on file,
+     * not just their primary one. A member with no `mail-aliases` attribute at
+     * all (the common case for every backend) makes this degrade to the exact
+     * same single-address comparison as before.
+     *
+     * @param Member[] $members
+     */
     private static function matchEmail(string $email, array $members): ?Member
     {
         $email = strtolower($email);
         foreach ($members as $member) {
             if (strtolower($member->email) === $email) {
+                return $member;
+            }
+            $aliases = $member->attributes['mail-aliases'] ?? '';
+            if ($aliases !== '' && in_array($email, array_map('strtolower', self::splitCommaList($aliases)), true)) {
                 return $member;
             }
         }

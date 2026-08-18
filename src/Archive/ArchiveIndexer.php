@@ -53,9 +53,9 @@ class ArchiveIndexer
 
         $stmt = $this->db->prepare(
             'INSERT INTO archived_mail
-                (list_cn, message_id, in_reply_to, thread_root, subject, sender_name, mail_date, has_attachments, archived_at)
+                (list_cn, message_id, in_reply_to, thread_root, subject, sender_name, sender_local_part, mail_date, has_attachments, archived_at)
              VALUES
-                (:list, :message_id, :in_reply_to, :thread_root, :subject, :sender_name, :mail_date, :has_attachments, NOW())
+                (:list, :message_id, :in_reply_to, :thread_root, :subject, :sender_name, :sender_local_part, :mail_date, :has_attachments, NOW())
              ON DUPLICATE KEY UPDATE id = id'
         );
         $stmt->execute([
@@ -65,9 +65,14 @@ class ArchiveIndexer
             'thread_root'     => $threadRoot,
             'subject'         => $mail->subject ?? null,
             // Display name only — never the address. Empty means the template falls
-            // back to a translated placeholder at render time (like reject.* keys,
-            // translation happens at render, not at write, see CLAUDE.md).
+            // back to sender_local_part (below), then a translated placeholder at
+            // render time (like reject.* keys, translation happens at render, not
+            // at write, see CLAUDE.md).
             'sender_name'     => ($mail->fromName ?? '') !== '' ? $mail->fromName : null,
+            // Local part only, never the full address — see this column's own
+            // migration for why. A mail with no From address at all (essentially
+            // never happens) leaves this null too, same as sender_name.
+            'sender_local_part' => self::localPart($mail->fromAddress ?? ''),
             'mail_date'       => date('Y-m-d H:i:s', $timestamp),
             'has_attachments' => $mail->hasAttachments() ? 1 : 0,
         ]);
@@ -94,6 +99,16 @@ class ArchiveIndexer
         }
         $value = trim($value);
         return $value === '' ? null : trim($value, '<>');
+    }
+
+    /** Local part of an email address, e.g. "jdoe" for "jdoe@example.com" — null if empty/malformed. */
+    private static function localPart(string $address): ?string
+    {
+        $at = strrpos($address, '@');
+        if ($at === false || $at === 0) {
+            return null;
+        }
+        return substr($address, 0, $at);
     }
 
     /** First Message-ID token in a References header — the thread-initiating message. */

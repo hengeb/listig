@@ -508,8 +508,7 @@ $builder->addDefinitions([
     // see SpamRejectionDetector for the built-in baseline plus the optional
     // root-level reliable-spam-reporters: config.yml key that extends it.
     SpamRejectionDetector::class => function (ContainerInterface $c): SpamRejectionDetector {
-        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
-        return new SpamRejectionDetector($cfg['reliable-spam-reporters'] ?? []);
+        return new SpamRejectionDetector($c->get(ConfigResolver::class)->getReliableSpamReporters());
     },
 
     QueueSender::class => function (ContainerInterface $c): QueueSender {

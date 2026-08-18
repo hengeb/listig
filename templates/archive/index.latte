@@ -37,7 +37,7 @@
             n:foreach="$rows as $row"
             n:class="!$row['is_thread_start'] ? 'reply-row'"
             data-subject="{mb_strtolower($row['subject'] ?? '')}"
-            data-sender="{mb_strtolower($row['sender_name'] ?? '')}"
+            data-sender="{mb_strtolower($row['sender_name'] ?? $row['sender_local_part'] ?? '')}"
             data-thread-root="{$row['thread_root']}"
             data-depth="{$row['depth']}"
             data-date="{str_replace(' ', 'T', $row['mail_date'])}Z"
@@ -62,7 +62,7 @@
                     </span>
                 </span>
             </td>
-            <td>{($row['sender_name'] ?? $translator->trans('archive.unknown_sender'))}</td>
+            <td>{($row['sender_name'] ?? $row['sender_local_part'] ?? $translator->trans('archive.unknown_sender'))}</td>
             <td data-utc="{str_replace(' ', 'T', $row['mail_date'])}Z">{$row['mail_date']}</td>
         </tr>
     </tbody>

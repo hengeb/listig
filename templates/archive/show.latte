@@ -25,7 +25,7 @@
 <div class="card">
     <h1>{($row['subject'] ?? '')}</h1>
     <table>
-        <tr><th>{$translator->trans('list.manage.sender')}</th><td>{($row['sender_name'] ?? $translator->trans('archive.unknown_sender'))}</td></tr>
+        <tr><th>{$translator->trans('list.manage.sender')}</th><td>{($row['sender_name'] ?? $row['sender_local_part'] ?? $translator->trans('archive.unknown_sender'))}</td></tr>
         <tr><th>{$translator->trans('list.manage.timestamp')}</th><td data-utc="{str_replace(' ', 'T', $row['mail_date'])}Z">{$row['mail_date']}</td></tr>
     </table>
 </div>

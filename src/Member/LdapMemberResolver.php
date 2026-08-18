@@ -168,10 +168,22 @@ class LdapMemberResolver implements MemberResolver
      *   evaluated for a member's *own* attributes first anyway — see
      *   ListConfig::resolveMemberDisplayName() — so this fallback is what
      *   actually fires whenever no such alias is configured at all.
+     * - 'mail-aliases': every `mail` value *beyond* the first, comma-joined
+     *   (same dual string/array shape `senders:`/`personalize:` already use —
+     *   see ListConfig::splitCommaList()). `Member::$email` itself stays the
+     *   entry's *first* `mail` value only — used as the actual delivery
+     *   address (recipient envelope, {mail} personalization, ...), where a
+     *   single, stable address is exactly what's wanted. `mail-aliases`
+     *   exists purely so ListConfig::matchEmail() (isMember()/isOwnedBy(),
+     *   the actual post-access gate) can recognize a sender writing from any
+     *   of their directory's `mail` values, not just the one Listig happens
+     *   to use as their primary address — see CLAUDE.md "Additional addresses
+     *   per member (`mail-aliases`)".
      */
     private function entryToMember(Entry $entry): Member
     {
-        $mail = ($entry->getAttribute('mail') ?? [])[0] ?? '';
+        $mailValues = $entry->getAttribute('mail') ?? [];
+        $mail = $mailValues[0] ?? '';
 
         $attributes = [];
         foreach ($entry->getAttributes() as $attributeName => $values) {
@@ -179,6 +191,9 @@ class LdapMemberResolver implements MemberResolver
                 continue;
             }
             $attributes[$attributeName] = $values[0] ?? '';
+        }
+        if (count($mailValues) > 1) {
+            $attributes['mail-aliases'] = implode(',', array_slice($mailValues, 1));
         }
         if (isset($attributes['cn'])) {
             $attributes['username'] = $attributes['cn'];

@@ -12,6 +12,7 @@ class ConfigResolver
     private array $filters = [];
     private array $lists = [];
     private array $globalScopedSources = [];
+    private array $reliableSpamReporters = [];
 
     /** Root keys forming the global level of the three-level (global/provider/list) member/owner/sender/restriction mechanism — see getGlobalScopedSources(). */
     private const array SCOPED_KEYS = ['members', 'owners', 'member-resolver', 'owner-resolver', 'senders', 'restricted-members'];
@@ -94,6 +95,25 @@ class ConfigResolver
     public function getGlobalScopedSources(string $key): array
     {
         return $this->globalScopedSources[$key] ?? [];
+    }
+
+    /**
+     * Root-level `reliable-spam-reporters:` — extra domains an operator has
+     * deliberately chosen to extend SpamRejectionDetector's trust to (see its own
+     * docblock). Combined from every source the same way as the six scoped keys'
+     * global level (root-direct value first, then each root-level
+     * `use:`-referenced named block's own value, in `use:` order) via
+     * collectGlobalSources() — but always additive/concatenated here (a flat list
+     * of domains, not a map), and with no provider/list level of its own:
+     * SpamRejectionDetector is a single, instance-wide trust boundary, not a
+     * per-list setting, so unlike the six scoped keys this is never consumed via
+     * AbstractListProvider::scopedLevels().
+     *
+     * @return string[]
+     */
+    public function getReliableSpamReporters(): array
+    {
+        return $this->reliableSpamReporters;
     }
 
     /**
@@ -199,7 +219,7 @@ class ConfigResolver
     /**
      * The config.yml root is the default block (see CLAUDE.md "Configuration priority").
      * A root key is either:
-     * - 'list-providers' / 'filters' / 'lists' / SCOPED_KEYS: handled separately below.
+     * - 'list-providers' / 'filters' / 'lists' / 'reliable-spam-reporters' / SCOPED_KEYS: handled separately below.
      * - 'use': the list of named blocks to merge into the default.
      * - a scalar value: a direct default key-value.
      * - an array/map value: a named block — inert unless referenced via some `use:`
@@ -210,7 +230,7 @@ class ConfigResolver
         $defaultConfig = [];
 
         foreach ($config as $key => $value) {
-            if ($key === 'list-providers' || $key === 'filters' || $key === 'lists' || in_array($key, self::SCOPED_KEYS, true)) {
+            if ($key === 'list-providers' || $key === 'filters' || $key === 'lists' || $key === 'reliable-spam-reporters' || in_array($key, self::SCOPED_KEYS, true)) {
                 continue;
             }
             if ($key === 'use') {
@@ -256,17 +276,38 @@ class ConfigResolver
         // named block's own value for the key, in `use:` order. See
         // getGlobalScopedSources().
         foreach (self::SCOPED_KEYS as $key) {
-            $sources = [];
-            if (array_key_exists($key, $config)) {
-                $sources[] = $this->substituteEnvVars($config[$key]);
-            }
-            foreach ($this->defaultConfig['use'] ?? [] as $blockName) {
-                if (array_key_exists($key, $this->namedBlocks[$blockName] ?? [])) {
-                    $sources[] = $this->namedBlocks[$blockName][$key];
-                }
-            }
-            $this->globalScopedSources[$key] = $sources;
+            $this->globalScopedSources[$key] = $this->collectGlobalSources($key, $config);
         }
+
+        // reliable-spam-reporters: — same source-gathering as the six scoped keys
+        // above (reused via the same helper), but always concatenated (a flat list
+        // of domains, not a map with a merge concept) and with no provider/list
+        // level of its own — see getReliableSpamReporters().
+        $this->reliableSpamReporters = array_merge(...$this->collectGlobalSources('reliable-spam-reporters', $config));
+    }
+
+    /**
+     * Every raw value contributing to $key at the GLOBAL (config.yml root) level —
+     * the root's own direct value (if set) first, then each root-level
+     * `use:`-referenced named block's own value for $key, in `use:` order. Shared
+     * by both the six scoped keys (getGlobalScopedSources()) and
+     * reliable-spam-reporters (getReliableSpamReporters()) — the two differ only
+     * in how the caller combines the returned sources, not in how they're found.
+     *
+     * @return array<int, mixed>
+     */
+    private function collectGlobalSources(string $key, array $config): array
+    {
+        $sources = [];
+        if (array_key_exists($key, $config)) {
+            $sources[] = $this->substituteEnvVars($config[$key]);
+        }
+        foreach ($this->defaultConfig['use'] ?? [] as $blockName) {
+            if (array_key_exists($key, $this->namedBlocks[$blockName] ?? [])) {
+                $sources[] = $this->namedBlocks[$blockName][$key];
+            }
+        }
+        return $sources;
     }
 
     private function mergeBlock(array $base, array $override): array

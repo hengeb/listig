@@ -25,7 +25,15 @@ class InlineMemberResolver implements MemberResolver
      * Each entry is either a plain email string, or a map with a required `mail`
      * key plus any other keys (firstname, lastname, pronoun, or anything else) —
      * everything except `mail` becomes Member::$attributes verbatim, under its
-     * own key name; nothing beyond `mail` is hardcoded here.
+     * own key name; nothing beyond `mail` is hardcoded here. One exception:
+     * `mail-aliases` may be written as a YAML list (`mail-aliases: [a@x.org,
+     * b@x.org]`) — natural for `type: inline`/`type: yaml`'s already-structured
+     * config, unlike the flat comma-separated string CSV/database columns are
+     * limited to (see CLAUDE.md "Additional addresses per member (`mail-aliases`)"
+     * for the mechanism this mirrors) — toMember() joins it into the same
+     * comma-separated string shape every other source uses, since
+     * Member::$attributes is always array<string, string>. A `mail-aliases`
+     * written as a plain string already (or omitted) passes through unchanged.
      *
      * @param array<string|array{mail: string}> $members
      * @param array<string|array{mail: string}> $owners
@@ -44,6 +52,9 @@ class InlineMemberResolver implements MemberResolver
         }
         $attributes = $entry;
         unset($attributes['mail']);
+        if (isset($attributes['mail-aliases']) && is_array($attributes['mail-aliases'])) {
+            $attributes['mail-aliases'] = implode(',', $attributes['mail-aliases']);
+        }
         return new Member($entry['mail'], $attributes);
     }
 
