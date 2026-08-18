@@ -26,6 +26,15 @@ class CsvMemberResolver implements MemberResolver
 {
     private const RESERVED_COLUMNS = ['name', 'mail', 'is_member', 'is_owner'];
 
+    /**
+     * PHP 8.5 deprecates omitting fgetcsv()/fputcsv()'s $escape parameter — a
+     * future version changes its default away from "\\" (see the RFC). Passed
+     * explicitly everywhere to keep parsing/writing byte-for-byte identical to
+     * today's behavior rather than silently changing quoting once that default
+     * actually flips.
+     */
+    private const CSV_ESCAPE = '\\';
+
     public function __construct(
         private readonly string $file,
     ) {
@@ -141,13 +150,13 @@ class CsvMemberResolver implements MemberResolver
      */
     private function parseHandle($handle): array
     {
-        $header = fgetcsv($handle);
+        $header = fgetcsv($handle, escape: self::CSV_ESCAPE);
         if ($header === false) {
             return [];
         }
 
         $rows = [];
-        while (($data = fgetcsv($handle)) !== false) {
+        while (($data = fgetcsv($handle, escape: self::CSV_ESCAPE)) !== false) {
             $raw = array_combine($header, $data);
             $row = [
                 'name' => $raw['name'] ?? '',
@@ -197,7 +206,7 @@ class CsvMemberResolver implements MemberResolver
 
             ftruncate($handle, 0);
             rewind($handle);
-            fputcsv($handle, $header);
+            fputcsv($handle, $header, escape: self::CSV_ESCAPE);
             foreach ($rows as $row) {
                 fputcsv($handle, array_map(
                     fn(string $col) => match ($col) {
@@ -206,7 +215,7 @@ class CsvMemberResolver implements MemberResolver
                         default     => $row[$col] ?? '',
                     },
                     $header,
-                ));
+                ), escape: self::CSV_ESCAPE);
             }
         } finally {
             flock($handle, LOCK_UN);

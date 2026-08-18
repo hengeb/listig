@@ -253,6 +253,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── compose.yml.example    # Flat layout — config.yml mounted from the same directory, no config/ subfolder
 │   ├── .env.example
 │   └── config.yml.example     # Single source of truth for the config.yml template — also used by "Building from source"
+├── tests/                     # PHPUnit, require-dev only — see "Testing". Mirrors src/'s namespace under Hengeb\Listig\Tests\
+├── phpunit.xml
 ├── LICENSE
 ├── README.md
 └── composer.json
@@ -2481,6 +2483,18 @@ carry this information:
   sends the notice, just without the attachment, rather than blocking it entirely.
 
 ---
+
+## Testing
+
+`tests/` (PHPUnit, `require-dev`-only — never installed in the production image, see "Docker Setup"; `docker/Dockerfile` already runs `composer install --no-dev`, and `.dockerignore`/host-side `vendor/` isolation means a dev install on the host can never leak into a build either way) mirrors `src/`'s namespace under `Hengeb\Listig\Tests\` (`composer.json`'s `autoload-dev`). Run via `composer test` (aliases to `phpunit`, config in `phpunit.xml`) or `vendor/bin/phpunit` directly; a single file/directory can be targeted the normal PHPUnit way (`vendor/bin/phpunit tests/Config/ListConfigTest.php`).
+
+Scope is deliberately the **pure-logic layer** — classes that don't touch IMAP/LDAP/SQL/SMTP directly and so need no live infrastructure or mocking framework beyond PHPUnit's own stubs: `VariableResolver`/`VariableFilter`, `ConfigResolver`, `ListConfig`, `RestrictionList`, `YamlIncludeResolver`, the `MemberResolver` implementations that don't need a live connection (`InlineMemberResolver`, `CompositeMemberResolver`, `CsvMemberResolver` against a real temp file, `LdapMemberResolver::entryToMember()` — a pure transformation testable against a fake `Symfony\Component\Ldap\Entry`, no LDAP connection ever opened), `MemberResolverFactory`, `SpamFilter`, `SpamRejectionDetector`, `HeaderFilter`, `SubaddressExtractor`, `FilterResult`, `TokenService`, `PasswordCrypto`, `KeyDerivation`, `ArchiveThreader`, `ByteFormatter`, `AttachmentSafety`, `NullSenderEnvelope`. Deliberately **not** covered: anything requiring a real IMAP/LDAP/SMTP/DB connection (`ImapPoller`, `ImapArchiver`, `LdapListProvider`/`DatabaseListProvider`'s own query methods, `QueueSender`, `ModerationMailer`, ...) or a full Slim HTTP request/response cycle (the `Http\Controller\*` classes) — those are verified the way the rest of this document describes: patched onto the live test instance (`docker cp`, worker/php-fpm restart, health check, then a targeted one-off script or real request against actual LDAP/DB/IMAP) rather than through this suite.
+
+A `Reflection*` escape hatch (no `setAccessible(true)` — a no-op since PHP 8.1, and itself deprecated as of 8.5, see below) is used sparingly, only where a class genuinely has no other way to set up a fixture: `PhpImap\IncomingMail::$textPlain`/`$textHtml` are private with a lazy `__get()` that fetches from a live IMAP data part and no public setter at all, so `SpamFilterTest` seeds a fixed body via `new \ReflectionProperty($mail, 'textPlain')`. `LdapMemberResolverTest` calls the private `entryToMember()` directly via `ReflectionMethod`, since it's the one pure-transformation piece of an otherwise LDAP-connected class.
+
+Writing this suite surfaced a few small, real issues in `src/` along the way (not test-authoring mistakes) — fixed as part of adding the tests, not left for later: `CsvMemberResolver`'s `fgetcsv()`/`fputcsv()` calls omitted PHP 8.5's newly-required `$escape` parameter (deprecated, a future version changes the default) — now passed explicitly (`self::CSV_ESCAPE = '\\'`, matching today's actual default byte-for-byte) at all four call sites. `YamlIncludeResolver::parseFile()`'s `file_get_contents()` emitted a native PHP warning on a missing file even though the very next line already checks for `=== false` and converts it into a clean `\RuntimeException` — `@`-suppressed to match the same "check the return value, don't let the native warning leak" convention already used elsewhere (e.g. `SpamFilter`'s `@preg_match`, `AttachmentSafety`'s `@getimagesizefromstring`).
+
+**A test that deliberately exercises an `error_log()` call must declare `$this->expectErrorLog();`.** PHPUnit 12's `TestCase` redirects the `error_log` ini setting to a private per-test capture file before every test and, in teardown, either asserts that capture is non-empty (if `expectErrorLog()` was called) or — if it wasn't, and something was captured anyway — prints the raw captured text straight to the console, interleaved with the progress dots. A project-wide `<ini name="error_log" value="/dev/null"/>` in `phpunit.xml` does **not** fix this: PHPUnit's own per-test redirect overrides it regardless (confirmed live — `ini_get('error_log')` inside a test returns PHPUnit's own temp path, never the configured one), so the only correct fix is calling `expectErrorLog()` in each test that intentionally triggers logging (`VariableResolverTest`'s not-found/cycle/blocked-key cases, `VariableFilterTest`'s unknown-filter case, ...) — never a leading `@` on the call under test, which suppresses PHP errors/warnings but has no effect on `error_log()` itself. A test whose whole point is proving something *stays silent* (e.g. `quiet: true`) should deliberately omit the call instead — if suppression ever broke, PHPUnit's own unexpected-output print would surface it.
 
 ## Coding Conventions
 

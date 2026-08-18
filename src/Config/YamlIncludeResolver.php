@@ -27,7 +27,11 @@ final class YamlIncludeResolver
             throw new \RuntimeException("Circular !include detected: $path");
         }
 
-        $content = file_get_contents($path);
+        // @-suppressed: a missing/unreadable file is expected here (a typo'd
+        // config.yml path, a dangling !include) and handled cleanly via the
+        // false-return check below — same "check the return value, don't let
+        // the native warning leak" convention as e.g. SpamFilter's @preg_match.
+        $content = @file_get_contents($path);
         if ($content === false) {
             throw new \RuntimeException("Cannot read YAML file: $path");
         }

@@ -33,3 +33,7 @@ Thumbs.db
 # PHP
 *.cache
 
+# PHPUnit
+/.phpunit.cache/
+.phpunit.result.cache
+
