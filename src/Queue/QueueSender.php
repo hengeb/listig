@@ -7,6 +7,7 @@ namespace Hengeb\Listig\Queue;
 use Hengeb\Listig\Mail\NotificationMailer;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\Smtp\SmtpConnectionFactory;
+use Hengeb\Listig\Token\TokenService;
 use PDO;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Mailer;
@@ -16,6 +17,15 @@ use Symfony\Contracts\Translation\TranslatorInterface;
 
 class QueueSender
 {
+    /**
+     * Max age for a signed per-recipient bounce token (see sendOne()) —
+     * matches unsubscribe/accept/reject's own 7-day window (CLAUDE.md "Token
+     * Format"). A bounce can legitimately arrive well after the original
+     * send, so this needs to be generous, not just long enough for the
+     * fastest hard-bounce case.
+     */
+    public const int BOUNCE_TOKEN_MAX_AGE = 7 * 24 * 3600;
+
     public function __construct(
         private readonly PDO $db,
         private readonly SmtpConnectionFactory $smtpFactory,
@@ -23,6 +33,7 @@ class QueueSender
         private readonly NotificationMailer $notificationMailer,
         private readonly TranslatorInterface $translator,
         private readonly SpamRejectionDetector $spamRejectionDetector,
+        private readonly TokenService $tokenService,
         private readonly string $appName,
     ) {
     }
@@ -97,7 +108,18 @@ class QueueSender
             $transport = $this->smtpFactory->getTransport($list);
             $mailer = new Mailer($transport);
 
-            $bounceFrom = "{$list->localPart}+bounce@{$list->domain}";
+            // Per-recipient bounce address (VERP-style, signed rather than
+            // sequential) — see BounceHandler::resolveVerifiedRecipient(),
+            // which decodes this same token from wherever the resulting DSN
+            // gets delivered back to. This is what lets an async bounce be
+            // bound to *exactly* this queue_recipients row, rather than
+            // trusting whatever the DSN's own content claims (Final-Recipient,
+            // an attached original message's Message-ID — both plain text an
+            // attacker fully controls). Same "URL-safe base64, safe in mail +
+            // addresses" token shape already used for accept/reject — see
+            // CLAUDE.md "Token Format".
+            $bounceToken = $this->tokenService->sign('bounce', $listCn, $recipientId);
+            $bounceFrom = "{$list->localPart}+bounce+{$bounceToken}@{$list->domain}";
 
             $mailer->send(
                 new RawMessage($mime),
@@ -175,25 +197,29 @@ class QueueSender
     }
 
     /**
-     * Every distinct batch_id among this list's mail_queue rows carrying the
-     * given (original incoming mail's) Message-ID — almost always at most
-     * one, but returned as a list since the same Message-ID could in
-     * principle have been distributed more than once (e.g. resent) under
-     * different batch_ids. Used by BounceHandler to correlate an async bounce
-     * — which only ever reports the address delivery failed for, never a
-     * mail_queue row or batch_id directly — back to every still-pending
-     * sibling of the original distribute.
+     * Looks up the exact queue_recipients row a signed bounce token (see
+     * sendOne()) decodes to, together with its batch_id and list_cn — the
+     * *only* trustworthy source BounceHandler uses for "which recipient/batch
+     * does this async bounce concern", since it comes from Listig's own
+     * HMAC-verified assignment rather than any self-reported DSN content.
+     * Returns null if the row no longer exists (already cleaned up after its
+     * mail_queue entry finished sending, see cleanupQueueEntry()) — in which
+     * case there is nothing left to act on anyway, the same graceful
+     * "nothing pending" outcome as everywhere else in this class.
      *
-     * @return string[]
+     * @return array{envelopeTo: string, batchId: ?string, listCn: string}|null
      */
-    public function findBatchIdsByMessageId(string $listCn, string $messageId): array
+    public function findRecipientById(int $recipientId): ?array
     {
         $stmt = $this->db->prepare(
-            'SELECT DISTINCT batch_id FROM mail_queue
-             WHERE list_cn = :list AND message_id = :message_id AND batch_id IS NOT NULL'
+            'SELECT qr.envelope_to AS envelopeTo, mq.batch_id AS batchId, mq.list_cn AS listCn
+             FROM queue_recipients qr
+             JOIN mail_queue mq ON mq.id = qr.mail_queue_id
+             WHERE qr.id = :id'
         );
-        $stmt->execute(['list' => $listCn, 'message_id' => $messageId]);
-        return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        $stmt->execute(['id' => $recipientId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row === false ? null : $row;
     }
 
     /**

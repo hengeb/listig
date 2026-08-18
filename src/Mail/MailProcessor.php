@@ -38,10 +38,6 @@ class MailProcessor
     {
         $headersRaw  = $incomingMail->headersRaw ?? '';
         $authResults = $this->headerFilter->readAuthResults($headersRaw);
-        // Passed through to every queued copy below — lets BounceHandler
-        // correlate an async bounce back to this batch, see
-        // QueueSender::findBatchIdsByMessageId().
-        $messageId   = $this->headerFilter->readMessageId($headersRaw);
 
         $senderEmail    = $incomingMail->fromAddress ?? '';
         $rawFromHeader  = $this->extractFromHeader($headersRaw);
@@ -96,7 +92,7 @@ class MailProcessor
             $recipientEmail->getHeaders()->addTextHeader('List-Unsubscribe', "<{$unsubscribeUrl}>");
             $recipientEmail->getHeaders()->addTextHeader('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click');
 
-            $this->queueWriter->enqueue($list->name, $recipientEmail, $recipient->email, $batchId, $messageId);
+            $this->queueWriter->enqueue($list->name, $recipientEmail, $recipient->email, $batchId);
             $this->logger->debug(
                 "Listig: enqueued mail for list {$list->name} to {$recipient->email} (batch $batchId)",
                 $list->logLevel,

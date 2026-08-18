@@ -93,4 +93,48 @@ class HeaderFilterTest extends TestCase
         $result = $this->headerFilter->readAuthResults($raw);
         $this->assertSame('pass', $result['spf']);
     }
+
+    public function testReadAuthResultsExtractsDkimSigningDomain(): void
+    {
+        $raw = "Authentication-Results: mx.example.org;\r\n"
+            . " dkim=pass header.i=@gmail.com header.s=20230601 header.d=gmail.com header.b=abc123\r\n";
+        $result = $this->headerFilter->readAuthResults($raw);
+        $this->assertSame('pass', $result['dkim']);
+        $this->assertSame('gmail.com', $result['dkimDomain']);
+    }
+
+    public function testReadAuthResultsDkimDomainIsLowercased(): void
+    {
+        $raw = "Authentication-Results: mx.example.org; dkim=pass header.d=Gmail.COM\r\n";
+        $result = $this->headerFilter->readAuthResults($raw);
+        $this->assertSame('gmail.com', $result['dkimDomain']);
+    }
+
+    public function testReadAuthResultsDkimDomainNullWhenDkimMissing(): void
+    {
+        $raw = "Authentication-Results: mx.example.org; spf=pass\r\n";
+        $result = $this->headerFilter->readAuthResults($raw);
+        $this->assertNull($result['dkimDomain']);
+    }
+
+    public function testReadAuthResultsDkimDomainNullWhenNoHeaderDParam(): void
+    {
+        $raw = "Authentication-Results: mx.example.org; dkim=pass\r\n";
+        $result = $this->headerFilter->readAuthResults($raw);
+        $this->assertSame('pass', $result['dkim']);
+        $this->assertNull($result['dkimDomain']);
+    }
+
+    public function testReadAuthResultsDkimDomainNotTakenFromDifferentAuthResultsValue(): void
+    {
+        // header.d= must come from the *same* Authentication-Results value as
+        // the dkim= verdict itself — a value with only spf=pass and its own
+        // unrelated header.d= (e.g. an SPF-only host param, contrived here)
+        // must not leak into dkimDomain for a dkim=fail found elsewhere.
+        $raw = "Authentication-Results: mx.example.org; spf=pass header.d=unrelated.example;\r\n"
+            . "Authentication-Results: mx2.example.org; dkim=fail\r\n";
+        $result = $this->headerFilter->readAuthResults($raw);
+        $this->assertSame('fail', $result['dkim']);
+        $this->assertNull($result['dkimDomain']);
+    }
 }

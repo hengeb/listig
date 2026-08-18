@@ -421,12 +421,12 @@ $builder->addDefinitions([
     NotificationMailer::class => function (ContainerInterface $c): NotificationMailer {
         return new NotificationMailer($c->get(SmtpConnectionFactory::class));
     },
-    // Classifies a bounce's diagnostic text/failed-recipient into a
+    // Classifies an already-authenticated bounce's diagnostic text into a
     // BounceCause an automatic action exists for (only Spam today) — see
-    // BounceHandler / CLAUDE.md "Automatic bounce actions".
-    BounceCauseClassifier::class => function (ContainerInterface $c): BounceCauseClassifier {
-        return new BounceCauseClassifier($c->get(SpamRejectionDetector::class));
-    },
+    // BounceHandler / CLAUDE.md "Automatic bounce actions". No dependencies —
+    // it is deliberately pure text classification, since the trust/
+    // authenticity decision lives entirely in BounceHandler now.
+    BounceCauseClassifier::class => fn() => new BounceCauseClassifier(),
     BounceHandler::class => function (ContainerInterface $c): BounceHandler {
         return new BounceHandler(
             $c->get(PDO::class),
@@ -435,6 +435,8 @@ $builder->addDefinitions([
             $c->get(HeaderFilter::class),
             $c->get(QueueSender::class),
             $c->get(BounceCauseClassifier::class),
+            $c->get(TokenService::class),
+            $c->get(SpamRejectionDetector::class),
         );
     },
     RejectionNotifier::class => function (ContainerInterface $c): RejectionNotifier {
@@ -528,6 +530,7 @@ $builder->addDefinitions([
             $c->get(NotificationMailer::class),
             $c->get(TranslatorInterface::class),
             $c->get(SpamRejectionDetector::class),
+            $c->get(TokenService::class),
             $c->get('app.name'),
         );
     },

@@ -6,6 +6,8 @@ namespace Hengeb\Listig\Mail;
 
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Queue\QueueSender;
+use Hengeb\Listig\Queue\SpamRejectionDetector;
+use Hengeb\Listig\Token\TokenService;
 use PDO;
 use PhpImap\IncomingMail;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -24,6 +26,39 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * this, a mail one reliable provider has already rejected as spam kept being
  * sent to every remaining recipient regardless. See CLAUDE.md "Automatic
  * bounce actions".
+ *
+ * RFC 3464 delivery-status notifications carry no cryptographic
+ * authentication at all — every field in a DSN's body (Final-Recipient, the
+ * attached original message's own Message-ID, Diagnostic-Code) is plain text
+ * an attacker fully controls, whether or not they have any genuine
+ * relationship to the domain they claim. Trusting that content directly
+ * would let *any* sender able to deliver mail into this list's own inbox
+ * forge a "spam" bounce for an address they merely claim, and get Listig to
+ * abort delivery to every real recipient of a batch that address was never
+ * actually part of. Two independent mechanisms close this (see
+ * resolveVerifiedRecipient()/isAuthenticatedOrigin(), and CLAUDE.md
+ * "Automatic bounce actions" for the full reasoning):
+ *
+ * 1. **Who this bounce concerns** is never read from the DSN's own claims —
+ *    QueueSender::sendOne() assigns each recipient a unique, HMAC-signed
+ *    bounce address (`{list->localPart}+bounce+{token}@{list->domain}`,
+ *    VERP-style); resolveVerifiedRecipient() decodes *that* token from
+ *    wherever the DSN actually got delivered back to, and looks up the real
+ *    queue_recipients row it names. A forged bounce cannot claim to be about
+ *    an address it wasn't actually sent to, since it would need a token it
+ *    has no way to derive.
+ * 2. **Whether this bounce is genuine at all** — even bound to the *correct*
+ *    recipient, the DSN's content (does it really say "spam"?) is still just
+ *    text; a malicious member could read their own token (e.g. via a
+ *    provider that exposes Return-Path on "view original") and hand-craft a
+ *    fake bounce for their own row. isAuthenticatedOrigin() requires the
+ *    incoming bounce to be genuinely DKIM-authenticated for the recipient's
+ *    own domain *and* delivered with a null envelope-from (Return-Path: <>)
+ *    — a combination only that domain's own automated postmaster
+ *    infrastructure can produce, since a reputable provider's ordinary
+ *    user-facing submission path does not let an authenticated end user send
+ *    with a null envelope sender (a defense against backscatter/spam abuse,
+ *    not a Listig-specific convention).
  *
  * A bounce-forward is itself an outgoing mail (via NotificationMailer), which
  * means it can itself bounce — and that new bounce would, without the two
@@ -51,6 +86,8 @@ class BounceHandler
         private readonly HeaderFilter $headerFilter,
         private readonly QueueSender $queueSender,
         private readonly BounceCauseClassifier $bounceCauseClassifier,
+        private readonly TokenService $tokenService,
+        private readonly SpamRejectionDetector $spamRejectionDetector,
     ) {
     }
 
@@ -78,67 +115,220 @@ class BounceHandler
     }
 
     /**
-     * Classifies this bounce (via BounceCauseClassifier) and, if it maps to a
-     * known cause, executes the matching automatic action — always returns a
-     * translated description for the owner notice's own "Automatic response:"
-     * line, never null: the overwhelmingly common case (no cause recognized,
-     * or a cause recognized but nothing was actually left to act on) still
-     * gets an explicit "none" (bounce.auto_action.none) rather than the line
-     * silently disappearing, so an owner reading the notice always knows
-     * whether Listig reacted or not, not just when it did.
+     * Resolves+verifies which recipient this bounce genuinely concerns,
+     * confirms the bounce is authentically from that recipient's own
+     * domain's automated infrastructure, classifies its (now-trustworthy)
+     * reason text (via BounceCauseClassifier) and, if it maps to a known
+     * cause, executes the matching automatic action — always returns a
+     * translated description for the owner notice's own "Automatic
+     * response:" line, never null: the overwhelmingly common case (bounce
+     * doesn't resolve to a verified recipient, isn't authenticated, or no
+     * cause recognized) still gets an explicit "none"
+     * (bounce.auto_action.none) rather than the line silently disappearing,
+     * so an owner reading the notice always knows whether Listig reacted or
+     * not, not just when it did.
      *
      * Extension point for future causes (see BounceCause's own docblock) —
      * e.g. a permanent "user unknown" bounce could eventually drive a
      * block-or-remove-member action instead of Spam's abort-batch one: add a
      * new BounceCause case, a new check in BounceCauseClassifier, and a new
-     * match arm below.
+     * match arm below. Both verification steps above already apply
+     * uniformly to any cause, not just Spam, since they concern *whether
+     * this bounce can be trusted at all*, not what its content says.
      */
     private function applyAutomaticAction(ListConfig $list, string $rawMime): string
     {
-        $reason          = $this->extractDiagnostic($rawMime);
-        $failedRecipient = $this->extractFailedRecipient($rawMime);
+        $recipient = $this->resolveVerifiedRecipient($list, $rawMime);
+        if ($recipient === null) {
+            return $this->noAutomaticAction($list);
+        }
 
-        $cause = $this->bounceCauseClassifier->classify($reason, $failedRecipient);
+        if (!$this->isAuthenticatedOrigin($rawMime, $recipient['envelopeTo'])) {
+            return $this->noAutomaticAction($list);
+        }
+
+        $reason = $this->extractDiagnostic($rawMime);
+        $cause  = $this->bounceCauseClassifier->classify($reason);
         if ($cause === null) {
             return $this->noAutomaticAction($list);
         }
 
         return match ($cause) {
-            BounceCause::Spam => $this->abortBatchForBounce($list, $rawMime),
+            BounceCause::Spam => $this->abortBatchForBounce($list, $recipient['batchId']),
         };
     }
 
     /**
-     * A reliable domain (see SpamRejectionDetector) reported this recipient's
-     * copy as spam via an async DSN, not a live SMTP rejection — QueueSender's
-     * own synchronous path (SpamRejectionDetector, checked inside
-     * sendOne()) only ever sees a live send() failure, so this is the async
-     * equivalent: find every other still-pending queued copy of the same
-     * original mail — via mail_queue.message_id, preserved verbatim from the
-     * incoming mail on every personalized outgoing copy, see
-     * MailProcessor::process() — and discard it the same way, rather than
-     * keep sending a message at least one reliable provider has already
-     * rejected as spam to everyone else too.
+     * Decodes and verifies the per-recipient bounce token QueueSender::sendOne()
+     * assigned (see the class docblock) from wherever this bounce actually
+     * arrived addressed to, and looks up the real queue_recipients row it
+     * names. This is the *only* trustworthy source for "which recipient/batch
+     * does this bounce concern" — never the DSN's own self-reported
+     * Final-Recipient or attached-message Message-ID, both of which an
+     * attacker fully controls.
      *
-     * Falls back to noAutomaticAction() if the original Message-ID couldn't
-     * be recovered from the attached original message, or if nothing was
-     * actually still pending by the time this ran — nothing happened, so the
-     * owner notice should say so rather than claim an abort that didn't do
-     * anything.
+     * Returns null if no token could be found or it fails to verify (wrong
+     * signature, expired, wrong purpose), if it names a different list than
+     * the one this bounce arrived on (defense in depth against a stale/
+     * cross-list token, same principle as UnsubscribeController's own check),
+     * or if the row it names no longer exists (already cleaned up after
+     * fully sending — nothing left to act on either way).
+     *
+     * @return array{envelopeTo: string, batchId: ?string}|null
      */
-    private function abortBatchForBounce(ListConfig $list, string $rawMime): string
+    private function resolveVerifiedRecipient(ListConfig $list, string $rawMime): ?array
     {
-        $messageId = $this->extractOriginalMessageId($rawMime);
+        $token = $this->extractBounceToken($rawMime);
+        if ($token === null) {
+            return null;
+        }
 
-        $discarded = 0;
-        if ($messageId !== null) {
-            foreach ($this->queueSender->findBatchIdsByMessageId($list->name, $messageId) as $batchId) {
-                $discarded += $this->queueSender->discardPendingBatch(
-                    $batchId,
-                    "Aborted: a reliable domain's async bounce reported this mail as spam (Message-ID $messageId)",
-                );
+        try {
+            [$listCn, $recipientId] = $this->tokenService->verify($token, 'bounce', QueueSender::BOUNCE_TOKEN_MAX_AGE);
+        } catch (\InvalidArgumentException $e) {
+            error_log("Listig: Invalid bounce token for list {$list->name}: " . $e->getMessage());
+            return null;
+        }
+
+        if ($listCn !== $list->name) {
+            error_log("Listig: Bounce token list mismatch for list {$list->name}");
+            return null;
+        }
+
+        $recipient = $this->queueSender->findRecipientById((int) $recipientId);
+        if ($recipient === null || $recipient['listCn'] !== $list->name) {
+            return null;
+        }
+
+        return ['envelopeTo' => $recipient['envelopeTo'], 'batchId' => $recipient['batchId']];
+    }
+
+    /**
+     * Extracts the bounce token from the address this bounce was actually
+     * delivered to — checked against To/Delivered-To/X-Original-To, in that
+     * order, since which header carries the real final-delivery address
+     * depends on the receiving mail server's own conventions; a standard DSN
+     * addresses itself to the original envelope-from (the per-recipient
+     * bounce address QueueSender::sendOne() set), so To is normally enough.
+     *
+     * Reads the *raw*, unparsed header text (HeaderFilter::readHeader()),
+     * not $mail->to — PhpImap\Mailbox lowercases every parsed recipient
+     * address (mb_strtolower()) before $mail->to is populated, which would
+     * corrupt the case-sensitive base64 token, exactly the same reason
+     * ModerationResponseHandler::detectAction() reads the raw To header
+     * instead of $mail->to for the accept/reject token.
+     */
+    private function extractBounceToken(string $rawMime): ?string
+    {
+        foreach (['To', 'Delivered-To', 'X-Original-To'] as $header) {
+            $value = $this->headerFilter->readHeader($rawMime, $header);
+            if ($value !== null && preg_match('/\+bounce\+([A-Za-z0-9_.\-]+)@/', $value, $m)) {
+                return $m[1];
             }
         }
+        return null;
+    }
+
+    /**
+     * Whether this bounce is trustworthy enough to act on its own content at
+     * all — independent of which BounceCause the content might indicate, see
+     * the class docblock for the full threat model. $envelopeTo is the real,
+     * token-verified recipient address (never anything read from the DSN's
+     * own claims). Three conditions, all required:
+     *
+     * 1. $envelopeTo's domain is one SpamRejectionDetector already trusts to
+     *    have an authoritative verdict about its own mail
+     *    (SpamRejectionDetector::BUILTIN_DOMAINS / the optional
+     *    reliable-spam-reporters: config.yml key) — the same trust boundary
+     *    the synchronous SMTP-rejection path already uses. A self-hosted or
+     *    otherwise unknown domain's own bounce, even a perfectly
+     *    DKIM-authenticated and null-envelope one, proves the message is a
+     *    genuine automated DSN from that domain — not that its "spam"
+     *    opinion is worth trusting instance-wide.
+     * 2. Delivered with a null envelope-from (Return-Path: <>, RFC 3464/5321's
+     *    own convention for a DSN — the same one NullSenderEnvelope uses for
+     *    Listig's own outgoing notifications). Reputable providers do not let
+     *    an ordinary authenticated user submit mail with a null envelope
+     *    sender via their normal submission path (a defense against
+     *    backscatter/spam abuse on their end, not a Listig-specific
+     *    assumption) — so this rules out a forged bounce sent through the
+     *    recipient's own real account.
+     * 3. DKIM-authenticated (Authentication-Results' dkim=pass) for *that
+     *    same* domain (header.d=, not the message's own claimed From/Sender)
+     *    — rules out a forged bounce sent from outside the domain's own
+     *    infrastructure entirely, e.g. an attacker's own mail server.
+     *
+     * Only a genuinely automated system running on the recipient's own
+     * domain's infrastructure can satisfy both 2 and 3 at once: sending
+     * through that domain's real systems gets a real DKIM signature (3), but
+     * only its own internal postmaster/bounce-generation systems — not an
+     * ordinary user's own submission — get to use a null envelope-from (2).
+     */
+    private function isAuthenticatedOrigin(string $rawMime, string $envelopeTo): bool
+    {
+        if (!$this->spamRejectionDetector->isReliableDomain($envelopeTo)) {
+            return false;
+        }
+
+        if (!$this->hasNullReturnPath($rawMime)) {
+            return false;
+        }
+
+        $authResults = $this->headerFilter->readAuthResults($rawMime);
+        if (($authResults['dkim'] ?? null) !== 'pass') {
+            return false;
+        }
+
+        $dkimDomain = $authResults['dkimDomain'] ?? null;
+        if ($dkimDomain === null) {
+            return false;
+        }
+
+        return $dkimDomain === $this->spamRejectionDetector->domainOf($envelopeTo);
+    }
+
+    /**
+     * Whether the bounce mail's own Return-Path header (added by Listig's
+     * own receiving mail server at final delivery, not attacker-controlled)
+     * is the empty/null form (Return-Path: <>). Reads the *outer* bounce's
+     * own header — the "first occurrence anywhere in the raw bounce" this
+     * relies on is safe here for the same reason extractDiagnostic() already
+     * documents: a standard DSN's own trace headers always precede the
+     * attached original message, so this can't accidentally match a stale
+     * Return-Path from the original message's own prior delivery history.
+     */
+    private function hasNullReturnPath(string $rawMime): bool
+    {
+        $value = $this->headerFilter->readHeader($rawMime, 'Return-Path');
+        return $value !== null && trim($value) === '<>';
+    }
+
+    /**
+     * A reliable domain's own automated infrastructure (see
+     * isAuthenticatedOrigin()) genuinely reported this recipient's copy as
+     * spam via an async DSN, not a live SMTP rejection — QueueSender's own
+     * synchronous path (SpamRejectionDetector, checked inside sendOne())
+     * only ever sees a live send() failure, so this is the async
+     * equivalent: discard every other still-pending queued copy of the same
+     * original mail, found via the verified recipient's own batch_id, rather
+     * than keep sending a message a reliable provider has already rejected
+     * as spam to everyone else too.
+     *
+     * Falls back to noAutomaticAction() if the verified recipient's row had
+     * no batch_id, or nothing was actually still pending by the time this
+     * ran — nothing happened, so the owner notice should say so rather than
+     * claim an abort that didn't do anything.
+     */
+    private function abortBatchForBounce(ListConfig $list, ?string $batchId): string
+    {
+        if ($batchId === null) {
+            return $this->noAutomaticAction($list);
+        }
+
+        $discarded = $this->queueSender->discardPendingBatch(
+            $batchId,
+            'Aborted: an authenticated async bounce from a reliable domain reported this mail as spam',
+        );
 
         if ($discarded === 0) {
             return $this->noAutomaticAction($list);
@@ -296,6 +486,10 @@ class BounceHandler
      * RFC 3464's Final-Recipient/Original-Recipient fields — the address delivery
      * actually failed for. Values look like "rfc822;user@example.com", so the
      * "rfc822;" address-type prefix is stripped.
+     *
+     * Display only (the owner notice's %failed_recipient%) — never used for
+     * the automatic-action decision, which relies solely on the token-verified
+     * recipient (resolveVerifiedRecipient()), not this self-reported DSN claim.
      */
     private function extractFailedRecipient(string $rawMime): ?string
     {
@@ -319,21 +513,5 @@ class BounceHandler
             return null;
         }
         return $this->headerFilter->readHeader(substr($rawMime, $pos), 'From');
-    }
-
-    /**
-     * Message-ID of the *attached original message* (not the outer bounce's
-     * own) — used to correlate this bounce back to mail_queue.message_id, see
-     * abortBatchForBounce(). Same message/rfc822-marker-onward search as
-     * extractOriginalSender(), and the same bare-id normalization
-     * QueueWriter::enqueue() stores under that column (HeaderFilter::readMessageId()).
-     */
-    private function extractOriginalMessageId(string $rawMime): ?string
-    {
-        $pos = stripos($rawMime, 'message/rfc822');
-        if ($pos === false) {
-            return null;
-        }
-        return $this->headerFilter->readMessageId(substr($rawMime, $pos));
     }
 }
