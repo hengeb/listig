@@ -19,8 +19,14 @@ class QueueWriter
      *                        together — see mail_queue.batch_id in migrations/001_initial.sql.
      *                        Constant across one MailProcessor::process() call, unlike $id below,
      *                        which is derived from the (possibly personalized) outgoing MIME.
+     * @param ?string $messageId The original incoming mail's own Message-ID (bare, no
+     *                        `<>` — see HeaderFilter::readMessageId()), preserved verbatim
+     *                        across every personalized copy. Lets BounceHandler correlate an
+     *                        async bounce back to this batch — see
+     *                        QueueSender::findBatchIdsByMessageId(). Null if the incoming
+     *                        mail genuinely had no Message-ID header at all.
      */
-    public function enqueue(string $listCn, Email $email, string $envelopeTo, string $batchId): void
+    public function enqueue(string $listCn, Email $email, string $envelopeTo, string $batchId, ?string $messageId): void
     {
         $mimeString = $email->toString();
         $id = hash('sha256', $listCn . ':' . $mimeString);
@@ -28,10 +34,10 @@ class QueueWriter
         $this->db->beginTransaction();
         try {
             $stmt = $this->db->prepare(
-                'INSERT INTO mail_queue (id, list_cn, batch_id, mime, created_at) VALUES (:id, :list, :batch, :mime, NOW())
+                'INSERT INTO mail_queue (id, list_cn, batch_id, message_id, mime, created_at) VALUES (:id, :list, :batch, :message_id, :mime, NOW())
                  ON DUPLICATE KEY UPDATE id=id'
             );
-            $stmt->execute(['id' => $id, 'list' => $listCn, 'batch' => $batchId, 'mime' => $mimeString]);
+            $stmt->execute(['id' => $id, 'list' => $listCn, 'batch' => $batchId, 'message_id' => $messageId, 'mime' => $mimeString]);
 
             $stmt = $this->db->prepare(
                 'INSERT INTO queue_recipients (mail_queue_id, envelope_to) VALUES (:qid, :to)'

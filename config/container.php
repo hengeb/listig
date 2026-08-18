@@ -30,6 +30,7 @@ use Hengeb\Listig\Imap\ImapArchiver;
 use Hengeb\Listig\Imap\ImapMailboxFactory;
 use Hengeb\Listig\Imap\ImapPoller;
 use Hengeb\Listig\Mail\BodyPersonalizer;
+use Hengeb\Listig\Mail\BounceCauseClassifier;
 use Hengeb\Listig\Mail\BounceHandler;
 use Hengeb\Listig\Mail\FooterAppender;
 use Hengeb\Listig\Mail\HeaderFilter;
@@ -420,12 +421,20 @@ $builder->addDefinitions([
     NotificationMailer::class => function (ContainerInterface $c): NotificationMailer {
         return new NotificationMailer($c->get(SmtpConnectionFactory::class));
     },
+    // Classifies a bounce's diagnostic text/failed-recipient into a
+    // BounceCause an automatic action exists for (only Spam today) — see
+    // BounceHandler / CLAUDE.md "Automatic bounce actions".
+    BounceCauseClassifier::class => function (ContainerInterface $c): BounceCauseClassifier {
+        return new BounceCauseClassifier($c->get(SpamRejectionDetector::class));
+    },
     BounceHandler::class => function (ContainerInterface $c): BounceHandler {
         return new BounceHandler(
             $c->get(PDO::class),
             $c->get(NotificationMailer::class),
             $c->get(TranslatorInterface::class),
             $c->get(HeaderFilter::class),
+            $c->get(QueueSender::class),
+            $c->get(BounceCauseClassifier::class),
         );
     },
     RejectionNotifier::class => function (ContainerInterface $c): RejectionNotifier {

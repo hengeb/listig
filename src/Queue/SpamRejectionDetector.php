@@ -60,17 +60,39 @@ class SpamRejectionDetector
             return false;
         }
 
-        if (!in_array($this->domainOf($envelopeTo), $this->reliableDomains, true)) {
+        if (!$this->isReliableDomain($envelopeTo)) {
             return false;
         }
 
-        $text = strtolower($e->getMessage() . ' ' . $e->getDebug());
-        return str_contains($text, 'spam');
+        return self::containsSpamIndicator($e->getMessage() . ' ' . $e->getDebug());
+    }
+
+    /**
+     * Whether $email's domain is trusted to have its own "this is spam"
+     * verdict treated as authoritative (see the class docblock) — reused by
+     * BounceCauseClassifier for the async-bounce equivalent of this same
+     * check (a DSN's Diagnostic-Code/Status text instead of a live SMTP
+     * rejection's response).
+     */
+    public function isReliableDomain(string $email): bool
+    {
+        return in_array($this->domainOf($email), $this->reliableDomains, true);
     }
 
     public function domainOf(string $email): string
     {
         $at = strrpos($email, '@');
         return $at === false ? '' : strtolower(substr($email, $at + 1));
+    }
+
+    /**
+     * Shared substring check for "this text says the message was rejected as
+     * spam" — reused by BounceCauseClassifier so the exact same wording rule
+     * applies to an async bounce's Diagnostic-Code/Status text as to a live
+     * SMTP rejection's response.
+     */
+    public static function containsSpamIndicator(string $text): bool
+    {
+        return str_contains(strtolower($text), 'spam');
     }
 }

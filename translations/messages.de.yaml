@@ -55,7 +55,10 @@ bounce:
   unknown: "unbekannt"
   owner_notice:
     subject: "[Bounce] %list%: von %sender%"
-    body: "Für die Liste %list% ist ein Bounce eingegangen.\n\nUrsprünglicher Absender: %original_sender%\nFehlgeschlagener Empfänger: %failed_recipient%\nUrsache: %reason%\n\nVon: %sender%\nBetreff: %subject%\n\nDer ursprüngliche Bounce ist angehängt."
+    body: "Für die Liste %list% ist ein Bounce eingegangen.\n\nUrsprünglicher Absender: %original_sender%\nFehlgeschlagener Empfänger: %failed_recipient%\nUrsache: %reason%\nAutomatische Reaktion: %auto_action%\n\nVon: %sender%\nBetreff: %subject%\n\nDer ursprüngliche Bounce ist angehängt."
+  auto_action:
+    abort_batch: "Weiterer Versand von %count% verbleibender Kopie(n) dieser Mail abgebrochen (von einem vertrauenswürdigen Anbieter als Spam gemeldet)"
+    none: "keine"
 
 processing_failure:
   owner_notice:

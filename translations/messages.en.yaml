@@ -55,7 +55,10 @@ bounce:
   unknown: "unknown"
   owner_notice:
     subject: "[Bounce] %list%: from %sender%"
-    body: "A bounce was received for list %list%.\n\nOriginal sender: %original_sender%\nFailed recipient: %failed_recipient%\nReason: %reason%\n\nFrom: %sender%\nSubject: %subject%\n\nThe original bounce is attached."
+    body: "A bounce was received for list %list%.\n\nOriginal sender: %original_sender%\nFailed recipient: %failed_recipient%\nReason: %reason%\nAutomatic response: %auto_action%\n\nFrom: %sender%\nSubject: %subject%\n\nThe original bounce is attached."
+  auto_action:
+    abort_batch: "Sending of %count% remaining copy/copies of this mail aborted (reported as spam by a reliable provider)"
+    none: "none"
 
 processing_failure:
   owner_notice:

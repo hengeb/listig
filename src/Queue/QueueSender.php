@@ -163,11 +163,7 @@ class QueueSender
             }
         }
 
-        $placeholders = implode(',', array_fill(0, count($recipientIds), '?'));
-        $stmt = $this->db->prepare(
-            "UPDATE queue_recipients SET status = 'failed', error = ? WHERE id IN ($placeholders)"
-        );
-        $stmt->execute([$errorMessage, ...$recipientIds]);
+        $this->markRecipientsFailed($recipientIds, $errorMessage);
 
         $domain = $this->spamRejectionDetector->domainOf($envelopeTo);
         error_log(
@@ -176,6 +172,73 @@ class QueueSender
         );
 
         $this->notifySpamRejection($listCn, $domain, $errorMessage, count($recipientIds));
+    }
+
+    /**
+     * Every distinct batch_id among this list's mail_queue rows carrying the
+     * given (original incoming mail's) Message-ID — almost always at most
+     * one, but returned as a list since the same Message-ID could in
+     * principle have been distributed more than once (e.g. resent) under
+     * different batch_ids. Used by BounceHandler to correlate an async bounce
+     * — which only ever reports the address delivery failed for, never a
+     * mail_queue row or batch_id directly — back to every still-pending
+     * sibling of the original distribute.
+     *
+     * @return string[]
+     */
+    public function findBatchIdsByMessageId(string $listCn, string $messageId): array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT DISTINCT batch_id FROM mail_queue
+             WHERE list_cn = :list AND message_id = :message_id AND batch_id IS NOT NULL'
+        );
+        $stmt->execute(['list' => $listCn, 'message_id' => $messageId]);
+        return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Marks every still-pending queue_recipients row for a given batch as
+     * failed, without an accompanying live SMTP-rejection Throwable — the
+     * async equivalent of discardBatchAsSpam() above, used when a bounce (not
+     * a live send() failure) already indicates this batch's content is
+     * unwanted for at least one recipient (see BounceHandler /
+     * BounceCauseClassifier). Unlike discardBatchAsSpam(), this sends no
+     * notification of its own — the caller (BounceHandler) already forwards
+     * the triggering bounce to the owners and folds a description of this
+     * action into that same notice, rather than sending a second, separate
+     * one.
+     *
+     * Returns the number of rows actually discarded (0 if the batch was
+     * already fully sent/failed/gone by the time this runs — nothing left to
+     * report).
+     */
+    public function discardPendingBatch(string $batchId, string $reason): int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT qr.id
+             FROM queue_recipients qr
+             JOIN mail_queue mq ON mq.id = qr.mail_queue_id
+             WHERE mq.batch_id = :batch AND qr.status = 'pending'"
+        );
+        $stmt->execute(['batch' => $batchId]);
+        $recipientIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+
+        if (empty($recipientIds)) {
+            return 0;
+        }
+
+        $this->markRecipientsFailed($recipientIds, $reason);
+        return count($recipientIds);
+    }
+
+    /** @param int[] $recipientIds */
+    private function markRecipientsFailed(array $recipientIds, string $errorMessage): void
+    {
+        $placeholders = implode(',', array_fill(0, count($recipientIds), '?'));
+        $stmt = $this->db->prepare(
+            "UPDATE queue_recipients SET status = 'failed', error = ? WHERE id IN ($placeholders)"
+        );
+        $stmt->execute([$errorMessage, ...$recipientIds]);
     }
 
     private static function isInvalidAddress(string $address): bool

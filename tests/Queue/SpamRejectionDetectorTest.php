@@ -88,4 +88,33 @@ class SpamRejectionDetectorTest extends TestCase
         $exception = new TransportException('550 Message REJECTED AS SPAM');
         $this->assertTrue($detector->isSpamRejection($exception, 'someone@gmail.com'));
     }
+
+    public function testIsReliableDomainTrueForBuiltinDomain(): void
+    {
+        $detector = new SpamRejectionDetector();
+        $this->assertTrue($detector->isReliableDomain('someone@gmail.com'));
+    }
+
+    public function testIsReliableDomainFalseForUnknownDomain(): void
+    {
+        $detector = new SpamRejectionDetector();
+        $this->assertFalse($detector->isReliableDomain('someone@totally-unknown-domain.example'));
+    }
+
+    public function testIsReliableDomainTrueForConfiguredAdditionalDomain(): void
+    {
+        $detector = new SpamRejectionDetector(['custom-provider.example']);
+        $this->assertTrue($detector->isReliableDomain('someone@custom-provider.example'));
+    }
+
+    public function testContainsSpamIndicatorIsCaseInsensitive(): void
+    {
+        $this->assertTrue(SpamRejectionDetector::containsSpamIndicator('550 Message REJECTED AS SPAM'));
+        $this->assertTrue(SpamRejectionDetector::containsSpamIndicator('rejected as spam'));
+    }
+
+    public function testContainsSpamIndicatorFalseWithoutSpamWording(): void
+    {
+        $this->assertFalse(SpamRejectionDetector::containsSpamIndicator('550 5.1.1 mailbox does not exist'));
+    }
 }

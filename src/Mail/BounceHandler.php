@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Mail;
 
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Queue\QueueSender;
 use PDO;
 use PhpImap\IncomingMail;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -13,6 +14,16 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * Records a bounce in bounce_log and forwards the original bounce mail to the
  * list owners. Extracted from bin/worker.php to keep that file a thin loop and
  * match the rest of the codebase's constructor-injected, class-based design.
+ *
+ * Also applies an automatic action for certain, well-recognized bounce causes
+ * — today, only a spam-rejection reported by a reliable domain, which aborts
+ * every other still-pending queued copy of the same original mail (see
+ * applyAutomaticAction()/BounceCauseClassifier). This exists because a bounce
+ * can arrive asynchronously, via IMAP, *while* QueueSender is still working
+ * through the rest of the same batch across later worker cycles — without
+ * this, a mail one reliable provider has already rejected as spam kept being
+ * sent to every remaining recipient regardless. See CLAUDE.md "Automatic
+ * bounce actions".
  *
  * A bounce-forward is itself an outgoing mail (via NotificationMailer), which
  * means it can itself bounce — and that new bounce would, without the two
@@ -38,6 +49,8 @@ class BounceHandler
         private readonly NotificationMailer $notificationMailer,
         private readonly TranslatorInterface $translator,
         private readonly HeaderFilter $headerFilter,
+        private readonly QueueSender $queueSender,
+        private readonly BounceCauseClassifier $bounceCauseClassifier,
     ) {
     }
 
@@ -45,19 +58,103 @@ class BounceHandler
     {
         $this->logBounce($list->name, $mail);
 
-        // Both guards below only ever skip forwardToOwners() — logBounce()
-        // above has already run unconditionally, so the manage page's bounce
-        // table stays a complete record of every bounce either way, forwarded
-        // or not.
         if ($this->isBounceOnOwnNotification($rawMime)) {
             return;
         }
+
+        // The automatic action (e.g. aborting the rest of a spam-rejected
+        // batch) is a protective measure against the underlying distributed
+        // mail itself, independent of whether the owner actually gets
+        // notified about this particular bounce below — it still runs even
+        // while the circuit breaker is suppressing forwards, since a burst of
+        // bounces is exactly the situation where it matters most.
+        $autoAction = $this->applyAutomaticAction($list, $rawMime);
 
         if ($this->circuitBreakerTripped($list->name)) {
             return;
         }
 
-        $this->forwardToOwners($list, $mail, $rawMime);
+        $this->forwardToOwners($list, $mail, $rawMime, $autoAction);
+    }
+
+    /**
+     * Classifies this bounce (via BounceCauseClassifier) and, if it maps to a
+     * known cause, executes the matching automatic action — always returns a
+     * translated description for the owner notice's own "Automatic response:"
+     * line, never null: the overwhelmingly common case (no cause recognized,
+     * or a cause recognized but nothing was actually left to act on) still
+     * gets an explicit "none" (bounce.auto_action.none) rather than the line
+     * silently disappearing, so an owner reading the notice always knows
+     * whether Listig reacted or not, not just when it did.
+     *
+     * Extension point for future causes (see BounceCause's own docblock) —
+     * e.g. a permanent "user unknown" bounce could eventually drive a
+     * block-or-remove-member action instead of Spam's abort-batch one: add a
+     * new BounceCause case, a new check in BounceCauseClassifier, and a new
+     * match arm below.
+     */
+    private function applyAutomaticAction(ListConfig $list, string $rawMime): string
+    {
+        $reason          = $this->extractDiagnostic($rawMime);
+        $failedRecipient = $this->extractFailedRecipient($rawMime);
+
+        $cause = $this->bounceCauseClassifier->classify($reason, $failedRecipient);
+        if ($cause === null) {
+            return $this->noAutomaticAction($list);
+        }
+
+        return match ($cause) {
+            BounceCause::Spam => $this->abortBatchForBounce($list, $rawMime),
+        };
+    }
+
+    /**
+     * A reliable domain (see SpamRejectionDetector) reported this recipient's
+     * copy as spam via an async DSN, not a live SMTP rejection — QueueSender's
+     * own synchronous path (SpamRejectionDetector, checked inside
+     * sendOne()) only ever sees a live send() failure, so this is the async
+     * equivalent: find every other still-pending queued copy of the same
+     * original mail — via mail_queue.message_id, preserved verbatim from the
+     * incoming mail on every personalized outgoing copy, see
+     * MailProcessor::process() — and discard it the same way, rather than
+     * keep sending a message at least one reliable provider has already
+     * rejected as spam to everyone else too.
+     *
+     * Falls back to noAutomaticAction() if the original Message-ID couldn't
+     * be recovered from the attached original message, or if nothing was
+     * actually still pending by the time this ran — nothing happened, so the
+     * owner notice should say so rather than claim an abort that didn't do
+     * anything.
+     */
+    private function abortBatchForBounce(ListConfig $list, string $rawMime): string
+    {
+        $messageId = $this->extractOriginalMessageId($rawMime);
+
+        $discarded = 0;
+        if ($messageId !== null) {
+            foreach ($this->queueSender->findBatchIdsByMessageId($list->name, $messageId) as $batchId) {
+                $discarded += $this->queueSender->discardPendingBatch(
+                    $batchId,
+                    "Aborted: a reliable domain's async bounce reported this mail as spam (Message-ID $messageId)",
+                );
+            }
+        }
+
+        if ($discarded === 0) {
+            return $this->noAutomaticAction($list);
+        }
+
+        return $this->translator->trans(
+            'bounce.auto_action.abort_batch',
+            ['%count%' => $discarded],
+            null,
+            $list->language,
+        );
+    }
+
+    private function noAutomaticAction(ListConfig $list): string
+    {
+        return $this->translator->trans('bounce.auto_action.none', [], null, $list->language);
     }
 
     /**
@@ -144,7 +241,7 @@ class BounceHandler
         ]);
     }
 
-    private function forwardToOwners(ListConfig $list, IncomingMail $mail, string $rawMime): void
+    private function forwardToOwners(ListConfig $list, IncomingMail $mail, string $rawMime, string $autoAction): void
     {
         $sender  = $mail->fromAddress ?? 'unknown';
         $subject = $mail->subject ?? '';
@@ -161,6 +258,9 @@ class BounceHandler
                 '%list%' => $list->displayName,
                 '%sender%' => $sender,
             ], null, $locale),
+            // %auto_action% is always present — applyAutomaticAction() never
+            // returns null, so the owner can always see whether Listig
+            // reacted automatically, not just when it did (see its docblock).
             $this->translator->trans('bounce.owner_notice.body', [
                 '%list%' => $list->displayName,
                 '%sender%' => $sender,
@@ -168,6 +268,7 @@ class BounceHandler
                 '%reason%' => $reason,
                 '%failed_recipient%' => $failedRecipient,
                 '%original_sender%' => $originalSender,
+                '%auto_action%' => $autoAction,
             ], null, $locale),
             $rawMime,
             'bounce.eml',
@@ -218,5 +319,21 @@ class BounceHandler
             return null;
         }
         return $this->headerFilter->readHeader(substr($rawMime, $pos), 'From');
+    }
+
+    /**
+     * Message-ID of the *attached original message* (not the outer bounce's
+     * own) — used to correlate this bounce back to mail_queue.message_id, see
+     * abortBatchForBounce(). Same message/rfc822-marker-onward search as
+     * extractOriginalSender(), and the same bare-id normalization
+     * QueueWriter::enqueue() stores under that column (HeaderFilter::readMessageId()).
+     */
+    private function extractOriginalMessageId(string $rawMime): ?string
+    {
+        $pos = stripos($rawMime, 'message/rfc822');
+        if ($pos === false) {
+            return null;
+        }
+        return $this->headerFilter->readMessageId(substr($rawMime, $pos));
     }
 }
