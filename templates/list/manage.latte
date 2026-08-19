@@ -109,4 +109,21 @@
         </tbody>
     </table>
 </div>
+
+{* Only ever populated by the `restrict` automatic bounce action — see
+   CLAUDE.md "Automatic bounce actions". Rendered only when non-empty, so a
+   list that never triggered it shows nothing extra. *}
+<div class="card" n:if="count($suppressedMembers) > 0">
+    <h2>{$translator->trans('list.manage.suppressed_members')}</h2>
+    <table>
+        <thead><tr><th>{$translator->trans('list.manage.address')}</th><th>{$translator->trans('list.manage.reason')}</th><th>{$translator->trans('list.manage.timestamp')}</th></tr></thead>
+        <tbody>
+        <tr n:foreach="$suppressedMembers as $suppressed">
+            <td>{$suppressed['envelope_to']}</td>
+            <td>{$suppressed['reason']}</td>
+            <td>{$suppressed['created_at']}</td>
+        </tr>
+        </tbody>
+    </table>
+</div>
 {/block}

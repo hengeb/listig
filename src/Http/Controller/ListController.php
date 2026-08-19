@@ -7,6 +7,7 @@ namespace Hengeb\Listig\Http\Controller;
 use Hengeb\Listig\Config\Enum\AllowLeave;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Mail\BounceSuppressionList;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\Token\TokenService;
 use Latte\Engine;
@@ -26,6 +27,7 @@ class ListController
         private readonly TokenService $tokenService,
         private readonly string $hostname,
         private readonly string $appName,
+        private readonly BounceSuppressionList $bounceSuppressionList,
     ) {
     }
 
@@ -53,6 +55,11 @@ class ListController
         $moderationItems = $this->getModerationItems($listName);
         $queueStatus = $this->getQueueStatus($listName);
         $bounceStats = $this->getBounceStats($listName);
+        // Only ever populated by the `restrict` automatic bounce action (see
+        // CLAUDE.md "Automatic bounce actions") — the template renders this
+        // section only when non-empty, so a list that never had one shows
+        // nothing extra.
+        $suppressedMembers = $this->bounceSuppressionList->listForOwner($listName);
 
         // This page is inherently about one specific list — set the translator's
         // locale to that list's language for the duration of this (final) render.
@@ -65,6 +72,7 @@ class ListController
             'moderationItems' => $moderationItems,
             'queueStatus' => $queueStatus,
             'bounceStats' => $bounceStats,
+            'suppressedMembers' => $suppressedMembers,
             'memberCount' => count($list->getMembers()),
             'language' => $list->language,
             'translator' => $this->translator,

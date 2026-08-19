@@ -290,7 +290,7 @@ while (true) {
 
     // 4. Cleanup
     try {
-        $queueSender->purgeStaleFailedEntries();
+        $queueSender->purgeCompletedEntries();
         $db->exec("DELETE FROM imap_seen WHERE seen_at < NOW() - INTERVAL 31 DAY");
         $db->exec("DELETE FROM rate_limit WHERE sent_at < NOW() - INTERVAL 1 HOUR");
         $db->exec("DELETE FROM bounce_log WHERE bounced_at < NOW() - INTERVAL 90 DAY");

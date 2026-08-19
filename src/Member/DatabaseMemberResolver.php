@@ -106,6 +106,23 @@ class DatabaseMemberResolver implements MemberResolver
         $stmt->execute(array_merge(['name' => $listName, 'mail' => $member->email], $attributes));
     }
 
+    public function supportsInvalidation(): bool
+    {
+        return true;
+    }
+
+    /** `mail` is scoped per (name, mail) row here — naturally per-list, unlike LDAP. */
+    public function invalidateEmail(string $listName, string $email, string $reason): void
+    {
+        $this->db()->prepare(
+            "UPDATE {$this->membersTable} SET mail = :new WHERE name = :name AND mail = :old"
+        )->execute([
+            'new' => InvalidatedEmail::build($email, $reason),
+            'name' => $listName,
+            'old' => $email,
+        ]);
+    }
+
     private function db(): PDO
     {
         return $this->dbFactory->getConnection($this->dbConfig);

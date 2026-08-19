@@ -31,6 +31,7 @@ class MailProcessor
         private readonly string $hostname,
         private readonly Logger $logger,
         private readonly TranslatorInterface $translator,
+        private readonly BounceSuppressionList $bounceSuppressionList,
     ) {
     }
 
@@ -429,11 +430,15 @@ class MailProcessor
         // Receive-restricted (restricted-members: ... receive: false) — unlike a
         // plain send-only restriction, this must exclude the address from
         // distribution too, regardless of what the list's own member-resolver
-        // (even LDAP) still reports.
+        // (even LDAP) still reports. bounce_suppressed_members is the same idea
+        // via the `restrict` automatic bounce action (see CLAUDE.md "Automatic
+        // bounce actions") — a separate, dynamically-populated table rather
+        // than a restricted-members: config entry, checked the same way.
         return array_values(array_filter(
             $members,
             fn(Member $m) => !in_array(strtolower($m->email), $excluded, true)
                 && !$list->isReceiverRestricted($m->email)
+                && !$this->bounceSuppressionList->isSuppressed($list->name, $m->email)
         ));
     }
 

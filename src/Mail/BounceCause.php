@@ -6,10 +6,7 @@ namespace Hengeb\Listig\Mail;
 
 /**
  * A bounce reason BounceCauseClassifier can recognize well enough to trigger an
- * automatic action in BounceHandler — deliberately small today (only Spam),
- * but structured to grow: a future permanent-failure cause (e.g. "user
- * unknown", "mailbox does not exist") would drive a block-or-remove-member
- * action instead of Spam's abort-batch one. Adding one is three small,
+ * automatic action in BounceHandler. Adding a new one is three small,
  * independent steps: a new case here, a new check in
  * BounceCauseClassifier::classify(), and a new match arm in
  * BounceHandler::applyAutomaticAction().
@@ -20,5 +17,12 @@ namespace Hengeb\Listig\Mail;
  */
 enum BounceCause
 {
+    /** Reported as spam by a reliable domain — aborts the rest of the batch (BounceHandler::abortBatchForBounce()). */
     case Spam;
+
+    /** Permanent: mailbox/user/domain doesn't exist, or the relay refuses it — drives the list's configurable `bounce-action`. */
+    case UserUnknown;
+
+    /** Temporary: mailbox full — defers this recipient's future sends, escalating to `bounce-action` after repeated occurrences. */
+    case MailboxFull;
 }

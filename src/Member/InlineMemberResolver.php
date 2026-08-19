@@ -103,4 +103,16 @@ class InlineMemberResolver implements MemberResolver
             'Cannot add members to an inline (config.yml) source at runtime — statically configured.'
         );
     }
+
+    public function supportsInvalidation(): bool
+    {
+        return false;
+    }
+
+    public function invalidateEmail(string $listName, string $email, string $reason): void
+    {
+        throw new \RuntimeException(
+            'Cannot invalidate an address in an inline (config.yml) source at runtime — statically configured.'
+        );
+    }
 }

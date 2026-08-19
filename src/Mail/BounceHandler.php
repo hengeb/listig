@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Mail;
 
+use Hengeb\Listig\Config\Enum\BounceAction;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Queue\QueueSender;
 use Hengeb\Listig\Queue\SpamRejectionDetector;
@@ -18,14 +19,19 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * match the rest of the codebase's constructor-injected, class-based design.
  *
  * Also applies an automatic action for certain, well-recognized bounce causes
- * — today, only a spam-rejection reported by a reliable domain, which aborts
- * every other still-pending queued copy of the same original mail (see
- * applyAutomaticAction()/BounceCauseClassifier). This exists because a bounce
- * can arrive asynchronously, via IMAP, *while* QueueSender is still working
- * through the rest of the same batch across later worker cycles — without
- * this, a mail one reliable provider has already rejected as spam kept being
- * sent to every remaining recipient regardless. See CLAUDE.md "Automatic
- * bounce actions".
+ * (see BounceCause/BounceCauseClassifier) — a spam-rejection reported by a
+ * reliable domain aborts every other still-pending queued copy of the same
+ * original mail; a permanent "user/mailbox unknown" (or an escalated,
+ * repeatedly-recurring "mailbox full") applies the list's own configurable
+ * `bounce-action` (none/mark-invalid/restrict/remove, via
+ * BounceMemberActionExecutor) instead. A single, temporary "mailbox full"
+ * bounce only defers that recipient's *future* sends by `bounce-defer-days`
+ * (handleMailboxFull()) rather than acting immediately. This exists because a
+ * bounce can arrive asynchronously, via IMAP, *while* QueueSender is still
+ * working through the rest of the same batch across later worker cycles —
+ * without the spam case specifically, a mail one reliable provider has
+ * already rejected as spam kept being sent to every remaining recipient
+ * regardless. See CLAUDE.md "Automatic bounce actions".
  *
  * RFC 3464 delivery-status notifications carry no cryptographic
  * authentication at all — every field in a DSN's body (Final-Recipient, the
@@ -79,6 +85,14 @@ class BounceHandler
     /** Rolling window (minutes) the circuit breaker counts bounces over — see handle(). */
     private const int CIRCUIT_BREAKER_WINDOW_MINUTES = 15;
 
+    /**
+     * Fixed prefix for queue_recipients.error whenever markBounced() records
+     * an authenticated bounce — distinct from an ordinary SMTP failure's own
+     * (arbitrary) error text, so countRecentBounces() can query specifically
+     * for bounce-caused failures rather than any delivery failure.
+     */
+    private const string ERROR_TAG_PREFIX = 'BOUNCE:';
+
     public function __construct(
         private readonly PDO $db,
         private readonly NotificationMailer $notificationMailer,
@@ -88,6 +102,9 @@ class BounceHandler
         private readonly BounceCauseClassifier $bounceCauseClassifier,
         private readonly TokenService $tokenService,
         private readonly SpamRejectionDetector $spamRejectionDetector,
+        private readonly BounceMemberActionExecutor $memberActionExecutor,
+        private readonly int $bounceDeferDays,
+        private readonly int $bounceEscalateAfter,
     ) {
     }
 
@@ -129,17 +146,24 @@ class BounceHandler
      * not, not just when it did.
      *
      * Extension point for future causes (see BounceCause's own docblock) —
-     * e.g. a permanent "user unknown" bounce could eventually drive a
-     * block-or-remove-member action instead of Spam's abort-batch one: add a
-     * new BounceCause case, a new check in BounceCauseClassifier, and a new
-     * match arm below. Both verification steps above already apply
+     * e.g. a permanent "user unknown" bounce drives a configurable
+     * mark-invalid/restrict/remove action instead of Spam's abort-batch one:
+     * add a new BounceCause case, a new check in BounceCauseClassifier, and a
+     * new match arm below. Both verification steps above already apply
      * uniformly to any cause, not just Spam, since they concern *whether
-     * this bounce can be trusted at all*, not what its content says.
+     * this bounce can be trusted at all*, not what its content says — as
+     * does the retroactive markBounced() call right before the match, which
+     * corrects that one recipient's own queue_recipients row for every
+     * recognized cause, not just the ones with a further automatic action.
      */
     private function applyAutomaticAction(ListConfig $list, string $rawMime): string
     {
         $recipient = $this->resolveVerifiedRecipient($list, $rawMime);
         if ($recipient === null) {
+            return $this->noAutomaticAction($list);
+        }
+
+        if (!$this->isFinalDeliveryOutcome($rawMime)) {
             return $this->noAutomaticAction($list);
         }
 
@@ -153,9 +177,108 @@ class BounceHandler
             return $this->noAutomaticAction($list);
         }
 
+        // Corrects the historical record for this one row (e.g. 'sent' ->
+        // 'failed') regardless of which specific cause matched — see
+        // QueueSender::markBounced()'s own docblock. retry_not_before is only
+        // ever set for MailboxFull; every other cause passes null.
+        $retryNotBefore = $cause === BounceCause::MailboxFull
+            ? (new \DateTimeImmutable())->modify("+{$this->bounceDeferDays} days")
+            : null;
+        $this->queueSender->markBounced($recipient['recipientId'], self::errorTagFor($cause), $retryNotBefore);
+
         return match ($cause) {
             BounceCause::Spam => $this->abortBatchForBounce($list, $recipient['batchId']),
+            BounceCause::UserUnknown => $this->applyConfiguredAction($list, $recipient['envelopeTo'], $cause),
+            BounceCause::MailboxFull => $this->handleMailboxFull($list, $recipient['envelopeTo']),
         };
+    }
+
+    /**
+     * RFC 3464's per-recipient Action: field (message/delivery-status part) —
+     * `delayed` means the sending MTA is still retrying and this is merely an
+     * interim courtesy notice, not a final outcome; acting on it (aborting a
+     * batch, marking an address invalid, ...) based on a delivery that might
+     * still succeed would be premature. Treated as a required gate for
+     * *every* cause, including the pre-existing Spam one — a "delayed"
+     * notice whose text happens to mention "spam" was never meant to trigger
+     * anything either. Absent entirely (some non-standard bounce generators
+     * omit it) is treated as "final" rather than blocking everything — the
+     * pre-existing behavior before this check existed, and the same
+     * fail-open choice already made for every other best-effort DSN field
+     * extraction in this class.
+     */
+    private function isFinalDeliveryOutcome(string $rawMime): bool
+    {
+        $action = $this->headerFilter->readHeader($rawMime, 'Action');
+        return $action === null || strtolower(trim($action)) === 'failed';
+    }
+
+    /**
+     * The automatic action for a hard bounce (BounceCause::UserUnknown) or an
+     * escalated repeated soft bounce (BounceCause::MailboxFull, via
+     * handleMailboxFull()) — dispatches on the list's own configured
+     * `bounce-action` (see CLAUDE.md "Automatic bounce actions"). `none`
+     * (the default) still returns a description distinct from
+     * noAutomaticAction()'s own "none" — here, a cause *was* recognized, an
+     * operator has simply chosen not to act on it automatically, which is
+     * worth saying explicitly rather than looking identical to "nothing
+     * matched at all".
+     */
+    private function applyConfiguredAction(ListConfig $list, string $envelopeTo, BounceCause $cause): string
+    {
+        $reasonCode = self::reasonCodeFor($cause);
+
+        return match ($list->bounceAction) {
+            BounceAction::None => $this->translator->trans('bounce.auto_action.recognized_no_action', [
+                '%cause%' => $this->translator->trans('bounce.cause.' . strtolower($reasonCode), [], null, $list->language),
+            ], null, $list->language),
+            BounceAction::MarkInvalid => $this->memberActionExecutor->markInvalid($list, $envelopeTo, $reasonCode),
+            BounceAction::Restrict => $this->memberActionExecutor->restrict($list, $envelopeTo, $reasonCode),
+            BounceAction::Remove => $this->memberActionExecutor->remove($list, $envelopeTo),
+        };
+    }
+
+    /**
+     * A reliable domain's own automated infrastructure genuinely reported
+     * this recipient's mailbox as full — a temporary condition, so the first
+     * (few) occurrence(s) only defer this recipient's *future* sends by
+     * `bounce-defer-days` (the retry_not_before markBounced() already set
+     * above), rather than acting immediately. Once countRecentBounces()
+     * shows the configured `bounce-escalate-after` threshold reached — i.e.
+     * this address kept bouncing even after being given time to recover —
+     * escalate to the same configurable action a permanent bounce would
+     * trigger (applyConfiguredAction()).
+     */
+    private function handleMailboxFull(ListConfig $list, string $envelopeTo): string
+    {
+        $count = $this->queueSender->countRecentBounces(
+            $list->name,
+            $envelopeTo,
+            self::errorTagFor(BounceCause::MailboxFull),
+        );
+
+        if ($count >= $this->bounceEscalateAfter) {
+            return $this->applyConfiguredAction($list, $envelopeTo, BounceCause::MailboxFull);
+        }
+
+        return $this->translator->trans('bounce.auto_action.mailbox_full_deferred', [
+            '%days%' => $this->bounceDeferDays,
+            '%count%' => $count,
+        ], null, $list->language);
+    }
+
+    private static function reasonCodeFor(BounceCause $cause): string
+    {
+        return match ($cause) {
+            BounceCause::Spam => 'SPAM',
+            BounceCause::UserUnknown => 'USER_UNKNOWN',
+            BounceCause::MailboxFull => 'MAILBOX_FULL',
+        };
+    }
+
+    private static function errorTagFor(BounceCause $cause): string
+    {
+        return self::ERROR_TAG_PREFIX . self::reasonCodeFor($cause);
     }
 
     /**
@@ -171,10 +294,11 @@ class BounceHandler
      * signature, expired, wrong purpose), if it names a different list than
      * the one this bounce arrived on (defense in depth against a stale/
      * cross-list token, same principle as UnsubscribeController's own check),
-     * or if the row it names no longer exists (already cleaned up after
-     * fully sending — nothing left to act on either way).
+     * or if the row it names no longer exists (aged out of
+     * QueueSender::purgeCompletedEntries()'s 30-day retention — nothing left
+     * to act on either way).
      *
-     * @return array{envelopeTo: string, batchId: ?string}|null
+     * @return array{recipientId: int, envelopeTo: string, batchId: ?string}|null
      */
     private function resolveVerifiedRecipient(ListConfig $list, string $rawMime): ?array
     {
@@ -195,12 +319,13 @@ class BounceHandler
             return null;
         }
 
-        $recipient = $this->queueSender->findRecipientById((int) $recipientId);
+        $recipientId = (int) $recipientId;
+        $recipient = $this->queueSender->findRecipientById($recipientId);
         if ($recipient === null || $recipient['listCn'] !== $list->name) {
             return null;
         }
 
-        return ['envelopeTo' => $recipient['envelopeTo'], 'batchId' => $recipient['batchId']];
+        return ['recipientId' => $recipientId, 'envelopeTo' => $recipient['envelopeTo'], 'batchId' => $recipient['batchId']];
     }
 
     /**

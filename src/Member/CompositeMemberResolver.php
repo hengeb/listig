@@ -100,6 +100,30 @@ class CompositeMemberResolver implements MemberResolver
     }
 
     /**
+     * Invalidates on every source that supports it, not just the first —
+     * same reasoning as removeMember(): the same address can plausibly be
+     * present via more than one source at once.
+     */
+    public function invalidateEmail(string $listName, string $email, string $reason): void
+    {
+        foreach ($this->memberSources as $source) {
+            if ($source->supportsInvalidation()) {
+                $source->invalidateEmail($listName, $email, $reason);
+            }
+        }
+    }
+
+    public function supportsInvalidation(): bool
+    {
+        foreach ($this->memberSources as $source) {
+            if ($source->supportsInvalidation()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * @param array<Member[]> $memberLists
      * @return Member[]
      */

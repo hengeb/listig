@@ -33,4 +33,29 @@ interface MemberResolver
      * or — for LDAP — no directory entry matching $member->email was found).
      */
     public function addMember(string $listName, Member $member): void;
+
+    /**
+     * Whether invalidateEmail() can actually persist an invalidation, mirroring
+     * supportsRemoval()'s own reasoning — checked before attempting it so a
+     * caller (BounceMemberActionExecutor) can fall back or report clearly
+     * instead of relying on a silent no-op or a caught exception.
+     */
+    public function supportsInvalidation(): bool;
+
+    /**
+     * Replaces $email, in place, with Member\InvalidatedEmail::build($email,
+     * $reason) — used by the `mark-invalid` automatic bounce action (see
+     * CLAUDE.md "Automatic bounce actions") so a permanently bouncing address
+     * stops being deliverable/matchable without deleting the underlying
+     * member record outright. $listName is provided for parity with
+     * removeMember()/addMember() and is honored by backends whose storage is
+     * genuinely scoped per list (database, csv) — LdapMemberResolver ignores
+     * it, since a directory entry's `mail` attribute belongs to the person,
+     * not to any one list's group membership, so an invalidation there is
+     * unavoidably instance-wide (see its own docblock).
+     *
+     * Throws \RuntimeException if the underlying store cannot persist this at
+     * all (static inline/YAML config) — same contract as removeMember().
+     */
+    public function invalidateEmail(string $listName, string $email, string $reason): void;
 }

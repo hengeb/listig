@@ -107,6 +107,28 @@ class CsvMemberResolver implements MemberResolver
         });
     }
 
+    public function supportsInvalidation(): bool
+    {
+        return true;
+    }
+
+    /** `mail` is scoped per (name, mail) row here — naturally per-list, unlike LDAP. */
+    public function invalidateEmail(string $listName, string $email, string $reason): void
+    {
+        $lowerEmail = strtolower($email);
+        $invalidated = InvalidatedEmail::build($email, $reason);
+
+        $this->withLock(function (array $rows) use ($listName, $lowerEmail, $invalidated): array {
+            foreach ($rows as $i => $row) {
+                if ($row['name'] === $listName && strtolower($row['mail']) === $lowerEmail) {
+                    $rows[$i]['mail'] = $invalidated;
+                    break;
+                }
+            }
+            return $rows;
+        });
+    }
+
     /** @return Member[] */
     private function filter(array $rows, string $name, callable $predicate): array
     {

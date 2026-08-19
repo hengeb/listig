@@ -32,6 +32,8 @@ use Hengeb\Listig\Imap\ImapPoller;
 use Hengeb\Listig\Mail\BodyPersonalizer;
 use Hengeb\Listig\Mail\BounceCauseClassifier;
 use Hengeb\Listig\Mail\BounceHandler;
+use Hengeb\Listig\Mail\BounceMemberActionExecutor;
+use Hengeb\Listig\Mail\BounceSuppressionList;
 use Hengeb\Listig\Mail\FooterAppender;
 use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
@@ -151,6 +153,27 @@ $builder->addDefinitions([
         $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
         $raw = $cfg['sleep-seconds'] ?? null;
         return $raw !== null ? (int) VariableResolver::resolve((string) $raw, [$cfg]) : 60;
+    },
+
+    // How many days a mailbox-full bounce defers a recipient's *future*
+    // sends for (BounceHandler::handleMailboxFull()) — root-level/instance-
+    // wide, not per-list, since QueueSender::sendBatch()'s own query spans
+    // every list in one pass and has no per-list interval to embed (the
+    // per-list bounce-action itself stays list-scoped — see CLAUDE.md
+    // "Automatic bounce actions"). config.yml's 'bounce-defer-days' root key.
+    'app.bounce-defer-days' => function (ContainerInterface $c): int {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $raw = $cfg['bounce-defer-days'] ?? null;
+        return $raw !== null ? (int) VariableResolver::resolve((string) $raw, [$cfg]) : 5;
+    },
+
+    // How many recorded mailbox-full bounces for the same (list, recipient)
+    // escalate to the configured bounce-action instead of deferring again —
+    // config.yml's 'bounce-escalate-after' root key.
+    'app.bounce-escalate-after' => function (ContainerInterface $c): int {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $raw = $cfg['bounce-escalate-after'] ?? null;
+        return $raw !== null ? (int) VariableResolver::resolve((string) $raw, [$cfg]) : 2;
     },
 
     // Display name for the app itself — config.yml's 'app-name' root key, default
@@ -414,6 +437,7 @@ $builder->addDefinitions([
             $c->get('app.hostname'),
             $c->get(Logger::class),
             $c->get(TranslatorInterface::class),
+            $c->get(BounceSuppressionList::class),
         );
     },
 
@@ -427,6 +451,20 @@ $builder->addDefinitions([
     // it is deliberately pure text classification, since the trust/
     // authenticity decision lives entirely in BounceHandler now.
     BounceCauseClassifier::class => fn() => new BounceCauseClassifier(),
+    // Backs the `restrict` automatic bounce action — see CLAUDE.md "Automatic
+    // bounce actions". Independent of any list's own ListProvider/
+    // MemberResolver backend.
+    BounceSuppressionList::class => function (ContainerInterface $c): BounceSuppressionList {
+        return new BounceSuppressionList($c->get(PDO::class));
+    },
+    // Executes mark-invalid/restrict/remove for BounceHandler — extracted out
+    // so that class stays focused on detection/classification.
+    BounceMemberActionExecutor::class => function (ContainerInterface $c): BounceMemberActionExecutor {
+        return new BounceMemberActionExecutor(
+            $c->get(BounceSuppressionList::class),
+            $c->get(TranslatorInterface::class),
+        );
+    },
     BounceHandler::class => function (ContainerInterface $c): BounceHandler {
         return new BounceHandler(
             $c->get(PDO::class),
@@ -437,6 +475,9 @@ $builder->addDefinitions([
             $c->get(BounceCauseClassifier::class),
             $c->get(TokenService::class),
             $c->get(SpamRejectionDetector::class),
+            $c->get(BounceMemberActionExecutor::class),
+            $c->get('app.bounce-defer-days'),
+            $c->get('app.bounce-escalate-after'),
         );
     },
     RejectionNotifier::class => function (ContainerInterface $c): RejectionNotifier {
@@ -618,6 +659,7 @@ $builder->addDefinitions([
             $c->get(TokenService::class),
             $c->get('app.hostname'),
             $c->get('app.name'),
+            $c->get(BounceSuppressionList::class),
         );
     },
 

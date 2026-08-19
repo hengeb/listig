@@ -129,6 +129,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   ├── BounceHandler.php         # Detects + forwards a bounce to the list's owners as multipart/mixed; resolves+authenticates the per-recipient bounce token before any automatic action — see "Bounce notice details" / "Bounce loop prevention" / "Automatic bounce actions"
 │   │   ├── BounceCause.php           # Plain enum: bounce reasons an automatic action exists for — only Spam today, see "Automatic bounce actions"
 │   │   ├── BounceCauseClassifier.php # Pure text classification of an already-authenticated bounce's reason into a BounceCause, or null — see "Automatic bounce actions"
+│   │   ├── BounceMemberActionExecutor.php # Executes mark-invalid/restrict/remove for BounceHandler — see "Automatic bounce actions"
+│   │   ├── BounceSuppressionList.php # DB-backed `restrict` bounce-action storage (bounce_suppressed_members), independent of any ListProvider — see "Automatic bounce actions"
 │   │   ├── HeaderFilter.php          # Reads Authentication-Results / arbitrary headers (readHeader) from raw header string
 │   │   ├── IncomingMailFilter.php    # Gates incoming mail (takes IncomingMail); returns FilterResult — see "IncomingMailFilter — check order"
 │   │   ├── FilterResult.php          # final class (not enum — needs per-instance reason string): discard | bounce | reject | moderation | distribute
@@ -155,7 +157,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │       ├── ReplyToBehavior.php   # 'list' | 'sender' | 'both' | 'nobody'
 │   │       ├── PostAccess.php        # 'allow' | 'deny' | 'moderate' — used for both post-access-members and post-access-public
 │   │       ├── AllowLeave.php        # 'direct' | 'moderated'
-│   │       └── ArchiveMode.php       # 'members' | 'owners' | 'public' | 'hidden' | 'off'
+│   │       ├── ArchiveMode.php       # 'members' | 'owners' | 'public' | 'hidden' | 'off'
+│   │       └── BounceAction.php      # 'none' | 'mark-invalid' | 'restrict' | 'remove' — see "Automatic bounce actions"
 │   ├── Member/
 │   │   ├── Member.php                # Value object: email (required) + attributes (everything else, fully dynamic per resolver — see "Member attributes — fully dynamic")
 │   │   ├── MemberResolver.php        # Interface: getMembers(), getOwners(), findByEmail(), removeMember()
@@ -166,7 +169,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   ├── LdapMemberResolver.php    # Resolves via LDAP DNs; removeMember removes DN from member attribute
 │   │   ├── DatabaseMemberResolver.php # SELECT * from MariaDB members-table, any non-reserved column becomes an attribute; removeMember sets is_member = 0, then deletes row if no longer member or owner
 │   │   ├── CsvMemberResolver.php      # Resolves via a shared flat CSV file (name,mail,is_member,is_owner reserved, any other column an attribute); re-reads per call, flock on write, addMember extends the header on demand
-│   │   └── AggregateMemberResolver.php # Searches all providers; used by AuthController
+│   │   ├── AggregateMemberResolver.php # Searches all providers; used by AuthController
+│   │   └── InvalidatedEmail.php       # Builds the `.BOUNCE_{reason}.{date}.invalid` placeholder for the `mark-invalid` bounce action — see "Automatic bounce actions"
 │   ├── Provider/
 │   │   ├── ListProvider.php          # Interface: getLists(): ListConfig[], getList(string $name): ?ListConfig
 │   │   ├── AbstractListProvider.php  # Shared getLists()/getList()/reset()/resolvedProviderConfig(); subclasses implement loadLists() — see "Provider\AbstractListProvider"
@@ -242,7 +246,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── 002_moderation_queue_mail_metadata.sql # adds subject/sender_name/sender_mail/mail_date to moderation_queue, not backfilled
 │   ├── 003_bounce_log_message_id.sql # adds message_id to bounce_log, not backfilled — see "Bounce preview"
 │   ├── 004_processing_failures.sql   # new processing_failures table — see "Processing-failure retry limit"
-│   └── 005_archived_mail_sender_local_part.sql # adds sender_local_part to archived_mail, not backfilled — see "Archive viewer" Privacy
+│   ├── 005_archived_mail_sender_local_part.sql # adds sender_local_part to archived_mail, not backfilled — see "Archive viewer" Privacy
+│   └── 006_bounce_auto_actions.sql # adds queue_recipients.retry_not_before + bounce_suppressed_members table — see "Automatic bounce actions"
 ├── docker/
 │   ├── Dockerfile             # php-fpm + nginx + worker, all in one image
 │   ├── entrypoint.sh          # ENTRYPOINT: runs bin/migrate.php, then execs CMD (supervisord)
@@ -907,6 +912,7 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `language` | `de` \| `en` | Locale for this list's outgoing mails and manage page (inherits global default, code-default `en`) — see Internationalization |
 | `api-token` | string | Bearer token for the list-management API (plaintext — see "List Management API"). Empty/absent = API disabled for this list |
 | `public-subscribe` | `on` \| `off` | Whether `POST /{listname}/subscribe` accepts unauthenticated requests (default: `off`) — see "List Management API" |
+| `bounce-action` | `none` \| `mark-invalid` \| `restrict` \| `remove` | Automatic action for a recognized, authenticated permanent bounce (user/mailbox unknown) or an escalated repeated temporary one (mailbox full) — default `none`. See "Automatic bounce actions" |
 
 **`post-access-members`/`post-access-public` — owners have no key of their own.** List owners can always post, and are never moderated, regardless of what these two keys are set to — there is deliberately no `post-access-owners` (owners posting is not something an operator can restrict). "Owners only may post" is expressed by setting *both* keys to `deny`: `post-access-members: deny`, `post-access-public: deny`. `moderate` queues the mail for owner accept/reject via the normal moderation flow (see "Moderation") exactly as the old `moderation: on` did, just scoped to whichever sender class (members/public) is actually set to it, instead of applying list-wide to everyone who already cleared the (now-removed) single `post-access` gate. See `IncomingMailFilter::checkPostAccess()`/`requiresModeration()`.
 
@@ -1163,8 +1169,12 @@ interface MemberResolver {
     public function removeMember(string $listName, string $email): void;
     public function supportsRemoval(): bool;
     public function addMember(string $listName, Member $member): void;
+    public function supportsInvalidation(): bool;
+    public function invalidateEmail(string $listName, string $email, string $reason): void;
 }
 ```
+
+`invalidateEmail()`/`supportsInvalidation()` back the `mark-invalid` automatic bounce action (see "Automatic bounce actions") — mirrors `removeMember()`/`supportsRemoval()` exactly. Replaces the member's own address in place with `Member\InvalidatedEmail::build($email, $reason)` rather than deleting the record outright.
 
 | Implementation | type | Description |
 |---|---|---|
@@ -1176,6 +1186,8 @@ interface MemberResolver {
 | `AggregateMemberResolver` | — | Searches across all providers; used by `AuthController` to find any list a user belongs to; `supportsRemoval` `false`; `addMember`/mutating calls throw (lookup only) |
 
 `addMember()` is used by `ListApiController` (see "List Management API") for both immediate (`PUT`) and double-opt-in-confirmed subscriptions. Callers must treat the `\RuntimeException` as a real error (e.g. HTTP `409`), not swallow it — an LDAP-backed list silently "succeeding" without actually adding a non-existent-directory-entry member would be worse than an explicit failure.
+
+`supportsInvalidation()`/`invalidateEmail()`: `true`/implemented for `LdapMemberResolver` (instance-wide — a directory entry's `mail` isn't scoped per list, see "Automatic bounce actions"), `DatabaseMemberResolver`/`CsvMemberResolver` (naturally per-list, since `mail` is its own row per list there); `false`/throws for `InlineMemberResolver`/`NullMemberResolver`/`AggregateMemberResolver`, exactly mirroring their own `supportsRemoval()`/`removeMember()`.
 
 `supportsRemoval()` — checked via `ListConfig::$supportsUnsubscribe` (a property hook, like every other derived `ListConfig` value — see "ListConfig with property hooks" — not a method, since `MemberResolver::supportsRemoval()` itself is; the interface it belongs to is method-based throughout) — lets a caller find out *before* calling `removeMember()` whether it would actually persist anything, rather than either silently no-op'ing (previously the case for `NullMemberResolver` and static-inline `InlineMemberResolver`, both of which "succeeded" without ever removing anyone) or throwing. `DashboardController` only shows the "Unsubscribe" link when `allowLeave === Direct` *and* `$supportsUnsubscribe`; `UnsubscribeController`'s direct-unsubscribe branch and `ListApiController::unsubscribe()` (`DELETE /{listname}/{mail}`) both check it (or catch the `\RuntimeException`) before claiming success — see "Unsubscribe endpoint".
 
@@ -1352,17 +1364,20 @@ CREATE TABLE mail_queue (
 
 ```sql
 CREATE TABLE queue_recipients (
-    id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    mail_queue_id   VARCHAR(64) NOT NULL REFERENCES mail_queue(id),
-    envelope_to     VARCHAR(255) NOT NULL,
-    attempts        TINYINT UNSIGNED NOT NULL DEFAULT 0,
-    last_attempt_at DATETIME NULL,
-    status          ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending',
-    error           TEXT NULL
+    id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    mail_queue_id     VARCHAR(64) NOT NULL REFERENCES mail_queue(id),
+    envelope_to       VARCHAR(255) NOT NULL,
+    attempts          TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    last_attempt_at   DATETIME NULL,
+    status            ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending',
+    error             TEXT NULL,
+    retry_not_before  DATETIME NULL
 );
 ```
 
-`mail_queue_id`'s `REFERENCES` has no `ON DELETE CASCADE` — MariaDB still enforces it as a real constraint (auto-named `queue_recipients_ibfk_1`), so any code deleting a `mail_queue` row must delete that row's `queue_recipients` children first, or the delete fails with `"Cannot delete or update a parent row: a foreign key constraint fails"`. Both cleanup call sites do this correctly: `QueueSender::cleanupQueueEntry()` (once every recipient for a `mail_queue_id` is `'sent'`) and `purgeStaleFailedEntries()` (its own stale-`'failed'`-rows delete, followed by a `NOT EXISTS` sweep for now-childless `mail_queue` rows).
+`retry_not_before` (added by `migrations/006_bounce_auto_actions.sql`) — set by `QueueSender::markBounced()` only for a `BounceCause::MailboxFull` bounce, to the point in time before which `sendBatch()` must not attempt this (list, recipient) pair again — see "Automatic bounce actions" > "Soft bounces: defer, then escalate".
+
+`mail_queue_id`'s `REFERENCES` has no `ON DELETE CASCADE` — MariaDB still enforces it as a real constraint (auto-named `queue_recipients_ibfk_1`), so any code deleting a `mail_queue` row must delete that row's `queue_recipients` children first, or the delete fails with `"Cannot delete or update a parent row: a foreign key constraint fails"`. `QueueSender::purgeCompletedEntries()` (the renamed, broadened `purgeStaleFailedEntries()` — no longer restricted to `status = 'failed'`, see "Automatic bounce actions" > "Queue retention") does this correctly: its own stale-row delete (`status != 'pending' AND last_attempt_at < NOW() - INTERVAL 30 DAY`), followed by a `NOT EXISTS` sweep for now-childless `mail_queue` rows. `sendOne()` itself no longer deletes anything on completion (the removed `cleanupQueueEntry()`) — a completed row now always waits for this periodic purge instead.
 
 ### `moderation_queue`
 
@@ -1482,6 +1497,28 @@ Normally short-lived — a row is deleted (`ProcessingFailureTracker::clear()`) 
 mail either succeeds or hits `ProcessingFailureTracker::MAX_ATTEMPTS` and is given up on. Rows
 older than 31 days are swept as a safety net each worker cycle (same retention as `imap_seen`),
 in case the give-up sequence itself kept failing and left a row stuck.
+
+### `bounce_suppressed_members`
+
+Added by `migrations/006_bounce_auto_actions.sql`. Backs the `restrict` automatic bounce action
+(see "Automatic bounce actions") — written/read exclusively via `BounceSuppressionList`
+(`src/Mail/BounceSuppressionList.php`), independent of any list's own `ListProvider`/
+`MemberResolver` backend.
+
+```sql
+CREATE TABLE bounce_suppressed_members (
+    id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    list_cn      VARCHAR(255) NOT NULL,
+    envelope_to  VARCHAR(255) NOT NULL,
+    reason       VARCHAR(64)  NOT NULL,
+    created_at   DATETIME     NOT NULL,
+    UNIQUE KEY uq_list_recipient (list_cn, envelope_to)
+);
+```
+
+No automatic expiry — an address stays suppressed until an owner removes it (there is currently
+no UI action for that, only the read-only manage-page listing, see "Automatic bounce actions")
+or an operator deletes the row directly.
 
 ---
 
@@ -1693,7 +1730,7 @@ Since a genuine DSN is addressed back to the original message's own envelope-fro
 - `extractBounceToken()` reads the raw (unparsed, case-preserved — see "Token Format" for why `$mail->to` can't be used here, same reasoning as the accept/reject token) `To`/`Delivered-To`/`X-Original-To` headers for the `+bounce+{token}@` pattern.
 - The token is verified via `TokenService::verify()` (wrong signature, expired, or wrong purpose → treated as absent, not fatal).
 - Its `$listCn` is cross-checked against the list the bounce actually arrived on (defense in depth, same principle as `UnsubscribeController`'s own `{listname}`-vs-token check).
-- `QueueSender::findRecipientById()` looks up the real `queue_recipients` row (`envelope_to`, `batch_id`, `list_cn`) — `null` if it no longer exists (already cleaned up after fully sending, see `cleanupQueueEntry()`), in which case there is nothing left to act on anyway, same graceful "nothing pending" outcome used throughout this class.
+- `QueueSender::findRecipientById()` looks up the real `queue_recipients` row (`envelope_to`, `batch_id`, `list_cn`) — `null` if it no longer exists (aged out of `purgeCompletedEntries()`'s 30-day retention, see "Queue retention: keeping completed entries around" below), in which case there is nothing left to act on anyway, same graceful "nothing pending" outcome used throughout this class.
 
 Nobody can forge a bounce "on behalf of" a co-recipient this way: the token for row *N* is never exposed to any recipient other than the one row *N* was actually sent to (it rides in the SMTP envelope, not the mail body), and deriving a valid token for a *different* row without the server's HMAC key is computationally infeasible — the identical trust model already used for login/unsubscribe/accept/reject tokens.
 
@@ -1711,21 +1748,66 @@ Only a genuinely automated system running on the recipient's own domain's real i
 
 This relies on Listig's own receiving mail server reliably adding trustworthy `Return-Path`/`Authentication-Results` headers at final delivery — standard behavior for essentially any mail server software, but an assumption about the *operator's own* mail hosting, not something Listig itself can verify from inside the message.
 
+A bounce also has to represent a **final** outcome, not an interim status: `BounceHandler::isFinalDeliveryOutcome()` reads RFC 3464's per-recipient `Action:` field (`message/delivery-status` part) and requires it to be `failed` (or absent — some non-standard bounce generators omit it entirely, treated as final rather than blocking everything, the same fail-open choice already made for every other best-effort DSN field extraction in this class). `Action: delayed` means the sending MTA is still retrying and this is merely a courtesy notice, not a final result — acting on it (aborting a batch, marking an address invalid, deferring a "mailbox full" recipient a second time, ...) based on a delivery that might still succeed would be premature. This gate applies to every cause, including `Spam` — a "delayed" notice whose text happens to mention "spam" was never meant to trigger anything either.
+
 #### 3. What the content says: BounceCause / BounceCauseClassifier
 
-Only once a bounce has passed both gates above does its `Diagnostic-Code`/`Status` text get classified at all. **`BounceCause` (`src/Mail/BounceCause.php`)** — a plain (non-string-backed) enum, like `ResolutionPurpose`, since this is an internal classification result, never a config.yml value. Only one case exists today, `Spam`, but it is deliberately structured to grow: the user-requested next step (not yet built) is a permanent-failure cause (e.g. "user unknown", "mailbox does not exist") driving a block-or-remove-member action instead of `Spam`'s abort-batch one. Adding a new cause is three small, independent edits: a new case here, a new check in `BounceCauseClassifier::classify()`, and a new `match` arm in `BounceHandler::applyAutomaticAction()` — both verification layers above already apply uniformly to *any* future cause, not just `Spam`, since they concern whether a bounce can be trusted at all, not what its content says.
+Only once a bounce has passed all the gates above does its `Diagnostic-Code`/`Status` text get classified at all. **`BounceCause` (`src/Mail/BounceCause.php`)** — a plain (non-string-backed) enum, like `ResolutionPurpose`, since this is an internal classification result, never a config.yml value. Three cases:
 
-**`BounceCauseClassifier` (`src/Mail/BounceCauseClassifier.php`)** — deliberately reduced to pure text classification, no dependencies at all: `classify(?string $reason): ?BounceCause` just checks `SpamRejectionDetector::containsSpamIndicator($reason)`. It no longer takes a failed-recipient address or does any domain-trust check itself — that entire concern moved to `BounceHandler::isAuthenticatedOrigin()` above, since it's cause-independent and needs to run exactly once regardless of how many causes eventually exist.
+- `Spam` — reported as spam by a reliable domain; aborts the rest of the batch (`BounceHandler::abortBatchForBounce()`), unchanged from the original design.
+- `UserUnknown` — permanent: mailbox/user/domain doesn't exist, or the relay refuses it; drives the list's own configurable `bounce-action`.
+- `MailboxFull` — temporary: mailbox full; defers that recipient's *future* sends, escalating to `bounce-action` after repeated occurrences (see "Soft bounces: defer, then escalate" below).
 
-#### Executing the action
+Adding a further cause is three small, independent edits: a new case here, a new check in `BounceCauseClassifier::classify()`, and a new `match` arm in `BounceHandler::applyAutomaticAction()` — every verification layer above already applies uniformly to *any* cause, not just these three, since it concerns whether a bounce can be trusted at all, not what its content says.
 
-**`QueueSender::discardPendingBatch(string $batchId, string $reason): int`** — the async counterpart to the existing (unchanged) `discardBatchAsSpam()`: marks every still-`pending` `queue_recipients` row for a batch as `failed`, sharing the actual `UPDATE ... WHERE id IN (...)` SQL with `discardBatchAsSpam()` via a small extracted `markRecipientsFailed()` private helper so the two paths can't drift apart on that part. Unlike `discardBatchAsSpam()`, it sends **no notification of its own** — the caller (`BounceHandler`) already forwards the triggering bounce to the owners and folds a description of the action into that same notice's `%auto_action%` field (see below), rather than sending a second, separate one for the same event. Returns the number of rows actually discarded — `0` if the batch had already fully sent/failed by the time the bounce was processed, in which case `BounceHandler::abortBatchForBounce()` falls back to reporting "none" rather than claiming an abort that didn't actually do anything.
+**`BounceCauseClassifier` (`src/Mail/BounceCauseClassifier.php`)** — deliberately pure text classification, no dependencies at all: `classify(?string $reason): ?BounceCause`. Checked in order: `SpamRejectionDetector::containsSpamIndicator($reason)` (unchanged, checked first — a rare overlap between causes, e.g. a spam-rejection worded to also mention "does not exist", resolves as `Spam`); then `UserUnknown`, primarily via Enhanced Status Codes (RFC 3463) `5.1.1`/`5.1.2`/`5.1.3`/`5.1.6`/`5.1.10`, matched word-boundary-aware (`(?<![\d.])5\.1\.1(?![\d.])`, so `5.1.10` and `5.1.1` are never confused with each other or with an unrelated longer number containing the same digits as a substring) — falling back to a keyword list (`user unknown`, `no such user`, `recipient address rejected`, `mailbox unavailable`, `does not exist`, `unrouteable address`, ...) for a bounce with no clean status code; then `MailboxFull`, via `4.2.2`/`5.2.2` plus keywords (`mailbox full`, `quota exceeded`, `over quota`, `insufficient system storage`). It no longer takes a failed-recipient address or does any domain-trust check itself — that entire concern lives in `BounceHandler::isAuthenticatedOrigin()` above, since it's cause-independent and needs to run exactly once regardless of how many causes eventually exist.
 
-**`BounceHandler::handle()`** runs `applyAutomaticAction()` — the resolve/authenticate/classify/execute pipeline above — **before** the bounce-loop-prevention circuit breaker check (see "Bounce loop prevention"), not after: the automatic action is a protective measure against the underlying distributed mail itself, independent of whether the owner actually gets notified about *this particular* bounce, and a burst of many bounces in a short window (exactly the situation the circuit breaker exists to throttle notification volume for) is precisely the situation where aborting the rest of a bad send matters most. It still runs after `isBounceOnOwnNotification()` though — a bounce on one of Listig's own notifications (moderation request, login mail, ...) was never itself sent through `QueueSender::sendOne()`'s per-recipient token scheme, so resolving/authenticating it would always be a harmless no-op, but skipping it there avoids the wasted lookup.
+#### Queue retention: keeping completed entries around
 
-**The owner notice always states what Listig did, even when the answer is "nothing".** `BounceHandler::applyAutomaticAction()` never returns null — it always returns a translated description, which `bounce.owner_notice.body` embeds via a normal `%auto_action%` placeholder (a new "Automatische Reaktion: %auto_action%" / "Automatic response: %auto_action%" line, alongside the existing `%reason%`/`%failed_recipient%`/etc. fields), exactly like every other field in that body. The overwhelmingly common case — the bounce doesn't resolve to a verified recipient, isn't authenticated, no `BounceCause` is recognized, or one is recognized but nothing was actually left pending to act on (`abortBatchForBounce()` falls back to the same "none" case here) — resolves to `bounce.auto_action.none` ("keine"/"none") rather than the line disappearing or the field going blank. This was a deliberate design choice, not just tidiness: an owner reading the notice should always be able to tell *whether* Listig reacted automatically, not have to infer "no line present" as meaning "no reaction" — especially once a second cause (see `BounceCause`'s own docblock) exists and the line's absence would otherwise be ambiguous between "nothing happened" and "this bounce predates the feature."
+Before this feature, `QueueSender::cleanupQueueEntry()` deleted a `mail_queue` row (and its `queue_recipients` children) the moment its last recipient reached `sent` — in practice, within the same worker cycle it was sent in. That was fine for the original `Spam` cause (a synchronous or near-synchronous rejection), but a **soft bounce can legitimately arrive days later**, well after the row that actually needs correcting is long gone — and `BounceHandler::resolveVerifiedRecipient()`'s token-decoded `queue_recipients.id` lookup depends on that row still existing.
 
-Note `%failed_recipient%`/`%reason%` in that same body remain sourced from the DSN's own self-reported `Final-Recipient`/`Diagnostic-Code` (`extractFailedRecipient()`/`extractDiagnostic()`) — display only, shown to the owner exactly as the remote server phrased them, and never consulted for the automatic-action decision itself (which relies solely on the token-verified recipient and the authenticated-origin checks above).
+**`cleanupQueueEntry()` was removed.** `sendOne()` no longer deletes anything on completion — a `queue_recipients` row now stays around, whatever its final status, until `QueueSender::purgeCompletedEntries()` (the renamed, broadened `purgeStaleFailedEntries()`) deletes it: `status != 'pending' AND last_attempt_at < NOW() - INTERVAL 30 DAY`, then sweeps now-orphaned `mail_queue` rows — the same query shape as before, just no longer restricted to `status = 'failed'`. This is a **deliberate, accepted storage cost**: a successfully sent mail's MIME body (and attachments) now persists for up to 30 days per recipient instead of being deleted within the same cycle. 30 days matches the retention already used elsewhere (`bounce_log`, `imap_seen`, `processing_failures`) and comfortably covers even a slow mailbox-full give-up sequence.
+
+Retaining completed rows is what makes two things possible without a separate tracking table:
+
+- **`QueueSender::markBounced(int $recipientId, string $errorTag, ?\DateTimeImmutable $retryNotBefore = null): void`** — retroactively corrects that one row's own outcome (`status = 'failed'`, `error = $errorTag`) once an authenticated bounce proves a `sent` row actually bounced later. Called once, centrally, in `BounceHandler::applyAutomaticAction()` for **every** recognized cause (not just the ones with a further automatic action), so the manage page's queue status always reflects reality. `$errorTag` is one of three fixed `BOUNCE:SPAM`/`BOUNCE:USER_UNKNOWN`/`BOUNCE:MAILBOX_FULL` constants (`BounceHandler::errorTagFor()`) — a recognizable prefix distinct from an ordinary SMTP failure's own free-form error text.
+- **`QueueSender::countRecentBounces(string $listCn, string $envelopeTo, string $errorTag): int`** — "how many times has this (list, recipient) pair bounced with this tag" answered by a plain `COUNT(*)` against the now-retained history, naturally bounded to the last 30 days since older rows are purged — no separate interval parameter needed.
+
+An **earlier design** for the mailbox-full case used a dedicated `soft_bounce_tracking` table instead of extending retention — dropped once it became clear that keeping `queue_recipients` around a while longer already gives the same information for free, plus the ability to correct history, without a second place to keep in sync.
+
+`QueueController::status()` (the manage page's own queue-status API) needed a matching `AND qr.status != 'sent'` filter — it previously had no status filter or `LIMIT` at all, relying entirely on `sent` rows vanishing almost immediately. Without the filter, an active list's 30-day history of successfully-sent mail would flood that owner-facing, unpaginated view.
+
+#### Soft bounces: defer, then escalate
+
+A single `MailboxFull` bounce is not itself cause for the configured `bounce-action` — mailboxes fill up and get cleaned out again all the time. `BounceHandler::handleMailboxFull()`:
+
+1. The centrally-called `markBounced()` (see above) already set `retry_not_before` on the bounced row to `now + bounce-defer-days` (default 5) — computed in PHP from the *specific list's* own setting, not baked into a shared SQL interval (see below for why).
+2. `countRecentBounces()` checks how many times this (list, recipient) pair has bounced with `BOUNCE:MAILBOX_FULL` so far. Below `bounce-escalate-after` (default 2): return a "deferred" description (`bounce.auto_action.mailbox_full_deferred`, `%days%`/`%count%`) — nothing else happens.
+3. At or above the threshold — i.e. this address kept bouncing even after being given time to recover — escalate to `BounceHandler::applyConfiguredAction()`, the same dispatch a permanent `UserUnknown` bounce drives (see below).
+
+**`QueueSender::sendBatch()`'s own SELECT** skips a currently-deferred recipient via `AND NOT EXISTS (SELECT 1 FROM queue_recipients qr2 JOIN mail_queue mq2 ON mq2.id = qr2.mail_queue_id WHERE mq2.list_cn = mq.list_cn AND LOWER(qr2.envelope_to) = LOWER(qr.envelope_to) AND qr2.retry_not_before > NOW())` — a self-join against the same, now-retained table, not a separate one. `retry_not_before` is a plain per-row timestamp rather than an interval computed inside that query deliberately: `sendBatch()` serves every list in one pass, so it has no way to know *which* list's own `bounce-defer-days` should apply to a given row — computing the cutoff once, in PHP, at the point a specific list is already known (`markBounced()`'s call site), sidesteps that entirely. This is also why `bounce-defer-days`/`bounce-escalate-after` are **root-level, instance-wide** settings (`'app.bounce-defer-days'`/`'app.bounce-escalate-after'`, `config/container.php`, defaults 5/2) rather than per-list config — only the eventual *consequence* (`bounce-action`) needs to be list-scoped, since it's applied entirely inside `BounceHandler`, where the specific list is always known.
+
+**"Resend the original mail" was considered and rejected.** Even with extended retention, the original `mail_queue.mime` reflects whatever the mail looked like *at the time it was first sent* — resending it days later would be stale (wrong "now" for time-sensitive content) and semantically odd. Deferring only ever affects **future, independently-triggered distributions** to that recipient (the next time the list sends anything at all) — never a resend of the specific mail that bounced.
+
+#### Executing the action: `bounce-action` (`none`/`mark-invalid`/`restrict`/`remove`)
+
+**`src/Config/Enum/BounceAction.php`** (string-backed, per "Coding Conventions") and `ListConfig::$bounceAction` (5-level list config, default `none` — no automatic mutation of member data until an operator opts in explicitly, same safe-by-default philosophy as `archive: off`). `BounceHandler::applyConfiguredAction(ListConfig $list, string $envelopeTo, BounceCause $cause): string` dispatches on it, delegating the three data-mutating cases to **`BounceMemberActionExecutor`** (`src/Mail/BounceMemberActionExecutor.php`) — extracted out of `BounceHandler` so that class stays focused on detection/classification. Each of its three methods wraps the actual work in its own `try`/`catch`: a failure (LDAP unreachable, a DB error) must never prevent `BounceHandler` from still forwarding the triggering bounce to the owners — it's reported as part of the returned description instead, not thrown.
+
+- **`none`** — still returns a description distinct from `noAutomaticAction()`'s own "none" (`bounce.auto_action.recognized_no_action`, `%cause%`): a cause *was* recognized, an operator has simply chosen not to act on it automatically. Worth saying explicitly rather than looking identical to "nothing matched at all".
+- **`mark-invalid`** — `MemberResolver::invalidateEmail(string $listName, string $email, string $reason): void` / `supportsInvalidation(): bool` (new interface methods, mirroring `removeMember()`/`supportsRemoval()` exactly) replace the member's own address in place with **`Member\InvalidatedEmail::build($email, $reasonCode)`** — `{email}.BOUNCE_{reasonCode}.{YYYY-MM-DD}.invalid` (human-readable date, not a Unix timestamp; the `.invalid` RFC 2606 placeholder-domain convention already used elsewhere in this codebase). One shared static builder, used identically by every backend that implements it, so the format can't drift apart between them.
+  - **`LdapMemberResolver`** — `mail` is multi-valued by schema (see "Additional addresses per member (`mail-aliases`)"). The value to replace is found by **value comparison, not array position** — the entry's own attribute order isn't guaranteed stable, and `Member::$email` only ever reflected whichever value happened to be first when this `Member` was last resolved. `removeAttributeValues()`/`addAttributeValues()` operate on values, so every *other* `mail` value (aliases) is left untouched regardless of order or count. `$listName` is deliberately ignored: a directory entry's `mail` attribute belongs to the person, not to any one list's group membership, so invalidating is unavoidably **instance-wide** — it affects every list this person belongs to, not just the one whose bounce triggered it. This asymmetry with the other two backends is inherent to LDAP's schema, not something to "fix".
+  - **`DatabaseMemberResolver`**/**`CsvMemberResolver`** — `mail` is scoped per `(name, mail)` row/entry, so invalidating is naturally **per-list**: only the row for the specific list that triggered it changes; the same address's row under a different list (if any) is untouched.
+  - **`InlineMemberResolver`**/**`NullMemberResolver`**/**`AggregateMemberResolver`** — `supportsInvalidation()` → `false`, `invalidateEmail()` throws — the exact existing `removeMember()`/`addMember()` pattern for a store that can't persist a runtime mutation at all.
+  - **`CompositeMemberResolver`** — invalidates on every source with `supportsInvalidation() === true`, not just the first (same reasoning as its own `removeMember()`).
+- **`restrict`** — adds to **`bounce_suppressed_members`** (new table, `migrations/006_bounce_auto_actions.sql`) via **`BounceSuppressionList`** (`src/Mail/BounceSuppressionList.php`, a small DB-gated collaborator like `RateLimiter` — `MailProcessor` may not run SQL itself, per "Coding Conventions"). Deliberately a **dedicated table, independent of the list's own `ListProvider`/`MemberResolver` backend** (LDAP/database/csv/inline) — not an extension of the existing, purely config-derived `restricted-members:`/`RestrictionList` mechanism, which is rebuilt fresh from `config.yml`/LDAP/DB-config-table every cycle by all 5 `ListProvider` implementations; making *that* dynamically writable would mean touching every one of them. A dedicated table ships independently of that generalization (left as a documented, possible follow-up) while still reusing the same underlying idea: an address here is skipped at send time. `MailProcessor::resolveRecipients()` checks `BounceSuppressionList::isSuppressed()` alongside the existing `!$list->isReceiverRestricted($m->email)` filter.
+  - **Manage-page visibility**: `bounce_suppressed_members` is populated at runtime, not authored by the operator the way `restricted-members:` config is — so unlike that (which has no UI at all, confirmed by inspection: an operator can only see it by reading `config.yml`/LDAP/DB directly), an auto-suppressed address needs to be discoverable somehow, or an owner has no way to know why someone stopped receiving mail. `ListController::manage()` (owner branch) loads `BounceSuppressionList::listForOwner($list->name)` and `templates/list/manage.latte` renders a new card — address, reason, timestamp — **only when non-empty** (`n:if="count($suppressedMembers) > 0"`), same "don't show an empty section" convention as the rest of that page.
+- **`remove`** — reuses the existing `ListConfig::removeMember()`/`$supportsUnsubscribe` unchanged; no new mechanism needed.
+
+**The owner notice always states what Listig did, even when the answer is "nothing".** `BounceHandler::applyAutomaticAction()` never returns null — it always returns a translated description, which `bounce.owner_notice.body` embeds via a normal `%auto_action%` placeholder (a new "Automatische Reaktion: %auto_action%" / "Automatic response: %auto_action%" line, alongside the existing `%reason%`/`%failed_recipient%`/etc. fields), exactly like every other field in that body. The overwhelmingly common case — the bounce doesn't resolve to a verified recipient, isn't a final outcome, isn't authenticated, no `BounceCause` is recognized, or one is recognized but nothing was actually left pending to act on (`abortBatchForBounce()` falls back to the same "none" case here) — resolves to `bounce.auto_action.none` ("keine"/"none") rather than the line disappearing or the field going blank. This was a deliberate design choice, not just tidiness: an owner reading the notice should always be able to tell *whether* Listig reacted automatically, not have to infer "no line present" as meaning "no reaction".
+
+`BounceHandler::handle()` runs `applyAutomaticAction()` — the resolve/authenticate/classify/execute pipeline above — **before** the bounce-loop-prevention circuit breaker check (see "Bounce loop prevention"), not after: the automatic action is a protective measure against the underlying distributed mail itself, independent of whether the owner actually gets notified about *this particular* bounce, and a burst of many bounces in a short window (exactly the situation the circuit breaker exists to throttle notification volume for) is precisely the situation where the automatic action matters most. It still runs after `isBounceOnOwnNotification()` though — a bounce on one of Listig's own notifications (moderation request, login mail, ...) was never itself sent through `QueueSender::sendOne()`'s per-recipient token scheme, so resolving/authenticating it would always be a harmless no-op, but skipping it there avoids the wasted lookup.
+
+Note `%failed_recipient%`/`%reason%` in that same body remain sourced from the DSN's own self-reported `Final-Recipient`/`Diagnostic-Code` (`extractFailedRecipient()`/`extractDiagnostic()`) — display only, shown to the owner exactly as the remote server phrased them, and never consulted for the automatic-action decision itself (which relies solely on the token-verified recipient, the authenticated-origin checks, and the final-outcome check above).
 
 ### Header filter
 
@@ -2564,7 +2646,7 @@ carry this information:
 
 `tests/` (PHPUnit, `require-dev`-only — never installed in the production image, see "Docker Setup"; `docker/Dockerfile` already runs `composer install --no-dev`, and `.dockerignore`/host-side `vendor/` isolation means a dev install on the host can never leak into a build either way) mirrors `src/`'s namespace under `Hengeb\Listig\Tests\` (`composer.json`'s `autoload-dev`). Run via `composer test` (aliases to `phpunit`, config in `phpunit.xml`) or `vendor/bin/phpunit` directly; a single file/directory can be targeted the normal PHPUnit way (`vendor/bin/phpunit tests/Config/ListConfigTest.php`).
 
-Scope is deliberately the **pure-logic layer** — classes that don't touch IMAP/LDAP/SQL/SMTP directly and so need no live infrastructure or mocking framework beyond PHPUnit's own stubs: `VariableResolver`/`VariableFilter`, `ConfigResolver`, `ListConfig`, `RestrictionList`, `YamlIncludeResolver`, the `MemberResolver` implementations that don't need a live connection (`InlineMemberResolver`, `CompositeMemberResolver`, `CsvMemberResolver` against a real temp file, `LdapMemberResolver::entryToMember()` — a pure transformation testable against a fake `Symfony\Component\Ldap\Entry`, no LDAP connection ever opened), `MemberResolverFactory`, `SpamFilter`, `SpamRejectionDetector`, `HeaderFilter`, `SubaddressExtractor`, `FilterResult`, `TokenService`, `PasswordCrypto`, `KeyDerivation`, `ArchiveThreader`, `ByteFormatter`, `AttachmentSafety`, `NullSenderEnvelope`. Deliberately **not** covered: anything requiring a real IMAP/LDAP/SMTP/DB connection (`ImapPoller`, `ImapArchiver`, `LdapListProvider`/`DatabaseListProvider`'s own query methods, `QueueSender`, `ModerationMailer`, ...) or a full Slim HTTP request/response cycle (the `Http\Controller\*` classes) — those are verified the way the rest of this document describes: patched onto the live test instance (`docker cp`, worker/php-fpm restart, health check, then a targeted one-off script or real request against actual LDAP/DB/IMAP) rather than through this suite.
+Scope is deliberately the **pure-logic layer** — classes that don't touch IMAP/LDAP/SQL/SMTP directly and so need no live infrastructure or mocking framework beyond PHPUnit's own stubs: `VariableResolver`/`VariableFilter`, `ConfigResolver`, `ListConfig`, `RestrictionList`, `YamlIncludeResolver`, the `MemberResolver` implementations that don't need a live connection (`InlineMemberResolver`, `CompositeMemberResolver`, `CsvMemberResolver` against a real temp file, `LdapMemberResolver::entryToMember()` — a pure transformation testable against a fake `Symfony\Component\Ldap\Entry`, no LDAP connection ever opened), `MemberResolverFactory`, `SpamFilter`, `SpamRejectionDetector`, `HeaderFilter`, `SubaddressExtractor`, `FilterResult`, `TokenService`, `PasswordCrypto`, `KeyDerivation`, `ArchiveThreader`, `ByteFormatter`, `AttachmentSafety`, `NullSenderEnvelope`, `BounceCauseClassifier`, `Member\InvalidatedEmail`. Deliberately **not** covered: anything requiring a real IMAP/LDAP/SMTP/DB connection (`ImapPoller`, `ImapArchiver`, `LdapListProvider`/`DatabaseListProvider`'s own query methods, `QueueSender`, `ModerationMailer`, `BounceSuppressionList`, `BounceMemberActionExecutor`, `BounceHandler` itself, ...) or a full Slim HTTP request/response cycle (the `Http\Controller\*` classes) — those are verified the way the rest of this document describes: patched onto the live test instance (`docker cp`, worker/php-fpm restart, health check, then a targeted one-off script or real request against actual LDAP/DB/IMAP) rather than through this suite. `LdapMemberResolver::invalidateEmail()`/`removeMember()`/`addMember()` remain untested here too, for the same reason `entryToMember()` is the *only* piece of that class covered — they all need a real `connect()`'d LDAP session.
 
 A `Reflection*` escape hatch (no `setAccessible(true)` — a no-op since PHP 8.1, and itself deprecated as of 8.5, see below) is used sparingly, only where a class genuinely has no other way to set up a fixture: `PhpImap\IncomingMail::$textPlain`/`$textHtml` are private with a lazy `__get()` that fetches from a live IMAP data part and no public setter at all, so `SpamFilterTest` seeds a fixed body via `new \ReflectionProperty($mail, 'textPlain')`. `LdapMemberResolverTest` calls the private `entryToMember()` directly via `ReflectionMethod`, since it's the one pure-transformation piece of an otherwise LDAP-connected class.
 

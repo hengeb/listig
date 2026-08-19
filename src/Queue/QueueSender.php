@@ -47,11 +47,26 @@ class QueueSender
         // NULL, or several retries from the same prior cycle) — without it, the
         // same recipient/provider tended to always be first in line for a given
         // send, which meant one specific mailbox got hit first on every mass send.
+        // The NOT EXISTS clause skips a recipient currently deferred after a
+        // mailbox-full bounce (BounceHandler::handleMailboxFull() sets
+        // retry_not_before on the *bounced* row itself, via markBounced() —
+        // see CLAUDE.md "Automatic bounce actions"). Self-joins against this
+        // same table/list/recipient rather than a separate tracking table,
+        // since queue_recipients now retains completed rows for 30 days
+        // (purgeCompletedEntries()) specifically so this history is still
+        // there to query.
         $stmt = $this->db->prepare(
             'SELECT qr.id, qr.mail_queue_id, qr.envelope_to, mq.list_cn, mq.batch_id, mq.mime
              FROM queue_recipients qr
              JOIN mail_queue mq ON mq.id = qr.mail_queue_id
              WHERE qr.status = \'pending\'
+               AND NOT EXISTS (
+                   SELECT 1 FROM queue_recipients qr2
+                   JOIN mail_queue mq2 ON mq2.id = qr2.mail_queue_id
+                   WHERE mq2.list_cn = mq.list_cn
+                     AND LOWER(qr2.envelope_to) = LOWER(qr.envelope_to)
+                     AND qr2.retry_not_before > NOW()
+               )
              ORDER BY qr.last_attempt_at ASC, RAND()
              LIMIT :limit'
         );
@@ -67,7 +82,6 @@ class QueueSender
     private function sendOne(array $row): void
     {
         $recipientId = (int) $row['id'];
-        $queueId = $row['mail_queue_id'];
         $listCn = $row['list_cn'];
         $batchId = $row['batch_id'];
         $envelopeTo = $row['envelope_to'];
@@ -80,7 +94,6 @@ class QueueSender
             $this->db->prepare(
                 "UPDATE queue_recipients SET status = 'failed', error = :error WHERE id = :id"
             )->execute(['error' => 'Skipped: recipient has no email address', 'id' => $recipientId]);
-            $this->cleanupQueueEntry($queueId);
             return;
         }
 
@@ -90,7 +103,6 @@ class QueueSender
             $this->db->prepare(
                 "UPDATE queue_recipients SET status = 'failed', error = :error WHERE id = :id"
             )->execute(['error' => 'Skipped: recipient uses the reserved .invalid domain', 'id' => $recipientId]);
-            $this->cleanupQueueEntry($queueId);
             return;
         }
 
@@ -129,13 +141,13 @@ class QueueSender
                 )
             );
 
-            // Mark sent
+            // Mark sent — the row (and its mail_queue parent) is deliberately
+            // NOT deleted now; it stays around for purgeCompletedEntries()'s
+            // own 30-day retention so a delayed async bounce can still find
+            // and retroactively correct it (see markBounced()).
             $this->db->prepare(
                 "UPDATE queue_recipients SET status = 'sent' WHERE id = :id"
             )->execute(['id' => $recipientId]);
-
-            // Delete mail_queue row if all recipients are done
-            $this->cleanupQueueEntry($queueId);
         } catch (\Throwable $e) {
             error_log("Listig: Failed to send to $envelopeTo for list $listCn: " . $e->getMessage());
 
@@ -202,10 +214,10 @@ class QueueSender
      * *only* trustworthy source BounceHandler uses for "which recipient/batch
      * does this async bounce concern", since it comes from Listig's own
      * HMAC-verified assignment rather than any self-reported DSN content.
-     * Returns null if the row no longer exists (already cleaned up after its
-     * mail_queue entry finished sending, see cleanupQueueEntry()) — in which
-     * case there is nothing left to act on anyway, the same graceful
-     * "nothing pending" outcome as everywhere else in this class.
+     * Returns null if the row no longer exists — either genuinely never
+     * existed, or aged out of purgeCompletedEntries()'s 30-day retention —
+     * in which case there is nothing left to act on anyway, the same
+     * graceful "nothing pending" outcome as everywhere else in this class.
      *
      * @return array{envelopeTo: string, batchId: ?string, listCn: string}|null
      */
@@ -273,39 +285,80 @@ class QueueSender
         return $domain !== '' && str_ends_with(strtolower($domain), '.invalid');
     }
 
-    private function cleanupQueueEntry(string $queueId): void
+    /**
+     * Retroactively corrects a queue_recipients row's own outcome once an
+     * authenticated async bounce (BounceHandler) proves it — a 'sent' row
+     * genuinely bounced later, or (less commonly) a still-'pending' one
+     * bounced before ever being attempted again. Called for *every*
+     * recognized BounceCause, not just the ones with a further automatic
+     * action, so the manage page's queue status always reflects reality
+     * rather than a stale "sent" that turned out to be wrong.
+     *
+     * $errorTag is one of the fixed `BOUNCE:*` constants (see BounceHandler)
+     * — a recognizable prefix, distinct from an ordinary SMTP failure's own
+     * error text, so countRecentBounces() can query specifically for
+     * bounce-caused failures. $retryNotBefore (only ever set for
+     * BounceCause::MailboxFull) is what sendBatch()'s own NOT EXISTS clause
+     * checks to defer this recipient's *future* sends — computed here, in
+     * PHP, from the specific list's own bounce-defer-days, since
+     * sendBatch()'s query spans every list at once and has no way to look up
+     * a per-list interval itself.
+     */
+    public function markBounced(int $recipientId, string $errorTag, ?\DateTimeImmutable $retryNotBefore = null): void
     {
-        // A 'failed' recipient deliberately still counts as blocking deletion here:
-        // the mail_queue row holds the MIME body that QueueController::retry needs
-        // to resend it, and the owner is expected to retry or delete it via the UI.
-        // purgeStaleFailedEntries() bounds how long such rows are kept if nobody does.
         $stmt = $this->db->prepare(
-            "SELECT COUNT(*) FROM queue_recipients WHERE mail_queue_id = :qid AND status != 'sent'"
+            "UPDATE queue_recipients SET status = 'failed', error = :error, retry_not_before = :notBefore WHERE id = :id"
         );
-        $stmt->execute(['qid' => $queueId]);
-        if ((int) $stmt->fetchColumn() === 0) {
-            // queue_recipients.mail_queue_id is a FOREIGN KEY with no ON DELETE
-            // CASCADE — the (all-'sent') child rows must be deleted first, or this
-            // fails with a constraint violation ("Cannot delete or update a parent
-            // row"), same as purgeStaleFailedEntries() already does for its own
-            // 'failed' rows below.
-            $this->db->prepare('DELETE FROM queue_recipients WHERE mail_queue_id = :id')->execute(['id' => $queueId]);
-            $this->db->prepare('DELETE FROM mail_queue WHERE id = :id')->execute(['id' => $queueId]);
-        }
+        $stmt->execute([
+            'error' => $errorTag,
+            'notBefore' => $retryNotBefore?->format('Y-m-d H:i:s'),
+            'id' => $recipientId,
+        ]);
     }
 
     /**
-     * Without this, a mail_queue row with at least one permanently 'failed' recipient
-     * would never be deleted by cleanupQueueEntry() — the MIME body (and attachments)
-     * would accumulate forever for lists with persistent delivery problems. Owners are
-     * notified immediately on failure and can retry/delete via the UI; after 30 days
-     * of inaction (matching the retention window used elsewhere, e.g. bounce_log) the
-     * failed recipient and any now-orphaned mail_queue row are purged.
+     * Counts this (list, recipient) pair's own bounce history tagged with
+     * $errorTag — the basis for BounceHandler::handleMailboxFull()'s
+     * escalation decision ("has this address bounced with mailbox-full at
+     * least bounce-escalate-after times"). Naturally bounded to
+     * purgeCompletedEntries()'s own 30-day retention window, since older
+     * rows are purged — no separate time interval needed here.
      */
-    public function purgeStaleFailedEntries(): void
+    public function countRecentBounces(string $listCn, string $envelopeTo, string $errorTag): int
+    {
+        $stmt = $this->db->prepare(
+            'SELECT COUNT(*) FROM queue_recipients qr
+             JOIN mail_queue mq ON mq.id = qr.mail_queue_id
+             WHERE mq.list_cn = :list AND LOWER(qr.envelope_to) = LOWER(:envelope_to) AND qr.error = :error'
+        );
+        $stmt->execute(['list' => $listCn, 'envelope_to' => $envelopeTo, 'error' => $errorTag]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Deletes any queue_recipients row that's no longer 'pending' (sent or
+     * failed) once it's at least 30 days old, then sweeps now-orphaned
+     * mail_queue rows — the *only* place completed rows are ever deleted now
+     * (sendOne() itself no longer deletes on completion, see its own
+     * comments). Extending this to 'sent' rows too (not just 'failed', as
+     * before) is deliberate: a delayed async bounce (mailbox-full retries in
+     * particular) can arrive well after the original send was marked 'sent',
+     * and markBounced() needs that row to still exist — via
+     * BounceHandler::resolveVerifiedRecipient()'s token-decoded
+     * queue_recipients.id — to correct it. 30 days comfortably covers even a
+     * slow mailbox-full give-up sequence, matching the retention window
+     * already used elsewhere (bounce_log, imap_seen, processing_failures).
+     *
+     * Accepted trade-off (confirmed): successfully sent mail's MIME body
+     * (and attachments) now persists for up to 30 days per recipient instead
+     * of being deleted within the same cycle — real, deliberate storage
+     * growth in exchange for being able to retroactively correct/react to a
+     * delayed bounce at all.
+     */
+    public function purgeCompletedEntries(): void
     {
         $this->db->exec(
-            "DELETE FROM queue_recipients WHERE status = 'failed' AND last_attempt_at < NOW() - INTERVAL 30 DAY"
+            "DELETE FROM queue_recipients WHERE status != 'pending' AND last_attempt_at < NOW() - INTERVAL 30 DAY"
         );
         $this->db->exec(
             'DELETE FROM mail_queue WHERE NOT EXISTS (

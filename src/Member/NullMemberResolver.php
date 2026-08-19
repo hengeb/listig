@@ -35,4 +35,14 @@ class NullMemberResolver implements MemberResolver
     {
         throw new \RuntimeException('Cannot add members: this list has no configured member store.');
     }
+
+    public function supportsInvalidation(): bool
+    {
+        return false;
+    }
+
+    public function invalidateEmail(string $listName, string $email, string $reason): void
+    {
+        throw new \RuntimeException('Cannot invalidate an address: this list has no configured member store.');
+    }
 }

@@ -59,6 +59,20 @@ bounce:
   auto_action:
     abort_batch: "Weiterer Versand von %count% verbleibender Kopie(n) dieser Mail abgebrochen (von einem vertrauenswürdigen Anbieter als Spam gemeldet)"
     none: "keine"
+    recognized_no_action: "Ursache erkannt (%cause%), aber keine automatische Aktion konfiguriert"
+    mailbox_full_deferred: "Postfach voll — weitere Zustellversuche an diesen Empfänger für %days% Tage zurückgestellt (%count%. Meldung)"
+    mark_invalid_unsupported: "Adresse konnte nicht als ungültig markiert werden — von dieser Liste nicht unterstützt"
+    mark_invalid_failed: "Adresse konnte nicht als ungültig markiert werden — Fehler beim Zugriff auf den Mitgliederspeicher"
+    mark_invalid_done: "Adresse als ungültig markiert"
+    restrict_failed: "Adresse konnte nicht gesperrt werden — Datenbankfehler"
+    restrict_done: "Adresse für weitere Zustellungen gesperrt"
+    remove_unsupported: "Adresse konnte nicht entfernt werden — von dieser Liste nicht unterstützt"
+    remove_failed: "Adresse konnte nicht entfernt werden — Fehler beim Zugriff auf den Mitgliederspeicher"
+    remove_done: "Von der Liste entfernt"
+  cause:
+    spam: "Spam"
+    user_unknown: "Empfänger/Domain unbekannt"
+    mailbox_full: "Postfach voll"
 
 processing_failure:
   owner_notice:
@@ -130,6 +144,9 @@ list:
     sender: "Absender"
     subject: "Betreff"
     timestamp: "Zeitpunkt"
+    suppressed_members: "Gesperrte Adressen"
+    address: "Adresse"
+    reason: "Grund"
     js_error_prefix: "Fehler: "
     js_error_generic: "Fehler"
 

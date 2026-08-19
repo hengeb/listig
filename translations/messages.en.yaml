@@ -59,6 +59,20 @@ bounce:
   auto_action:
     abort_batch: "Sending of %count% remaining copy/copies of this mail aborted (reported as spam by a reliable provider)"
     none: "none"
+    recognized_no_action: "Cause recognized (%cause%), but no automatic action configured"
+    mailbox_full_deferred: "Mailbox full — further delivery attempts to this recipient deferred for %days% days (occurrence #%count%)"
+    mark_invalid_unsupported: "Could not mark address invalid — not supported for this list"
+    mark_invalid_failed: "Could not mark address invalid — error accessing the member store"
+    mark_invalid_done: "Address marked invalid"
+    restrict_failed: "Could not suppress address — database error"
+    restrict_done: "Address suppressed from further deliveries"
+    remove_unsupported: "Could not remove address — not supported for this list"
+    remove_failed: "Could not remove address — error accessing the member store"
+    remove_done: "Removed from the list"
+  cause:
+    spam: "Spam"
+    user_unknown: "Recipient/domain unknown"
+    mailbox_full: "Mailbox full"
 
 processing_failure:
   owner_notice:
@@ -130,6 +144,9 @@ list:
     sender: "Sender"
     subject: "Subject"
     timestamp: "Timestamp"
+    suppressed_members: "Suppressed addresses"
+    address: "Address"
+    reason: "Reason"
     js_error_prefix: "Error: "
     js_error_generic: "Error"
 

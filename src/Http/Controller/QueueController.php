@@ -28,11 +28,18 @@ class QueueController
             return $this->json($response, ['error' => 'Forbidden'], 403);
         }
 
+        // qr.status != 'sent' keeps this view scoped to actionable entries
+        // (pending/failed), same as before queue_recipients started retaining
+        // completed rows for 30 days (QueueSender::purgeCompletedEntries(),
+        // needed so a delayed async bounce can still find and correct them —
+        // see CLAUDE.md "Automatic bounce actions") — without this filter,
+        // an active list's successfully-sent history would flood this
+        // owner-facing, unpaginated query.
         $stmt = $this->db->prepare(
             "SELECT qr.id, qr.envelope_to, qr.status, qr.attempts, qr.error, qr.last_attempt_at
              FROM queue_recipients qr
              JOIN mail_queue mq ON mq.id = qr.mail_queue_id
-             WHERE mq.list_cn = :list
+             WHERE mq.list_cn = :list AND qr.status != 'sent'
              ORDER BY qr.last_attempt_at DESC"
         );
         $stmt->execute(['list' => $listName]);

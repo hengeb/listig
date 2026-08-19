@@ -103,4 +103,14 @@ class AggregateMemberResolver implements MemberResolver
     {
         throw new \RuntimeException('Not applicable for aggregate resolver — used for lookup only.');
     }
+
+    public function supportsInvalidation(): bool
+    {
+        return false;
+    }
+
+    public function invalidateEmail(string $listName, string $email, string $reason): void
+    {
+        throw new \RuntimeException('Not applicable for aggregate resolver — used for lookup only.');
+    }
 }

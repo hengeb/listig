@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Config;
 
 use Hengeb\Listig\Config\Enum\AllowLeave;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
+use Hengeb\Listig\Config\Enum\BounceAction;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Member\InlineMemberResolver;
@@ -107,6 +108,23 @@ class ListConfig
      */
     public bool $supportsUnsubscribe {
         get => $this->memberResolver->supportsRemoval();
+    }
+
+    /**
+     * Replaces $email with its invalidated placeholder (see
+     * Member\InvalidatedEmail) — the `mark-invalid` automatic bounce action,
+     * see CLAUDE.md "Automatic bounce actions".
+     *
+     * @throws \RuntimeException if the underlying member store cannot actually persist this
+     */
+    public function invalidateEmail(string $email, string $reason): void
+    {
+        $this->memberResolver->invalidateEmail($this->name, $email, $reason);
+    }
+
+    /** Mirrors $supportsUnsubscribe for invalidateEmail() — see MemberResolver::supportsInvalidation(). */
+    public bool $supportsInvalidation {
+        get => $this->memberResolver->supportsInvalidation();
     }
 
     /** A `restricted-members:` hit (any of the three levels) blocking $email from posting to this list — see CLAUDE.md "Sender restrictions". */
@@ -377,6 +395,18 @@ class ListConfig
 
     public int $maxPerSender {
         get => (int) $this->resolve((string) ($this->raw['max-per-sender'] ?? 5));
+    }
+
+    /**
+     * The automatic action for a recognized, authenticated permanent bounce
+     * (BounceCause::UserUnknown) or an escalated repeated temporary one
+     * (BounceCause::MailboxFull) — see CLAUDE.md "Automatic bounce actions".
+     * Default `none`: no automatic mutation of member data until an operator
+     * opts in explicitly, same safe-by-default philosophy as `archive: off`/
+     * `public-subscribe: off`.
+     */
+    public BounceAction $bounceAction {
+        get => BounceAction::from($this->resolve($this->raw['bounce-action'] ?? 'none'));
     }
 
     public int $maxSize {

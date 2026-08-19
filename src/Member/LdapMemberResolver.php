@@ -110,6 +110,53 @@ class LdapMemberResolver implements MemberResolver
         throw new \RuntimeException("List '$listName' not found in LDAP");
     }
 
+    public function supportsInvalidation(): bool
+    {
+        return true;
+    }
+
+    /**
+     * $listName is deliberately unused — a directory entry's `mail` attribute
+     * belongs to the person, not to any one list's group membership, so there
+     * is no per-list scope to honor here; invalidating necessarily affects
+     * every list this person belongs to. See MemberResolver::invalidateEmail()'s
+     * own docblock.
+     *
+     * `mail` is multi-valued by schema (see CLAUDE.md "Additional addresses
+     * per member (mail-aliases)") — the value to replace is found by *value*,
+     * not by position/index, since the entry's own attribute order isn't
+     * guaranteed stable and Member::$email only ever reflected whichever
+     * value happened to be first at the time this Member was last resolved.
+     * removeAttributeValues()/addAttributeValues() operate on values, not
+     * positions, so every *other* mail value (aliases) is left untouched
+     * regardless of how many there are or what order they're in.
+     */
+    public function invalidateEmail(string $listName, string $email, string $reason): void
+    {
+        $ldap = $this->connect();
+        $results = $ldap->query($this->baseDn, "(mail={$this->escape($email)})")->execute();
+
+        foreach ($results as $entry) {
+            $mailValues = $entry->getAttribute('mail') ?? [];
+            $matchedValue = null;
+            foreach ($mailValues as $value) {
+                if (strtolower($value) === strtolower($email)) {
+                    $matchedValue = $value;
+                    break;
+                }
+            }
+
+            if ($matchedValue === null) {
+                return; // Already changed/removed since — nothing to invalidate.
+            }
+
+            $invalidated = InvalidatedEmail::build($email, $reason);
+            $ldap->getEntryManager()->removeAttributeValues($entry, 'mail', [$matchedValue]);
+            $ldap->getEntryManager()->addAttributeValues($entry, 'mail', [$invalidated]);
+            return;
+        }
+    }
+
     private function getMemberDns(string $name, string $attribute): array
     {
         $ldap = $this->connect();
