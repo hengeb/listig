@@ -81,7 +81,7 @@ class HeaderFilter
                     // dkim= verdict itself, not just "the first header.d=
                     // found anywhere", since a value can carry more than one
                     // method's own parameters. Used by
-                    // BounceHandler::isAuthenticatedOrigin() to verify a
+                    // BounceHandler::isDkimAuthenticated() to verify a
                     // bounce's DKIM signature genuinely belongs to the
                     // domain it's being trusted for, not just that *some*
                     // domain's signature happens to be present and valid.

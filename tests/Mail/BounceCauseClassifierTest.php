@@ -49,7 +49,33 @@ class BounceCauseClassifierTest extends TestCase
 
     public static function userUnknownStatusCodeProvider(): array
     {
-        return [['5.1.1'], ['5.1.2'], ['5.1.3'], ['5.1.6'], ['5.1.10']];
+        return [['5.1.1'], ['5.1.2'], ['5.1.3'], ['5.1.6'], ['5.1.10'], ['4.4.3'], ['5.4.3'], ['4.4.4'], ['5.4.4']];
+    }
+
+    public function testPostfixDnsFailureIsClassifiedAsUserUnknown(): void
+    {
+        // A real bounce confirmed live on the test instance: Postfix's own
+        // Diagnostic-Code for "domain doesn't exist" carries no status code
+        // at all in its own free text — only the separate Status: field
+        // does. BounceHandler::extractClassificationText() concatenates
+        // both before handing them to classify(), so this reproduces
+        // exactly what the classifier actually receives.
+        $diagnosticCode = 'X-Postfix; Host or domain name not found. Name service error '
+            . 'for name=mhasdfasdfasdfasdfasdfasdfn.de type=AAAA: Host not found';
+        $status = '5.4.4';
+        $result = (new BounceCauseClassifier())->classify($diagnosticCode . ' ' . $status);
+        $this->assertSame(BounceCause::UserUnknown, $result);
+    }
+
+    public function testDiagnosticCodeAloneWithoutStatusStillClassifiesViaKeyword(): void
+    {
+        // The keyword fallback must also work standalone, in case a future
+        // caller (or a server omitting Status: entirely) only ever supplies
+        // the free-text Diagnostic-Code.
+        $result = (new BounceCauseClassifier())->classify(
+            'X-Postfix; Host or domain name not found. Name service error for name=example.invalid type=AAAA: Host not found'
+        );
+        $this->assertSame(BounceCause::UserUnknown, $result);
     }
 
     public function testUserUnknownKeywordFallbackWithoutCleanStatusCode(): void
