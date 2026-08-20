@@ -77,10 +77,14 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  *    recipient of the batch) reaches beyond the bounced recipient
  *    themselves, so a forged self-bounce there would let a malicious member
  *    disrupt delivery to people who never consented to anything — that blast
- *    radius is what justifies requiring isDkimAuthenticated() (DKIM-verified
- *    for the recipient's own domain) on top of the null-envelope check, plus
- *    the further reliable-domain bar in abortBatchForBounce() — see both
- *    docblocks.
+ *    radius is what justifies requiring either isDkimAuthenticated()
+ *    (DKIM-verified for the recipient's own domain — the async-DSN shape) or
+ *    isFromTrustedRelay() (the bounce genuinely arrived over a connection
+ *    from the operator's own configured outbound relay — the live-SMTP-
+ *    rejection-reflected-by-our-own-relay shape, for which DKIM from the
+ *    recipient's domain is structurally never available) on top of the
+ *    null-envelope check, plus the further reliable-domain bar in
+ *    abortBatchForBounce() — see all three docblocks.
  *
  * A bounce-forward is itself an outgoing mail (via NotificationMailer), which
  * means it can itself bounce — and that new bounce would, without the two
@@ -197,11 +201,27 @@ class BounceHandler
 
         // Spam's action reaches beyond the bounced recipient (aborts
         // delivery to every other pending recipient of the batch too), so it
-        // alone needs the cryptographic DKIM bar on top of the null-envelope
-        // check above — UserUnknown/MailboxFull deliberately don't require
-        // it, since their actions only ever affect the token-verified
-        // recipient's own subscription (see the class docblock's point 2).
-        if ($cause === BounceCause::Spam && !$this->isDkimAuthenticated($rawMime, $recipient['envelopeTo'])) {
+        // alone needs a cryptographic/connection-level bar on top of the
+        // null-envelope check above — UserUnknown/MailboxFull deliberately
+        // don't require either, since their actions only ever affect the
+        // token-verified recipient's own subscription (see the class
+        // docblock's point 2). Two independent, alternative ways to satisfy
+        // this for Spam (either is sufficient — see isFromTrustedRelay()'s
+        // own docblock for why a second path exists at all):
+        // - isDkimAuthenticated(): the *recipient's own domain* generated
+        //   and signed this bounce itself (an async DSN sent after
+        //   accepting the mail into its own queue).
+        // - isFromTrustedRelay(): the bounce was relayed back by the
+        //   *operator's own* outbound relay, reflecting a rejection it
+        //   received live during its own SMTP session with the recipient's
+        //   domain — a shape that can never carry DKIM from that domain at
+        //   all, since the domain itself never generated an outbound
+        //   message.
+        if (
+            $cause === BounceCause::Spam
+            && !$this->isDkimAuthenticated($rawMime, $recipient['envelopeTo'])
+            && !$this->isFromTrustedRelay($rawMime)
+        ) {
             return $this->noAutomaticAction($list);
         }
 
@@ -422,6 +442,88 @@ class BounceHandler
         }
 
         return $dkimDomain === $this->spamRejectionDetector->domainOf($envelopeTo);
+    }
+
+    /**
+     * A second, alternative way to authenticate a BounceCause::Spam bounce
+     * when isDkimAuthenticated() structurally can never pass — confirmed
+     * live in production: a recipient's own mail server can reject a
+     * message as spam *during the live SMTP session itself* (Diagnostic-Code
+     * type "smtp;" per RFC 3464 — the diagnostic text is the literal SMTP
+     * reply quoted verbatim). When the operator's own outbound mail routes
+     * through their own relay/smarthost rather than connecting directly to
+     * the recipient's MX, Listig's own QueueSender::sendOne() never sees
+     * that live rejection at all — its own send() to the local relay
+     * succeeds, and only the relay's own later, independent delivery
+     * attempt to the recipient's domain fails. That relay then generates
+     * *its own* bounce notification reflecting the failure, which is what
+     * eventually reaches Listig via IMAP. Nothing about that shape involves
+     * the recipient's domain generating or signing anything — no DSN of
+     * theirs ever exists to DKIM-authenticate, by construction, the exact
+     * same reason DNS-failure bounces (BounceCause::UserUnknown via
+     * "unable to route") can never carry DKIM either.
+     *
+     * The trustworthy signal isn't the bounce's *content* (any of it — From,
+     * Diagnostic-Code, an operator-domain claim — is attacker-supplied text
+     * an outsider submitting mail into Listig's own inbox fully controls,
+     * exactly like every other DSN field this class already refuses to
+     * trust directly) but the *connection(s)* it actually arrived over:
+     * HeaderFilter::readAllConnectingIps() walks every Received: header the
+     * outer bounce carries — added by whichever mail server actually
+     * observed each hop, never attacker-influenced, same trust level
+     * already relied on for Return-Path — and this method rejects if *any*
+     * of them is a genuinely public IP (HeaderFilter::isPublicIp() — false
+     * for RFC 1918/4193 private ranges, loopback, and other reserved
+     * ranges).
+     *
+     * A single topmost-header check would NOT be enough — confirmed live: a
+     * combined send+receive mail server (Postfix handing a message to its
+     * own mailbox via LMTP, a common self-hosted setup) always shows its
+     * own private IP on that final, innermost hop *regardless of whether the
+     * message was genuinely generated locally or merely externally
+     * SMTP-submitted and then delivered locally*, so that hop alone can't
+     * distinguish a real bounce from a forged one submitted straight into
+     * Listig's inbox. Walking *every* hop closes that gap: a real Postfix-
+     * generated bounce's earlier hop has no "from" clause at all
+     * (`Received: by HOST (Postfix)` — proof of purely local injection,
+     * never touched an external connection), while a forged bounce
+     * submitted via SMTP would show a genuine "from ATTACKER-HOST (...
+     * [ATTACKER-IP])" hop the receiving server itself added — impossible
+     * for the attacker to suppress or fake away, regardless of what other
+     * Received-looking text they stuff into their own submitted body,
+     * since the real one is always prepended above it by trusted
+     * infrastructure.
+     *
+     * Deliberately config-free: no operator setting names a "trusted relay"
+     * — every hop is judged purely by whether it ever left a private
+     * network (RFC 1918/4193, loopback, ...), which needs no configuration
+     * to evaluate and covers the common case (a single self-hosted mail
+     * server, or a small private network of them, handling both outbound
+     * sending and inbound delivery) with zero setup. A deployment whose real
+     * relay path genuinely crosses a public IP boundary (e.g. an external
+     * smarthost/SaaS relay) simply won't authenticate via this path for
+     * BounceCause::Spam — isDkimAuthenticated() remains available whenever
+     * the recipient's own domain does sign an async DSN, and otherwise the
+     * bounce is still logged and forwarded to the owner, just without the
+     * automatic batch-abort.
+     */
+    private function isFromTrustedRelay(string $rawMime): bool
+    {
+        // Scoped to the outer bounce's own headers only — the attached
+        // original message's own historical Received chain (which may pass
+        // through any number of unrelated third-party systems, see
+        // extractOriginalSender()'s identical scoping) says nothing about
+        // whether *this* bounce is genuine.
+        $pos = stripos($rawMime, 'message/rfc822');
+        $outerHeaders = $pos === false ? $rawMime : substr($rawMime, 0, $pos);
+
+        foreach ($this->headerFilter->readAllConnectingIps($outerHeaders) as $ip) {
+            if (HeaderFilter::isPublicIp($ip)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
