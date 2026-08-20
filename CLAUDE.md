@@ -190,7 +190,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   ├── ModerationChecker.php     # Checks DB for overdue moderation items, sends reminders
 │   │   └── ModerationResponseHandler.php # Detects +accept-/+reject- in To (raw header, not lowercased $mail->to), verifies HMAC + owner, dispatches accept/reject — see "Moderation"
 │   ├── Token/
-│   │   └── TokenService.php          # Signs and verifies HMAC-SHA256 tokens
+│   │   ├── TokenService.php          # Signs and verifies truncated-HMAC-SHA256 tokens, compact binary payload — see "Token Format"
+│   │   └── ListFingerprint.php       # Short, non-cryptographic list-name fingerprint for bounce/accept/reject tokens — see "Token Format"
 │   ├── OpenIdConnect/                # Optional OIDC login — see "Authentication (OIDC)"
 │   │   ├── OpenIdConnectService.php  # Thin wrapper around jumbojett/openid-connect-php (Auth Code + PKCE)
 │   │   └── OidcRedirectException.php # Turns the library's header()+exit redirect into a catchable PSR-7-friendly exception
@@ -2166,9 +2167,10 @@ same `APP_SECRET`-derived key the running application uses to decrypt.
 ## Token Format
 
 `TokenService` does not hardcode a payload shape — `sign()` takes a purpose plus an
-arbitrary, purpose-specific argument list; `verify()` hands the same list back for the
-caller to destructure. This keeps the token generic: adding a new purpose, or new data
-to an existing one, never requires touching `TokenService` itself.
+arbitrary, purpose-specific argument list of `string|int` values; `verify()` hands the
+same list back for the caller to destructure. This keeps the token generic: adding a
+new purpose, or new data to an existing one, never requires touching `TokenService`
+itself.
 
 `TokenService` is constructed with a subkey already derived via
 `KeyDerivation::derive($appSecret, 'listig-token-hmac')` — see Key Derivation above —
@@ -2176,8 +2178,8 @@ not with `APP_SECRET` directly.
 
 ```php
 // TokenService::sign(string $purpose, mixed ...$payload): string
-$data  = json_encode([$purpose, time(), ...$payload]);
-$hmac  = hash_hmac('sha256', $data, $hmacKey); // $hmacKey = derived subkey, not APP_SECRET
+$data  = encodePayload([$purpose, time(), ...$payload]); // compact binary, not JSON — see below
+$hmac  = base64UrlEncode(substr(hash_hmac('sha256', $data, $hmacKey, true), 0, 12)); // 96-bit truncated, not the full 256
 $token = rtrim(strtr(base64_encode($data), '+/', '-_'), '=') . '.' . $hmac;
 
 // TokenService::verify(string $token, string $expectedPurpose, int $maxAge): array
@@ -2191,24 +2193,54 @@ preventing a token issued for one purpose (and its mail-header/link exposure) fr
 replayed for another. `$maxAge` is likewise supplied by the caller, not baked into
 `TokenService` — expiry is a policy decision for each call site, not the token itself.
 
+### Compact encoding and truncated signature
+
+Confirmed live as a real, not just theoretical, problem: the original design (`json_encode()` the payload, then a full, untruncated hex HMAC-SHA256 digest) made `bounce`/`accept`/`reject` tokens — the three embedded directly in an email address local-part (`{list->localPart}+bounce+{TOKEN}@...`, `+accept-{TOKEN}@...`, `+reject-{TOKEN}@...`) — exceed RFC 5321's 64-byte local-part limit for anything but the very shortest list names, sometimes by a wide margin (well over 100 bytes for `accept`/`reject`). Two independent changes fixed this, both applied uniformly to every purpose (not just the three that needed it, for consistency and because shorter tokens are a nice-to-have for the URL-embedded purposes too):
+
+1. **Compact binary payload encoding, not JSON.** Each `string|int` value gets a 1-byte type tag (`TokenService::TYPE_STRING`/`TYPE_INT`) followed by an unsigned LEB128 varint (`encodeVarint()`/`decodeVarint()` — 7 payload bits per byte, high bit = "more bytes follow") for either the string's byte length or the integer's own value. This keeps the same "no payload shape known in advance" property the JSON encoding had (`decodePayload()` reads a stream of tagged values with no schema), while costing far fewer bytes: no quoting/braces/commas, and — the larger win — an integer costs only as many bytes as its actual magnitude needs (e.g. 1-2 bytes for a small ID) instead of up to 10 ASCII digits for a Unix timestamp.
+2. **Truncated, base64-encoded HMAC, not a full hex digest.** `TokenService::HMAC_BYTES = 12` (96 bits) — RFC 2104/NIST SP 800-107 both explicitly allow a truncated MAC as long as the remaining length still gives an adequate security margin against forgery; 96 bits is comfortably beyond any realistic brute-force capability even across a token's full multi-day validity window. The truncated bytes are base64url-encoded (`truncatedHmac()`), not hex — same underlying security bits either way, but base64 packs 6 bits/character against hex's 4, so the same 12 bytes costs 16 characters instead of 24.
+
+Together, these took a typical `bounce`/`accept`/`reject` token from well over 100 characters down to roughly 44-50, comfortably inside the local-part budget even with the `+bounce+`/`+accept-`/`+reject-` prefix.
+
+### `ListFingerprint` — bounding the list name's own contribution
+
+Even with both changes above, `bounce`/`accept`/`reject` tokens had one more unbounded cost: `$listCn` itself, embedded raw as a string, has no length an operator is required to respect (a longer list name simply made the token longer, reopening the same 64-byte problem for any list with a long enough name — confirmed by direct calculation, not just for the specific list name that first surfaced the issue). `Hengeb\Listig\Token\ListFingerprint::of(string $listCn): int` (`crc32($listCn) & 0xFF`) replaces the raw string with a single byte for these three purposes specifically — every other purpose (`login`/`unsubscribe`/`subscribe`/the `*-attachment` purposes) is a URL query parameter with no such constraint, and still signs/returns the full, real list name, since those callers (e.g. `AuthController::verifyToken()` setting `$_SESSION['user']['listCn']`) genuinely need it back, not just a match/mismatch verdict.
+
+This is safe specifically *because* the fingerprint is only ever used as the existing defense-in-depth "does this token actually belong to this list" sanity check (same principle as `UnsubscribeController`'s own `{listname}`-vs-token check) — never the token's actual security boundary, which remains the HMAC signature over the whole payload, fingerprint included. A forged fingerprint value is unreachable without first breaking the signature; an accidental collision between two differently-named lists (deliberately possible at only 256 distinct values — collisions are far more likely than with a full hash, by design) only ever weakens that secondary check for an operator with a large number of lists, not the actual security of any individual token, and a Listig instance anywhere near 256 lists is far outside this project's realistic scale.
+
+### `accept`/`reject` — referencing `moderation_queue.id`, like `bounce` already referenced `queue_recipients.id`
+
+The original `accept`/`reject` payload — `$listCn, $imapUid, $imapUidvalidity` — had a second problem beyond the raw list name: `$imapUidvalidity` is commonly itself a full Unix timestamp (many IMAP servers derive it from the mailbox's creation time), costing as much as the token's own timestamp field a second time over. Fixed the same way the `bounce` token already solved an analogous problem for `queue_recipients` (see "Automatic bounce actions" → "1. Which recipient"): reference the `moderation_queue` row by its own `id` instead of embedding `imap_uid`/`imap_uidvalidity` directly.
+
+This required reordering `ModerationMailer::send()`: the `INSERT INTO moderation_queue` now runs *before* the accept/reject tokens are signed (previously after), since the tokens need the row's own `id` to exist first. Getting that `id` back correctly on *both* the genuine-new-item and reminder-resend (duplicate-key) paths needed one more fix, confirmed empirically against MariaDB: the previous `ON DUPLICATE KEY UPDATE id = id` (a deliberate no-op, chosen specifically so `ROW_COUNT()` — and therefore `$isNewItem` — stays `0` on a resend) never touches `LAST_INSERT_ID()` at all on the duplicate-key path, so `PDO::lastInsertId()` would return stale or wrong data for a resend. `ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)` fixes this: confirmed live, `LAST_INSERT_ID(id)` evaluates to the *existing* row's own `id` — still a no-op on the column's actual value, so `ROW_COUNT()`/`$isNewItem` are completely unaffected — while also setting the session's `LAST_INSERT_ID()` to that same value as a side effect, so `lastInsertId()` now reliably returns the correct row id either way.
+
+`ModerationResponseHandler::handle()` mirrors this on the verify side: decodes `[ListFingerprint::of($listCn), $itemId]`, checks the fingerprint, then `SELECT id, list_cn, imap_uid, imap_uidvalidity FROM moderation_queue WHERE id = :id` — a single lookup that both resolves the real `imap_uid`/`imap_uidvalidity` (no longer signed into the token at all) and doubles as the exact same idempotency check the old `(list_cn, imap_uid, imap_uidvalidity)`-keyed lookup already provided (a re-sent reminder or a double-click, after the row was already deleted by a prior accept/reject, correctly finds nothing and stops).
+
 Each call site defines its own payload shape and max age, and destructures the same way on both ends:
 
 | Purpose | `sign()` payload | Max age | Used by |
 |---|---|---|---|
 | `login` | `$listCn, $userCn` | 5 minutes | `AuthController` |
 | `unsubscribe` | `$listCn, $userCn` | 7 days | `MailProcessor` (sign) / `UnsubscribeController` (verify) |
-| `accept` / `reject` | `$listCn, $imapUid, $imapUidvalidity` | 7 days | `ModerationMailer` (sign) / `ModerationResponseHandler` (verify) |
-| `bounce` | `$listCn, $recipientId` (`queue_recipients.id`) | 7 days | `QueueSender::sendOne()` (sign) / `BounceHandler::resolveVerifiedRecipient()` (verify) — see "Automatic bounce actions" |
+| `accept` / `reject` | `ListFingerprint::of($listCn), $moderationQueueId` | 7 days | `ModerationMailer` (sign) / `ModerationResponseHandler` (verify) |
+| `bounce` | `ListFingerprint::of($listCn), $recipientId` (`queue_recipients.id`) | 7 days | `QueueSender::sendOne()` (sign) / `BounceHandler::resolveVerifiedRecipient()` (verify) — see "Automatic bounce actions" |
 
-URL-safe Base64 (`+`→`-`, `/`→`_`, no padding). Safe in mail `+` addresses.
+URL-safe Base64 (`+`→`-`, `/`→`_`, no padding), both halves of the token (payload and truncated HMAC) — safe in mail `+` addresses.
 
-An `accept`/`reject`/`bounce` token rides in an email address's local-part (`{list->localPart}+accept-{TOKEN}@{list->domain}`, `{list->localPart}+bounce+{TOKEN}@{list->domain}`, see Moderation / "Automatic bounce actions") — `PhpImap\Mailbox` parses every recipient address through `mb_strtolower()` before the app ever sees it (`possiblyGetEmailAndNameFromRecipient()`), which would corrupt a mixed-case base64 token if the token were read from `$mail->to`/`$mail->cc`. Rather than change the token encoding (base64 is kept, unchanged, for all three purposes), `ModerationResponseHandler::detectAction()`/`BounceHandler::extractBounceToken()` both read the address straight out of the raw, unparsed header instead (`HeaderFilter::readHeader($mail->headersRaw, 'To')` and, for a bounce, also `Delivered-To`/`X-Original-To` as fallbacks) — case exactly as the sending mail client/server wrote it — and regex-match against that string directly, never touching the lowercased `$mail->to`/`$mail->cc` arrays for this purpose. Confirmed live: a real reply's `$mail->to` key showed an all-lowercase token where the raw header still had the original mixed case, and `TokenService::verify()` only succeeds against the latter.
+An `accept`/`reject`/`bounce` token rides in an email address's local-part (`{list->localPart}+accept-{TOKEN}@{list->domain}`, `{list->localPart}+bounce+{TOKEN}@{list->domain}`, see Moderation / "Automatic bounce actions") — `PhpImap\Mailbox` parses every recipient address through `mb_strtolower()` before the app ever sees it (`possiblyGetEmailAndNameFromRecipient()`), which would corrupt a mixed-case base64 token if the token were read from `$mail->to`/`$mail->cc`. Rather than change the token encoding (base64 is kept, unchanged, for all purposes), `ModerationResponseHandler::detectAction()`/`BounceHandler::extractBounceToken()` both read the address straight out of the raw, unparsed header instead (`HeaderFilter::readHeader($mail->headersRaw, 'To')` and, for a bounce, also `Delivered-To`/`X-Original-To` as fallbacks) — case exactly as the sending mail client/server wrote it — and regex-match against that string directly, never touching the lowercased `$mail->to`/`$mail->cc` arrays for this purpose. Confirmed live: a real reply's `$mail->to` key showed an all-lowercase token where the raw header still had the original mixed case, and `TokenService::verify()` only succeeds against the latter.
 
 Tokens are stateless and self-describing: the HMAC signature is the only thing that
 needs verifying, so `TokenService::verify()` never touches the database. Purposes that
 need to identify a specific database row (`accept`/`reject` → a `moderation_queue`
-item) embed that row's natural key in the payload instead of persisting the token
-somewhere to look up later — this is why `moderation_queue` has no `token` column.
+item, `bounce` → a `queue_recipients` item) embed that row's own primary key in the
+payload instead of persisting the token somewhere to look up later — this is why
+`moderation_queue` has no `token` column. Resolving the payload's own natural key back
+to a real row (`ModerationResponseHandler`'s `SELECT ... WHERE id = :id`,
+`BounceHandler`'s `QueueSender::findRecipientById()`) still needs exactly one DB lookup
+either way, the same one both purposes already needed for their own idempotency check —
+this property is about `TokenService::verify()` itself never touching the database to
+authenticate the token, not about the caller never needing the database at all to act
+on it.
 
 ---
 
@@ -2673,7 +2705,7 @@ carry this information:
 
 `tests/` (PHPUnit, `require-dev`-only — never installed in the production image, see "Docker Setup"; `docker/Dockerfile` already runs `composer install --no-dev`, and `.dockerignore`/host-side `vendor/` isolation means a dev install on the host can never leak into a build either way) mirrors `src/`'s namespace under `Hengeb\Listig\Tests\` (`composer.json`'s `autoload-dev`). Run via `composer test` (aliases to `phpunit`, config in `phpunit.xml`) or `vendor/bin/phpunit` directly; a single file/directory can be targeted the normal PHPUnit way (`vendor/bin/phpunit tests/Config/ListConfigTest.php`).
 
-Scope is deliberately the **pure-logic layer** — classes that don't touch IMAP/LDAP/SQL/SMTP directly and so need no live infrastructure or mocking framework beyond PHPUnit's own stubs: `VariableResolver`/`VariableFilter`, `ConfigResolver`, `ListConfig`, `RestrictionList`, `YamlIncludeResolver`, the `MemberResolver` implementations that don't need a live connection (`InlineMemberResolver`, `CompositeMemberResolver`, `CsvMemberResolver` against a real temp file, `LdapMemberResolver::entryToMember()` — a pure transformation testable against a fake `Symfony\Component\Ldap\Entry`, no LDAP connection ever opened), `MemberResolverFactory`, `SpamFilter`, `SpamRejectionDetector`, `HeaderFilter`, `SubaddressExtractor`, `FilterResult`, `TokenService`, `PasswordCrypto`, `KeyDerivation`, `ArchiveThreader`, `ByteFormatter`, `AttachmentSafety`, `NullSenderEnvelope`, `BounceCauseClassifier`, `Member\InvalidatedEmail`. Deliberately **not** covered: anything requiring a real IMAP/LDAP/SMTP/DB connection (`ImapPoller`, `ImapArchiver`, `LdapListProvider`/`DatabaseListProvider`'s own query methods, `QueueSender`, `ModerationMailer`, `BounceSuppressionList`, `BounceMemberActionExecutor`, `BounceHandler` itself, ...) or a full Slim HTTP request/response cycle (the `Http\Controller\*` classes) — those are verified the way the rest of this document describes: patched onto the live test instance (`docker cp`, worker/php-fpm restart, health check, then a targeted one-off script or real request against actual LDAP/DB/IMAP) rather than through this suite. `LdapMemberResolver::invalidateEmail()`/`removeMember()`/`addMember()` remain untested here too, for the same reason `entryToMember()` is the *only* piece of that class covered — they all need a real `connect()`'d LDAP session.
+Scope is deliberately the **pure-logic layer** — classes that don't touch IMAP/LDAP/SQL/SMTP directly and so need no live infrastructure or mocking framework beyond PHPUnit's own stubs: `VariableResolver`/`VariableFilter`, `ConfigResolver`, `ListConfig`, `RestrictionList`, `YamlIncludeResolver`, the `MemberResolver` implementations that don't need a live connection (`InlineMemberResolver`, `CompositeMemberResolver`, `CsvMemberResolver` against a real temp file, `LdapMemberResolver::entryToMember()` — a pure transformation testable against a fake `Symfony\Component\Ldap\Entry`, no LDAP connection ever opened), `MemberResolverFactory`, `SpamFilter`, `SpamRejectionDetector`, `HeaderFilter`, `SubaddressExtractor`, `FilterResult`, `TokenService`, `ListFingerprint`, `PasswordCrypto`, `KeyDerivation`, `ArchiveThreader`, `ByteFormatter`, `AttachmentSafety`, `NullSenderEnvelope`, `BounceCauseClassifier`, `Member\InvalidatedEmail`. Deliberately **not** covered: anything requiring a real IMAP/LDAP/SMTP/DB connection (`ImapPoller`, `ImapArchiver`, `LdapListProvider`/`DatabaseListProvider`'s own query methods, `QueueSender`, `ModerationMailer`, `BounceSuppressionList`, `BounceMemberActionExecutor`, `BounceHandler` itself, ...) or a full Slim HTTP request/response cycle (the `Http\Controller\*` classes) — those are verified the way the rest of this document describes: patched onto the live test instance (`docker cp`, worker/php-fpm restart, health check, then a targeted one-off script or real request against actual LDAP/DB/IMAP) rather than through this suite. `LdapMemberResolver::invalidateEmail()`/`removeMember()`/`addMember()` remain untested here too, for the same reason `entryToMember()` is the *only* piece of that class covered — they all need a real `connect()`'d LDAP session.
 
 A `Reflection*` escape hatch (no `setAccessible(true)` — a no-op since PHP 8.1, and itself deprecated as of 8.5, see below) is used sparingly, only where a class genuinely has no other way to set up a fixture: `PhpImap\IncomingMail::$textPlain`/`$textHtml` are private with a lazy `__get()` that fetches from a live IMAP data part and no public setter at all, so `SpamFilterTest` seeds a fixed body via `new \ReflectionProperty($mail, 'textPlain')`. `LdapMemberResolverTest` calls the private `entryToMember()` directly via `ReflectionMethod`, since it's the one pure-transformation piece of an otherwise LDAP-connected class.
 

@@ -8,6 +8,7 @@ use Hengeb\Listig\Config\Enum\BounceAction;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Queue\QueueSender;
 use Hengeb\Listig\Queue\SpamRejectionDetector;
+use Hengeb\Listig\Token\ListFingerprint;
 use Hengeb\Listig\Token\TokenService;
 use PDO;
 use PhpImap\IncomingMail;
@@ -339,12 +340,13 @@ class BounceHandler
      * attacker fully controls.
      *
      * Returns null if no token could be found or it fails to verify (wrong
-     * signature, expired, wrong purpose), if it names a different list than
-     * the one this bounce arrived on (defense in depth against a stale/
-     * cross-list token, same principle as UnsubscribeController's own check),
-     * or if the row it names no longer exists (aged out of
-     * QueueSender::purgeCompletedEntries()'s 30-day retention — nothing left
-     * to act on either way).
+     * signature, expired, wrong purpose), if its ListFingerprint::of() doesn't
+     * match the list this bounce arrived on (defense in depth against a
+     * stale/cross-list token, same principle as UnsubscribeController's own
+     * check — see ListFingerprint's own docblock for why a short fingerprint
+     * is signed here instead of the list's full name), or if the row it names
+     * no longer exists (aged out of QueueSender::purgeCompletedEntries()'s
+     * 30-day retention — nothing left to act on either way).
      *
      * @return array{recipientId: int, envelopeTo: string, batchId: ?string}|null
      */
@@ -356,13 +358,13 @@ class BounceHandler
         }
 
         try {
-            [$listCn, $recipientId] = $this->tokenService->verify($token, 'bounce', QueueSender::BOUNCE_TOKEN_MAX_AGE);
+            [$listFingerprint, $recipientId] = $this->tokenService->verify($token, 'bounce', QueueSender::BOUNCE_TOKEN_MAX_AGE);
         } catch (\InvalidArgumentException $e) {
             error_log("Listig: Invalid bounce token for list {$list->name}: " . $e->getMessage());
             return null;
         }
 
-        if ($listCn !== $list->name) {
+        if ($listFingerprint !== ListFingerprint::of($list->name)) {
             error_log("Listig: Bounce token list mismatch for list {$list->name}");
             return null;
         }

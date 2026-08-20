@@ -11,6 +11,7 @@ use Hengeb\Listig\Imap\ImapPoller;
 use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\MailProcessor;
 use Hengeb\Listig\Mail\RejectionNotifier;
+use Hengeb\Listig\Token\ListFingerprint;
 use Hengeb\Listig\Token\TokenService;
 use PDO;
 use PhpImap\IncomingMail;
@@ -57,12 +58,16 @@ class ModerationResponseHandler
             return true;
         }
 
-        // Payload shape set by ModerationMailer::send(): [listCn, imapUid, imapUidvalidity]
-        [$listCn, $uid, $uidValidity] = $payload;
-        $uid = (int) $uid;
-        $uidValidity = (int) $uidValidity;
+        // Payload shape set by ModerationMailer::send(): [ListFingerprint::of($list->name), moderation_queue.id]
+        // — a short fingerprint, not the list's own (unboundedly long) name, since
+        // these tokens are embedded in an email address local-part (RFC 5321's
+        // 64-byte limit); see ListFingerprint's own docblock. The row's own id,
+        // not imap_uid/imap_uidvalidity directly — those are read back from the
+        // row itself below, same idea as BounceHandler's queue_recipients.id.
+        [$listFingerprint, $itemId] = $payload;
+        $itemId = (int) $itemId;
 
-        if ($listCn !== $list->name) {
+        if ($listFingerprint !== ListFingerprint::of($list->name)) {
             error_log("Listig: Moderation token list mismatch for list {$list->name}");
             return true;
         }
@@ -72,20 +77,26 @@ class ModerationResponseHandler
             return true;
         }
 
-        // uid/uidvalidity come from the token itself (HMAC-verified above), not from a
-        // DB lookup — moderation_queue is only consulted to check the item is still
-        // pending (idempotency: a re-sent reminder or a double-click must not re-process it).
+        // The token's own id (HMAC-verified above) identifies the moderation_queue
+        // row; uid/uidvalidity are read back from that row rather than carried in
+        // the token itself. This DB lookup also doubles as the idempotency check
+        // it always was: a re-sent reminder or a double-click, after the item was
+        // already accepted/rejected once and its row deleted below, correctly
+        // finds nothing and stops here rather than re-processing it.
 
         $stmt = $this->db->prepare(
-            'SELECT id FROM moderation_queue WHERE list_cn = :list AND imap_uid = :uid AND imap_uidvalidity = :validity'
+            'SELECT id, list_cn, imap_uid, imap_uidvalidity FROM moderation_queue WHERE id = :id'
         );
-        $stmt->execute(['list' => $list->name, 'uid' => $uid, 'validity' => $uidValidity]);
+        $stmt->execute(['id' => $itemId]);
         $item = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($item === false) {
-            error_log("Listig: Moderation item not found for list {$list->name} UID $uid (already processed?)");
+        if ($item === false || $item['list_cn'] !== $list->name) {
+            error_log("Listig: Moderation item not found for list {$list->name} id $itemId (already processed?)");
             return true;
         }
+
+        $uid = (int) $item['imap_uid'];
+        $uidValidity = (int) $item['imap_uidvalidity'];
 
         if ($purpose === 'accept') {
             $this->processAccept($list, $uid, $uidValidity);

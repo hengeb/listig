@@ -7,6 +7,7 @@ namespace Hengeb\Listig\Queue;
 use Hengeb\Listig\Mail\NotificationMailer;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\Smtp\SmtpConnectionFactory;
+use Hengeb\Listig\Token\ListFingerprint;
 use Hengeb\Listig\Token\TokenService;
 use PDO;
 use Symfony\Component\Mailer\Envelope;
@@ -129,8 +130,12 @@ class QueueSender
             // an attached original message's Message-ID — both plain text an
             // attacker fully controls). Same "URL-safe base64, safe in mail +
             // addresses" token shape already used for accept/reject — see
-            // CLAUDE.md "Token Format".
-            $bounceToken = $this->tokenService->sign('bounce', $listCn, $recipientId);
+            // CLAUDE.md "Token Format". ListFingerprint::of(), not $listCn
+            // itself — this token is embedded in an email address local-part
+            // (RFC 5321's 64-byte limit), so the list-mismatch sanity check
+            // uses a short fingerprint instead of the (unboundedly long) raw
+            // list name.
+            $bounceToken = $this->tokenService->sign('bounce', ListFingerprint::of($listCn), $recipientId);
             $bounceFrom = "{$list->localPart}+bounce+{$bounceToken}@{$list->domain}";
 
             $mailer->send(
