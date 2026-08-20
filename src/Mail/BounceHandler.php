@@ -509,13 +509,13 @@ class BounceHandler
      */
     private function isFromTrustedRelay(string $rawMime): bool
     {
-        // Scoped to the outer bounce's own headers only — the attached
+        // Scoped to the outer bounce's own headers only — the quoted
         // original message's own historical Received chain (which may pass
         // through any number of unrelated third-party systems, see
         // extractOriginalSender()'s identical scoping) says nothing about
         // whether *this* bounce is genuine.
-        $pos = stripos($rawMime, 'message/rfc822');
-        $outerHeaders = $pos === false ? $rawMime : substr($rawMime, 0, $pos);
+        $pos = $this->findQuotedOriginalOffset($rawMime);
+        $outerHeaders = $pos === null ? $rawMime : substr($rawMime, 0, $pos);
 
         foreach ($this->headerFilter->readAllConnectingIps($outerHeaders) as $ip) {
             if (HeaderFilter::isPublicIp($ip)) {
@@ -608,7 +608,43 @@ class BounceHandler
     }
 
     /**
-     * True if the message/rfc822 attachment of this bounce is itself one of
+     * Position of whichever marker starts the quoted original message this
+     * bounce is reporting on — `message/rfc822` (a full attached original,
+     * Postfix's own convention, confirmed live for the DNS-failure/spam
+     * bounce from this operator's own relay) or `text/rfc822-headers` (RFC
+     * 3798's headers-only variant, confirmed live from web.de, which never
+     * uses `message/rfc822` at all for this). Returns the earlier of the two
+     * if somehow both appear, or null if neither does.
+     *
+     * A single fixed marker isn't enough — confirmed live as a real gap, not
+     * just a theoretical one: every method here that scopes a search to "the
+     * outer bounce only" (isFromTrustedRelay(), isBounceOnOwnNotification())
+     * or "the quoted original only" (extractOriginalSender(),
+     * hasQuotedSpamFlag()) previously looked for `message/rfc822` alone.
+     * Against a web.de bounce (no `message/rfc822` anywhere, only
+     * `text/rfc822-headers`), that made `stripos()` return `false`
+     * unconditionally — so extractOriginalSender() always showed "unknown"
+     * for this shape of bounce, and worse, isFromTrustedRelay() had nothing
+     * to cut the raw text at all, silently letting the *quoted original's
+     * own* Received: chain (which passes through whichever infrastructure
+     * originally relayed that message — a genuinely public IP in the
+     * confirmed case, unrelated to whether *this bounce* is genuine) leak
+     * into the hop-scan meant to cover only the bounce's own transport.
+     */
+    private function findQuotedOriginalOffset(string $rawMime): ?int
+    {
+        $positions = [];
+        foreach (['message/rfc822', 'text/rfc822-headers'] as $marker) {
+            $pos = stripos($rawMime, $marker);
+            if ($pos !== false) {
+                $positions[] = $pos;
+            }
+        }
+        return $positions === [] ? null : min($positions);
+    }
+
+    /**
+     * True if the quoted original message of this bounce is itself one of
      * Listig's own auto-generated notifications (NotificationMailer's
      * X-Listig-Auto header) — i.e. this is a bounce *on a bounce forward*,
      * not a bounce on an original member/owner-authored mail. This is what
@@ -618,19 +654,73 @@ class BounceHandler
      * dropped rather than being treated as a brand-new bounce and forwarded
      * again.
      *
-     * Mirrors extractOriginalSender()'s own approach of searching only from
-     * the first message/rfc822 marker onward — a standard bounce carries the
-     * original message as a message/rfc822 part after the human-readable
-     * explanation and delivery-status parts, so this can't accidentally match
-     * something in the outer bounce's own headers instead.
+     * Searches only from findQuotedOriginalOffset() onward — a standard
+     * bounce carries the original message (however it's quoted) after the
+     * human-readable explanation and delivery-status parts, so this can't
+     * accidentally match something in the outer bounce's own headers
+     * instead.
      */
     private function isBounceOnOwnNotification(string $rawMime): bool
     {
-        $pos = stripos($rawMime, 'message/rfc822');
-        if ($pos === false) {
+        $pos = $this->findQuotedOriginalOffset($rawMime);
+        if ($pos === null) {
             return false;
         }
         return $this->headerFilter->readHeader(substr($rawMime, $pos), NotificationMailer::AUTO_HEADER) !== null;
+    }
+
+    /**
+     * True if the quoted original message's own headers — the message this
+     * bounce is reporting on, not the bounce's own outer headers — carry a
+     * positive SpamAssassin-style spam-classification header
+     * (`X-Spam-Flag: YES` or `X-Spam-Status: Yes`). Both are SpamAssassin's
+     * own conventions, but widely emulated across many self-hosted and
+     * hosted mail systems (Rspamd included, in compatibility mode) — not
+     * specific to any one provider. Confirmed live: web.de's own inbound
+     * filter tags a rejected message this way *before* generating the
+     * bounce, then echoes the (now-tagged) original headers back via a
+     * `text/rfc822-headers` part.
+     *
+     * Only the header's *value* counts, not merely its presence — "NO" is
+     * exactly as common as "YES", and the header *name* itself already
+     * contains the substring "spam" regardless of value, so a naive
+     * presence check (or blindly concatenating this text into what
+     * SpamRejectionDetector::containsSpamIndicator() scans) would treat
+     * `X-Spam-Flag: NO` as a positive match too.
+     *
+     * Scoped to *after* findQuotedOriginalOffset() specifically because the
+     * outer bounce carries its own, unrelated spam-flag header — confirmed
+     * live as a real, easy-to-conflate gotcha in this exact production
+     * bounce: the outer DSN had `X-Spam-Flag: NO` (web.de's own opinion of
+     * the notification *it* was sending out) while the quoted original had
+     * `X-Spam-Flag: YES` (web.de's opinion of the message that actually got
+     * rejected) — reading the *first* occurrence anywhere in the raw text,
+     * as HeaderFilter::readHeader() normally does, would have found the
+     * wrong one here.
+     *
+     * No separate authentication of its own is needed: this is just another
+     * piece of content inside a bounce whose *origin* (not its content) is
+     * already gated by the null-envelope/isDkimAuthenticated()/
+     * isFromTrustedRelay() checks in applyAutomaticAction() before
+     * classification ever runs — same trust boundary Diagnostic-Code/Status
+     * already rely on.
+     */
+    private function hasQuotedSpamFlag(string $rawMime): bool
+    {
+        $pos = $this->findQuotedOriginalOffset($rawMime);
+        if ($pos === null) {
+            return false;
+        }
+
+        $quoted = substr($rawMime, $pos);
+        foreach (['X-Spam-Flag', 'X-Spam-Status'] as $header) {
+            $value = $this->headerFilter->readHeader($quoted, $header);
+            if ($value !== null && stripos(trim($value), 'yes') === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -763,12 +853,24 @@ class BounceHandler
      * alone carries what BounceCauseClassifier needs — so classification
      * gets both, while the owner notice still shows only the more readable
      * one.
+     *
+     * A third source, hasQuotedSpamFlag(), covers bounces whose
+     * Diagnostic-Code/Status carry nothing classifiable at all — confirmed
+     * live: a web.de bounce's own delivery-status part had only the
+     * generic, uninformative `Status: 5.0.0` ("other/undefined", RFC 3463
+     * §3.8) with no Diagnostic-Code at all, yet the *quoted original*
+     * message's own headers (see hasQuotedSpamFlag()'s docblock) carried a
+     * clear `X-Spam-Flag: YES`. Appending the literal word "spam" on a
+     * positive match reuses SpamRejectionDetector::containsSpamIndicator()
+     * — already checked first by BounceCauseClassifier — with no change
+     * needed there at all.
      */
     private function extractClassificationText(string $rawMime): ?string
     {
         $diagnostic = $this->headerFilter->readHeader($rawMime, 'Diagnostic-Code');
         $status     = $this->headerFilter->readHeader($rawMime, 'Status');
-        $combined   = trim(($diagnostic ?? '') . ' ' . ($status ?? ''));
+        $spamFlag   = $this->hasQuotedSpamFlag($rawMime) ? 'spam' : null;
+        $combined   = trim(($diagnostic ?? '') . ' ' . ($status ?? '') . ' ' . ($spamFlag ?? ''));
         return $combined === '' ? null : $combined;
     }
 
@@ -790,16 +892,17 @@ class BounceHandler
 
     /**
      * Who originally posted the mail that bounced — read from the From: header
-     * of the *attached original message*, not the outer bounce's own From:
+     * of the *quoted original message*, not the outer bounce's own From:
      * (typically MAILER-DAEMON@..., not useful here). A standard bounce carries
-     * the original message as a message/rfc822 part after the human-readable
-     * explanation and delivery-status parts, so searching for the first From:
-     * header only from that point onward skips the outer one.
+     * the original message (however it's quoted, see
+     * findQuotedOriginalOffset()) after the human-readable explanation and
+     * delivery-status parts, so searching for the first From: header only
+     * from that point onward skips the outer one.
      */
     private function extractOriginalSender(string $rawMime): ?string
     {
-        $pos = stripos($rawMime, 'message/rfc822');
-        if ($pos === false) {
+        $pos = $this->findQuotedOriginalOffset($rawMime);
+        if ($pos === null) {
             return null;
         }
         return $this->headerFilter->readHeader(substr($rawMime, $pos), 'From');
