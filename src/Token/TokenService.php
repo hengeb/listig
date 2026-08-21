@@ -21,6 +21,7 @@ class TokenService
 
     private const string TYPE_STRING = "\x00";
     private const string TYPE_INT = "\x01";
+    private const string TYPE_NULL = "\x02";
 
     /**
      * @param string $hmacKey Purpose-scoped subkey derived from APP_SECRET via
@@ -37,14 +38,13 @@ class TokenService
      * Signs an arbitrary, purpose-specific payload. Callers decide what goes in
      * $payload and in what order — TokenService only cares about $purpose (checked
      * on verify) and the timestamp (for the caller-supplied max age). Every value
-     * must be string|int (see encodePayload()) — TokenService still has no notion
-     * of what any of it *means*, only how to serialize string|int compactly.
+     * must be string|int|null (see encodePayload()) — TokenService still has no
+     * notion of what any of it *means*, only how to serialize those compactly.
      */
     public function sign(string $purpose, mixed ...$payload): string
     {
         $data = self::encodePayload([$purpose, time(), ...$payload]);
-        $encoded = rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
-        return $encoded . '.' . $this->truncatedHmac($data);
+        return rtrim(strtr(base64_encode($data . $this->truncatedHmac($data)), '+/', '-_'), '=');
     }
 
     /**
@@ -53,26 +53,30 @@ class TokenService
      */
     public function verify(string $token, string $expectedPurpose, int $maxAge): array
     {
-        $parts = explode('.', $token, 2);
-        if (count($parts) !== 2) {
+        $decoded = base64_decode(strtr($token, '-_', '+/'));
+        if ($decoded === false || strlen($decoded) < self::HMAC_BYTES) {
             throw new \InvalidArgumentException('Invalid token format');
         }
 
-        [$encoded, $hmac] = $parts;
-
-        $data = base64_decode(strtr($encoded, '-_', '+/'));
-        if ($data === false) {
-            throw new \InvalidArgumentException('Invalid token encoding');
-        }
+        // No separator between the payload and its signature — HMAC_BYTES is
+        // fixed, so the signature is always exactly the last HMAC_BYTES bytes
+        // once base64-decoded, with everything before it being the payload.
+        // An earlier version joined the two halves' own separate base64
+        // encodings with a "." — dropping that (and the second, independent
+        // base64-rounding-up it implied) shaves a few more bytes off every
+        // token, meaningful for the ones embedded in an email address
+        // local-part — see CLAUDE.md "Token Format".
+        $data = substr($decoded, 0, -self::HMAC_BYTES);
+        $hmac = substr($decoded, -self::HMAC_BYTES);
 
         if (!hash_equals($this->truncatedHmac($data), $hmac)) {
             throw new \InvalidArgumentException('Invalid token signature');
         }
 
-        $decoded = self::decodePayload($data);
+        $payload = self::decodePayload($data);
 
-        $purpose = $decoded[0] ?? null;
-        $issuedAt = $decoded[1] ?? null;
+        $purpose = $payload[0] ?? null;
+        $issuedAt = $payload[1] ?? null;
         if (!is_string($purpose) || !is_int($issuedAt)) {
             throw new \InvalidArgumentException('Invalid token payload');
         }
@@ -85,36 +89,40 @@ class TokenService
             throw new \InvalidArgumentException('Token expired');
         }
 
-        return array_slice($decoded, 2);
+        return array_slice($payload, 2);
     }
 
     /**
-     * Truncated (HMAC_BYTES) HMAC-SHA256 over $data, base64url-encoded (no
-     * padding — HMAC_BYTES is a multiple of 3, so none is ever needed)
-     * rather than hex. Same number of underlying security bits either way —
-     * base64 just packs 6 bits/character against hex's 4, so this costs
-     * noticeably fewer characters for the same truncated byte length (16 vs
-     * 24 characters at HMAC_BYTES=12) — meaningful for tokens embedded in an
-     * email address local-part, see CLAUDE.md "Token Format".
+     * Truncated (HMAC_BYTES), raw-binary HMAC-SHA256 over $data — the
+     * *whole* token (payload + this) is base64url-encoded together by
+     * sign()/verify(), not this in isolation, so no encoding happens here;
+     * see CLAUDE.md "Token Format" for why HMAC_BYTES=12 (96 bits) rather
+     * than the full 32-byte digest.
      */
     private function truncatedHmac(string $data): string
     {
-        $raw = hash_hmac('sha256', $data, $this->hmacKey, true);
-        return rtrim(strtr(base64_encode(substr($raw, 0, self::HMAC_BYTES)), '+/', '-_'), '=');
+        return substr(hash_hmac('sha256', $data, $this->hmacKey, true), 0, self::HMAC_BYTES);
     }
 
     /**
-     * Compact, purpose-agnostic binary encoding for a flat list of string|int
-     * values — replaces an earlier JSON+base64 encoding, which was confirmed
-     * live to make several tokens (bounce/accept/reject, embedded in an email
-     * address local-part) exceed RFC 5321's 64-byte local-part limit for
-     * anything but the shortest list names. Each value is tagged with its own
-     * type byte (TYPE_STRING/TYPE_INT) so decodePayload() can read a stream of
-     * mixed string|int values with no schema known in advance — the same
-     * "TokenService doesn't hardcode a payload shape" property the previous
-     * JSON encoding had, just far less verbose: no quoting/braces/commas, and
-     * an integer costs only as many bytes as its actual magnitude needs
-     * (encodeVarint()) instead of up to 10 ASCII digits.
+     * Compact, purpose-agnostic binary encoding for a flat list of
+     * string|int|null values — replaces an earlier JSON+base64 encoding,
+     * which was confirmed live to make several tokens (bounce/accept/reject,
+     * embedded in an email address local-part) exceed RFC 5321's 64-byte
+     * local-part limit for anything but the shortest list names. Each value
+     * is tagged with its own type byte (TYPE_STRING/TYPE_INT/TYPE_NULL) so
+     * decodePayload() can read a stream of mixed values with no schema known
+     * in advance — the same "TokenService doesn't hardcode a payload shape"
+     * property the previous JSON encoding had, just far less verbose: no
+     * quoting/braces/commas, and an integer costs only as many bytes as its
+     * actual magnitude needs (encodeVarint()) instead of up to 10 ASCII
+     * digits. TYPE_NULL exists specifically because a caller-optional field
+     * (e.g. ListApiController::requestSubscribe()'s firstname/lastname/
+     * username, `?? null` when the request body omits them, later
+     * distinguished from an explicit empty string by
+     * attributesFromBody()'s own `!== null` filter) needs to round-trip as
+     * genuinely absent, not coerced into some other value — JSON natively
+     * supported `null`, and this encoding needs to too, for the same reason.
      */
     private static function encodePayload(array $values): string
     {
@@ -124,8 +132,10 @@ class TokenService
                 $out .= self::TYPE_INT . self::encodeVarint($value);
             } elseif (is_string($value)) {
                 $out .= self::TYPE_STRING . self::encodeVarint(strlen($value)) . $value;
+            } elseif ($value === null) {
+                $out .= self::TYPE_NULL;
             } else {
-                throw new \InvalidArgumentException('TokenService payload values must be string or int');
+                throw new \InvalidArgumentException('TokenService payload values must be string, int, or null');
             }
         }
         return $out;
@@ -148,6 +158,8 @@ class TokenService
                 $offset += $strLen;
             } elseif ($type === self::TYPE_INT) {
                 $values[] = self::decodeVarint($data, $offset);
+            } elseif ($type === self::TYPE_NULL) {
+                $values[] = null;
             } else {
                 throw new \InvalidArgumentException('Invalid token payload');
             }

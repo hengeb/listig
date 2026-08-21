@@ -135,7 +135,8 @@ class QueueSender
             // (RFC 5321's 64-byte limit), so the list-mismatch sanity check
             // uses a short fingerprint instead of the (unboundedly long) raw
             // list name.
-            $bounceToken = $this->tokenService->sign('bounce', ListFingerprint::of($listCn), $recipientId);
+            // 'b' — short token purpose code, see CLAUDE.md "Token Format".
+            $bounceToken = $this->tokenService->sign('b', ListFingerprint::of($listCn), $recipientId);
             $bounceFrom = "{$list->localPart}+bounce+{$bounceToken}@{$list->domain}";
 
             $mailer->send(

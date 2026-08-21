@@ -33,9 +33,16 @@ class TokenServiceTest extends TestCase
 
     public function testVerifyRejectsTamperedPayload(): void
     {
+        // No "." separator between payload and signature anymore (see
+        // TokenService::verify()) — tamper by flipping a byte inside the
+        // decoded payload portion directly, leaving the trailing HMAC_BYTES
+        // (the signature) untouched, so this exercises a genuine
+        // payload/signature mismatch rather than a malformed-token case.
         $token = $this->tokenService->sign('login', 'mylist', 'alice');
-        [$encoded, $hmac] = explode('.', $token, 2);
-        $tampered = $encoded . 'X' . '.' . $hmac;
+        $decoded = base64_decode(strtr($token, '-_', '+/'));
+        $decoded[0] = chr(ord($decoded[0]) ^ 0xFF);
+        $tampered = rtrim(strtr(base64_encode($decoded), '+/', '-_'), '=');
+
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid token signature');
         $this->tokenService->verify($tampered, 'login', 300);
@@ -52,9 +59,12 @@ class TokenServiceTest extends TestCase
 
     public function testVerifyRejectsMalformedToken(): void
     {
+        // Too short to even contain the trailing HMAC_BYTES-byte signature
+        // once base64-decoded — must be rejected before any signature
+        // comparison is attempted at all, not just fail one.
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid token format');
-        $this->tokenService->verify('not-a-valid-token-at-all', 'login', 300);
+        $this->tokenService->verify('x', 'login', 300);
     }
 
     public function testVerifyRejectsExpiredToken(): void
@@ -67,7 +77,7 @@ class TokenServiceTest extends TestCase
         $data = $encodePayload->invoke(null, ['login', time() - 1000, 'mylist', 'alice']);
         $truncatedHmac = new \ReflectionMethod(TokenService::class, 'truncatedHmac');
         $hmac = $truncatedHmac->invoke($this->tokenService, $data);
-        $token = rtrim(strtr(base64_encode($data), '+/', '-_'), '=') . '.' . $hmac;
+        $token = rtrim(strtr(base64_encode($data . $hmac), '+/', '-_'), '=');
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Token expired');
@@ -77,10 +87,10 @@ class TokenServiceTest extends TestCase
     public function testTokenIsUrlSafe(): void
     {
         // Sign something whose base64 would normally contain '+'/'/' — confirm the
-        // token string contains only URL-safe characters plus the '.' separator.
-        // Both halves (payload and truncated HMAC) are base64url now, not hex.
+        // token string contains only URL-safe characters. Payload and truncated
+        // HMAC are base64url-encoded together now, with no separator at all.
         $token = $this->tokenService->sign('login', str_repeat('x', 50));
-        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/', $token);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]+$/', $token);
     }
 
     public function testDifferentPurposesWithSamePayloadShapeAreNotInterchangeable(): void
@@ -97,6 +107,18 @@ class TokenServiceTest extends TestCase
         $token = $this->tokenService->sign('accept', 'mylist', 42, 12345);
         $payload = $this->tokenService->verify($token, 'accept', 300);
         $this->assertSame(['mylist', 42, 12345], $payload);
+    }
+
+    public function testNullPayloadValueRoundTrips(): void
+    {
+        // ListApiController::requestSubscribe() signs firstname/lastname/
+        // username as `$body['firstname'] ?? null` — an omitted field must
+        // round-trip as genuinely null, not coerce into e.g. an empty
+        // string, since attributesFromBody() later distinguishes the two
+        // (`!== null` filter) to decide whether to set the attribute at all.
+        $token = $this->tokenService->sign('subscribe', 'mylist', 'alice@example.org', null, null, null);
+        $payload = $this->tokenService->verify($token, 'subscribe', 300);
+        $this->assertSame(['mylist', 'alice@example.org', null, null, null], $payload);
     }
 
     public function testLargeIntegerRoundTrips(): void

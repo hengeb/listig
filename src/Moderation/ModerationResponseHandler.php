@@ -24,6 +24,17 @@ class ModerationResponseHandler
 {
     private const TOKEN_MAX_AGE = 7 * 24 * 3600;
 
+    /**
+     * Maps the address-derived purpose word (detectAction()'s own
+     * "accept"|"reject" capture, from the visible +accept-/+reject- tag,
+     * which stays the full word) to the short code ModerationMailer actually
+     * signed into the token itself — see CLAUDE.md "Token Format" for why
+     * the two differ. $purpose (the full word) is still used for the
+     * accept-vs-reject dispatch below and in error_log messages; only the
+     * value passed to TokenService::verify() needs translating.
+     */
+    private const array TOKEN_PURPOSE_MAP = ['accept' => 'a', 'reject' => 'r'];
+
     public function __construct(
         private readonly PDO $db,
         private readonly TokenService $tokenService,
@@ -50,9 +61,10 @@ class ModerationResponseHandler
         }
 
         [$purpose, $token] = $action;
+        $tokenPurpose = self::TOKEN_PURPOSE_MAP[$purpose] ?? $purpose;
 
         try {
-            $payload = $this->tokenService->verify($token, $purpose, self::TOKEN_MAX_AGE);
+            $payload = $this->tokenService->verify($token, $tokenPurpose, self::TOKEN_MAX_AGE);
         } catch (\InvalidArgumentException $e) {
             error_log("Listig: Invalid moderation $purpose token for list {$list->name}: " . $e->getMessage());
             return true;

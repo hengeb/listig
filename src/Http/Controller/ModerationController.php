@@ -123,9 +123,10 @@ class ModerationController
 
         // Same sandboxed-iframe-has-no-session-cookie problem as the archive
         // viewer's frame() — see its own comment. A distinct token purpose
-        // ('moderation-attachment', not 'archive-attachment') keeps the two
-        // grants from being replayable against each other.
-        $attachmentToken = $this->tokenService->sign('moderation-attachment', $list->name, (string) $item['id']);
+        // ('m', not archive-attachment's 'v') keeps the two grants from being
+        // replayable against each other — see CLAUDE.md "Token Format" for
+        // the short-purpose-code convention.
+        $attachmentToken = $this->tokenService->sign('m', $list->name, (string) $item['id']);
 
         $bodyHtml = null;
         if ($mail !== null) {
@@ -244,7 +245,7 @@ class ModerationController
             return false;
         }
         try {
-            [$tokenListCn, $tokenId] = $this->tokenService->verify($token, 'moderation-attachment', 10 * 60);
+            [$tokenListCn, $tokenId] = $this->tokenService->verify($token, 'm', 10 * 60);
         } catch (\InvalidArgumentException) {
             return false;
         }

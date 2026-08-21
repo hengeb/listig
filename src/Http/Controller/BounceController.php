@@ -117,9 +117,10 @@ class BounceController
 
         // Same sandboxed-iframe-has-no-session-cookie problem as the archive
         // viewer's/moderation preview's own frame() — see their comments. Its
-        // own token purpose ('bounce-attachment') keeps this grant from being
-        // replayable against the other two.
-        $attachmentToken = $this->tokenService->sign('bounce-attachment', $list->name, (string) $item['id']);
+        // own token purpose ('n', see CLAUDE.md "Token Format" for the short-
+        // purpose-code convention) keeps this grant from being replayable
+        // against the other two.
+        $attachmentToken = $this->tokenService->sign('n', $list->name, (string) $item['id']);
 
         $bodyHtml = null;
         if ($mail !== null) {
@@ -251,7 +252,7 @@ class BounceController
             return false;
         }
         try {
-            [$tokenListCn, $tokenId] = $this->tokenService->verify($token, 'bounce-attachment', 10 * 60);
+            [$tokenListCn, $tokenId] = $this->tokenService->verify($token, 'n', 10 * 60);
         } catch (\InvalidArgumentException) {
             return false;
         }

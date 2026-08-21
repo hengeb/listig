@@ -104,8 +104,9 @@ class ListController
         $unsubscribeLink = null;
         if ($isMember && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
             $member = $list->findMemberInList($userEmail);
+            // 'u' — short token purpose code, see CLAUDE.md "Token Format".
             $token = $this->tokenService->sign(
-                'unsubscribe',
+                'u',
                 $list->name,
                 $member?->attributes['username'] ?? $userEmail,
             );

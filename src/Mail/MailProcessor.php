@@ -87,7 +87,8 @@ class MailProcessor
             $this->bodyPersonalizer->personalize($recipientEmail, $recipientContexts, $personalizeKeys);
             $this->footerAppender->append($recipientEmail, $list, $recipientContexts);
 
-            $token          = $this->tokenService->sign('unsubscribe', $list->name, $recipient->attributes['username'] ?? $recipient->email);
+            // 'u' — short token purpose code, see CLAUDE.md "Token Format".
+            $token          = $this->tokenService->sign('u', $list->name, $recipient->attributes['username'] ?? $recipient->email);
             $unsubscribeUrl = "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}";
             $recipientEmail->getHeaders()->remove('list-unsubscribe');
             $recipientEmail->getHeaders()->addTextHeader('List-Unsubscribe', "<{$unsubscribeUrl}>");

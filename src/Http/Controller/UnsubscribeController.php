@@ -33,7 +33,7 @@ class UnsubscribeController
         $token = $request->getQueryParams()['token'] ?? '';
 
         try {
-            $payload = $this->tokenService->verify($token, 'unsubscribe', self::UNSUBSCRIBE_TOKEN_MAX_AGE);
+            $payload = $this->tokenService->verify($token, 'u', self::UNSUBSCRIBE_TOKEN_MAX_AGE);
         } catch (\InvalidArgumentException $e) {
             // No list known yet (token may not even decode) — use the global default locale.
             $key = $e->getMessage() === 'Token expired' ? 'unsubscribe.token_expired' : 'unsubscribe.token_invalid';

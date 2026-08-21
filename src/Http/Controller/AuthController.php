@@ -86,7 +86,8 @@ class AuthController
             if ($found !== null) {
                 ['list' => $list, 'member' => $member] = $found;
                 try {
-                    $token = $this->tokenService->sign('login', $list->name, $member->attributes['username'] ?? $email);
+                    // 'l' — short token purpose code, see CLAUDE.md "Token Format".
+                    $token = $this->tokenService->sign('l', $list->name, $member->attributes['username'] ?? $email);
                     $link = "https://{$this->hostname}/_/login/verify?token={$token}";
                     $this->sendLoginMail($list, $member, $email, $link);
                     $this->logger->debug("Listig: login link sent to $email for list {$list->name}", $list->logLevel);
@@ -113,7 +114,7 @@ class AuthController
         $token = $request->getQueryParams()['token'] ?? '';
 
         try {
-            $payload = $this->tokenService->verify($token, 'login', self::LOGIN_TOKEN_MAX_AGE);
+            $payload = $this->tokenService->verify($token, 'l', self::LOGIN_TOKEN_MAX_AGE);
         } catch (\InvalidArgumentException $e) {
             $_SESSION['flash'] = $this->translator->trans(
                 $e->getMessage() === 'Token expired' ? 'auth.link_expired' : 'auth.link_invalid'

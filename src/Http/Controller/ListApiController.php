@@ -120,8 +120,9 @@ class ListApiController
         // Always rate limit and return the same response regardless of outcome.
         if (!$this->rateLimiter->isExceeded($listName, $mail, self::MAX_SUBSCRIBE_REQUESTS_PER_10MIN)) {
             try {
+                // 's' — short token purpose code, see CLAUDE.md "Token Format".
                 $token = $this->tokenService->sign(
-                    'subscribe',
+                    's',
                     $listName,
                     $mail,
                     $body['firstname'] ?? null,
@@ -143,7 +144,7 @@ class ListApiController
         $token = $request->getQueryParams()['token'] ?? '';
 
         try {
-            $payload = $this->tokenService->verify($token, 'subscribe', self::SUBSCRIBE_TOKEN_MAX_AGE);
+            $payload = $this->tokenService->verify($token, 's', self::SUBSCRIBE_TOKEN_MAX_AGE);
         } catch (\InvalidArgumentException $e) {
             $key = $e->getMessage() === 'Token expired' ? 'subscribe.token_expired' : 'subscribe.token_invalid';
             return $this->renderConfirm($response, $key, false);

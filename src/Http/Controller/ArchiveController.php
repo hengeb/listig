@@ -239,7 +239,8 @@ class ArchiveController
         // login. attachment() accepts this signed, mail-scoped token as a fallback
         // grant for exactly that case (see attachment()) — checkAccess() above
         // already confirmed access once for this same request.
-        $attachmentToken = $this->tokenService->sign('archive-attachment', $list->name, (string) $row['id']);
+        // 'v' — short token purpose code, see CLAUDE.md "Token Format".
+        $attachmentToken = $this->tokenService->sign('v', $list->name, (string) $row['id']);
 
         $bodyHtml = null;
         if ($mail !== null) {
@@ -427,7 +428,7 @@ class ArchiveController
         try {
             [$tokenListCn, $tokenMailId] = $this->tokenService->verify(
                 $token,
-                'archive-attachment',
+                'v',
                 self::ARCHIVE_ATTACHMENT_TOKEN_MAX_AGE,
             );
         } catch (\InvalidArgumentException) {

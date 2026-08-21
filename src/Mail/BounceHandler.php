@@ -358,7 +358,7 @@ class BounceHandler
         }
 
         try {
-            [$listFingerprint, $recipientId] = $this->tokenService->verify($token, 'bounce', QueueSender::BOUNCE_TOKEN_MAX_AGE);
+            [$listFingerprint, $recipientId] = $this->tokenService->verify($token, 'b', QueueSender::BOUNCE_TOKEN_MAX_AGE);
         } catch (\InvalidArgumentException $e) {
             error_log("Listig: Invalid bounce token for list {$list->name}: " . $e->getMessage());
             return null;
@@ -397,7 +397,10 @@ class BounceHandler
     {
         foreach (['To', 'Delivered-To', 'X-Original-To'] as $header) {
             $value = $this->headerFilter->readHeader($rawMime, $header);
-            if ($value !== null && preg_match('/\+bounce\+([A-Za-z0-9_.\-]+)@/', $value, $m)) {
+            // Token character class is base64url only (A-Za-z0-9_-) — no "."
+            // anymore now that TokenService joins payload+signature into a
+            // single base64 blob (see "Token Format").
+            if ($value !== null && preg_match('/\+bounce\+([A-Za-z0-9_\-]+)@/', $value, $m)) {
                 return $m[1];
             }
         }

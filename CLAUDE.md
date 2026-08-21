@@ -2167,8 +2167,8 @@ same `APP_SECRET`-derived key the running application uses to decrypt.
 ## Token Format
 
 `TokenService` does not hardcode a payload shape — `sign()` takes a purpose plus an
-arbitrary, purpose-specific argument list of `string|int` values; `verify()` hands the
-same list back for the caller to destructure. This keeps the token generic: adding a
+arbitrary, purpose-specific argument list of `string|int|null` values; `verify()` hands
+the same list back for the caller to destructure. This keeps the token generic: adding a
 new purpose, or new data to an existing one, never requires touching `TokenService`
 itself.
 
@@ -2179,8 +2179,8 @@ not with `APP_SECRET` directly.
 ```php
 // TokenService::sign(string $purpose, mixed ...$payload): string
 $data  = encodePayload([$purpose, time(), ...$payload]); // compact binary, not JSON — see below
-$hmac  = base64UrlEncode(substr(hash_hmac('sha256', $data, $hmacKey, true), 0, 12)); // 96-bit truncated, not the full 256
-$token = rtrim(strtr(base64_encode($data), '+/', '-_'), '=') . '.' . $hmac;
+$hmac  = substr(hash_hmac('sha256', $data, $hmacKey, true), 0, 12); // 96-bit truncated, raw bytes
+$token = rtrim(strtr(base64_encode($data . $hmac), '+/', '-_'), '='); // payload + signature, ONE base64 blob, no separator
 
 // TokenService::verify(string $token, string $expectedPurpose, int $maxAge): array
 // — returns the payload passed to sign(), in the same order. Throws on invalid
@@ -2193,14 +2193,33 @@ preventing a token issued for one purpose (and its mail-header/link exposure) fr
 replayed for another. `$maxAge` is likewise supplied by the caller, not baked into
 `TokenService` — expiry is a policy decision for each call site, not the token itself.
 
-### Compact encoding and truncated signature
+### Compact encoding, truncated signature, no separator
 
-Confirmed live as a real, not just theoretical, problem: the original design (`json_encode()` the payload, then a full, untruncated hex HMAC-SHA256 digest) made `bounce`/`accept`/`reject` tokens — the three embedded directly in an email address local-part (`{list->localPart}+bounce+{TOKEN}@...`, `+accept-{TOKEN}@...`, `+reject-{TOKEN}@...`) — exceed RFC 5321's 64-byte local-part limit for anything but the very shortest list names, sometimes by a wide margin (well over 100 bytes for `accept`/`reject`). Two independent changes fixed this, both applied uniformly to every purpose (not just the three that needed it, for consistency and because shorter tokens are a nice-to-have for the URL-embedded purposes too):
+Confirmed live as a real, not just theoretical, problem: the original design (`json_encode()` the payload, then a full, untruncated hex HMAC-SHA256 digest, joined with a `.`) made `bounce`/`accept`/`reject` tokens — the three embedded directly in an email address local-part (`{list->localPart}+bounce+{TOKEN}@...`, `+accept-{TOKEN}@...`, `+reject-{TOKEN}@...`) — exceed RFC 5321's 64-byte local-part limit for anything but the very shortest list names, sometimes by a wide margin (well over 100 bytes for `accept`/`reject`). Three independent changes fixed this, all applied uniformly to every purpose (not just the three that needed it, for consistency and because shorter tokens are a nice-to-have for the URL-embedded purposes too):
 
-1. **Compact binary payload encoding, not JSON.** Each `string|int` value gets a 1-byte type tag (`TokenService::TYPE_STRING`/`TYPE_INT`) followed by an unsigned LEB128 varint (`encodeVarint()`/`decodeVarint()` — 7 payload bits per byte, high bit = "more bytes follow") for either the string's byte length or the integer's own value. This keeps the same "no payload shape known in advance" property the JSON encoding had (`decodePayload()` reads a stream of tagged values with no schema), while costing far fewer bytes: no quoting/braces/commas, and — the larger win — an integer costs only as many bytes as its actual magnitude needs (e.g. 1-2 bytes for a small ID) instead of up to 10 ASCII digits for a Unix timestamp.
-2. **Truncated, base64-encoded HMAC, not a full hex digest.** `TokenService::HMAC_BYTES = 12` (96 bits) — RFC 2104/NIST SP 800-107 both explicitly allow a truncated MAC as long as the remaining length still gives an adequate security margin against forgery; 96 bits is comfortably beyond any realistic brute-force capability even across a token's full multi-day validity window. The truncated bytes are base64url-encoded (`truncatedHmac()`), not hex — same underlying security bits either way, but base64 packs 6 bits/character against hex's 4, so the same 12 bytes costs 16 characters instead of 24.
+1. **Compact binary payload encoding, not JSON.** Each `string|int|null` value gets a 1-byte type tag (`TokenService::TYPE_STRING`/`TYPE_INT`/`TYPE_NULL`) followed — for `string`/`int` — by an unsigned LEB128 varint (`encodeVarint()`/`decodeVarint()` — 7 payload bits per byte, high bit = "more bytes follow") for either the string's byte length or the integer's own value; `null` needs no further bytes at all, just its own type tag. This keeps the same "no payload shape known in advance" property the JSON encoding had (`decodePayload()` reads a stream of tagged values with no schema), while costing far fewer bytes: no quoting/braces/commas, and — the larger win — an integer costs only as many bytes as its actual magnitude needs (e.g. 1-2 bytes for a small ID) instead of up to 10 ASCII digits for a Unix timestamp. `TYPE_NULL` specifically exists because `ListApiController::requestSubscribe()` signs `$body['firstname'] ?? null` (and `lastname`/`username` likewise) — a genuinely absent field, later distinguished from an explicit empty string by `attributesFromBody()`'s own `!== null` filter — which the JSON encoding round-tripped for free but the first version of this binary encoding didn't handle at all (confirmed live: it threw rather than silently mis-encoding, since `encodePayload()` rejects anything that isn't `string`/`int`/`null` outright).
+2. **Truncated HMAC, not a full digest.** `TokenService::HMAC_BYTES = 12` (96 bits) — RFC 2104/NIST SP 800-107 both explicitly allow a truncated MAC as long as the remaining length still gives an adequate security margin against forgery; 96 bits is comfortably beyond any realistic brute-force capability even across a token's full multi-day validity window, especially given none of the token-verifying endpoints are individually rate-limited (only *requesting* a login link is).
+3. **Payload and signature share one base64 blob, no `.` separator.** Since `HMAC_BYTES` is fixed, `verify()` doesn't need a delimiter to find the boundary — it base64-decodes the whole token once, then slices off the last `HMAC_BYTES` bytes as the signature and treats everything before that as the payload. This also means the two pieces round to base64's 3-byte encoding boundary *together* rather than each separately, which — combined with base64 packing 6 bits/character against hex's 4 (hex was the original encoding for the signature; base64 replaced it as part of this same change) — costs noticeably fewer characters than the two-part `payload.hmac` shape ever could.
 
-Together, these took a typical `bounce`/`accept`/`reject` token from well over 100 characters down to roughly 44-50, comfortably inside the local-part budget even with the `+bounce+`/`+accept-`/`+reject-` prefix.
+Together, these took a typical `bounce`/`accept`/`reject` token from well over 100 characters down to roughly 30-35 (see the short purpose codes below for the remaining piece of that reduction), comfortably inside the local-part budget even with the `+bounce+`/`+accept-`/`+reject-` prefix.
+
+### Short purpose codes
+
+Every purpose is signed as a single-character string, not the readable full word — `'b'` not `'bounce'`, `'a'`/`'r'` not `'accept'`/`'reject'`, and so on for every purpose, including the ones with no local-part length constraint at all (query-parameter purposes benefit too, and consistency avoids a "which purposes are abbreviated" special case). `TokenService` needed no changes for this: `$purpose` is still just an arbitrary `string` as far as it's concerned, compared for equality — the short codes are purely a convention each call site's `sign()`/`verify()` pair agrees on, not a registry `TokenService` itself owns (preserving "adding a new purpose never requires touching `TokenService`").
+
+| Full purpose | Code | Used by |
+|---|---|---|
+| login | `l` | `AuthController` |
+| unsubscribe | `u` | `MailProcessor`, `DashboardController`, `ListController` (sign) / `UnsubscribeController` (verify) |
+| accept | `a` | `ModerationMailer` (sign) / `ModerationResponseHandler` (verify) |
+| reject | `r` | `ModerationMailer` (sign) / `ModerationResponseHandler` (verify) |
+| bounce | `b` | `QueueSender::sendOne()` (sign) / `BounceHandler::resolveVerifiedRecipient()` (verify) |
+| subscribe | `s` | `ListApiController` |
+| archive-attachment | `v` | `ArchiveController` |
+| moderation-attachment | `m` | `ModerationController` |
+| bounce-attachment | `n` | `BounceController` |
+
+`accept`/`reject` are the one case where the short code and the *visible* address tag genuinely differ: `ModerationMailer::send()` still builds `{list->localPart}+accept-{TOKEN}@...`/`+reject-{TOKEN}@...` (the full word, unabbreviated — an owner-facing `mailto:` address, not itself byte-constrained the way the token portion is) while signing the token itself with `'a'`/`'r'`. `ModerationResponseHandler::detectAction()` still extracts the full word from that address (`'/' . preg_quote($localPart, '/') . '\+(accept|reject)-(.+?)@/i'`, unchanged) since that's also what drives the accept-vs-reject dispatch and error-log messages elsewhere in `handle()` — only the value actually passed to `TokenService::verify()` needs to match what was signed, so `ModerationResponseHandler::TOKEN_PURPOSE_MAP` (`['accept' => 'a', 'reject' => 'r']`) translates just before that one call, nothing else in the method.
 
 ### `ListFingerprint` — bounding the list name's own contribution
 
@@ -2216,7 +2235,7 @@ This required reordering `ModerationMailer::send()`: the `INSERT INTO moderation
 
 `ModerationResponseHandler::handle()` mirrors this on the verify side: decodes `[ListFingerprint::of($listCn), $itemId]`, checks the fingerprint, then `SELECT id, list_cn, imap_uid, imap_uidvalidity FROM moderation_queue WHERE id = :id` — a single lookup that both resolves the real `imap_uid`/`imap_uidvalidity` (no longer signed into the token at all) and doubles as the exact same idempotency check the old `(list_cn, imap_uid, imap_uidvalidity)`-keyed lookup already provided (a re-sent reminder or a double-click, after the row was already deleted by a prior accept/reject, correctly finds nothing and stops).
 
-Each call site defines its own payload shape and max age, and destructures the same way on both ends:
+Each call site defines its own payload shape and max age, and destructures the same way on both ends — purposes named here by their full, readable word; see the short-code table above for what's actually signed into the token itself:
 
 | Purpose | `sign()` payload | Max age | Used by |
 |---|---|---|---|
@@ -2225,7 +2244,7 @@ Each call site defines its own payload shape and max age, and destructures the s
 | `accept` / `reject` | `ListFingerprint::of($listCn), $moderationQueueId` | 7 days | `ModerationMailer` (sign) / `ModerationResponseHandler` (verify) |
 | `bounce` | `ListFingerprint::of($listCn), $recipientId` (`queue_recipients.id`) | 7 days | `QueueSender::sendOne()` (sign) / `BounceHandler::resolveVerifiedRecipient()` (verify) — see "Automatic bounce actions" |
 
-URL-safe Base64 (`+`→`-`, `/`→`_`, no padding), both halves of the token (payload and truncated HMAC) — safe in mail `+` addresses.
+URL-safe Base64 (`+`→`-`, `/`→`_`, no padding) — the entire token (payload and truncated signature together, see above), safe in mail `+` addresses.
 
 An `accept`/`reject`/`bounce` token rides in an email address's local-part (`{list->localPart}+accept-{TOKEN}@{list->domain}`, `{list->localPart}+bounce+{TOKEN}@{list->domain}`, see Moderation / "Automatic bounce actions") — `PhpImap\Mailbox` parses every recipient address through `mb_strtolower()` before the app ever sees it (`possiblyGetEmailAndNameFromRecipient()`), which would corrupt a mixed-case base64 token if the token were read from `$mail->to`/`$mail->cc`. Rather than change the token encoding (base64 is kept, unchanged, for all purposes), `ModerationResponseHandler::detectAction()`/`BounceHandler::extractBounceToken()` both read the address straight out of the raw, unparsed header instead (`HeaderFilter::readHeader($mail->headersRaw, 'To')` and, for a bounce, also `Delivered-To`/`X-Original-To` as fallbacks) — case exactly as the sending mail client/server wrote it — and regex-match against that string directly, never touching the lowercased `$mail->to`/`$mail->cc` arrays for this purpose. Confirmed live: a real reply's `$mail->to` key showed an all-lowercase token where the raw header still had the original mixed case, and `TokenService::verify()` only succeeds against the latter.
 
