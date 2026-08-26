@@ -17,15 +17,52 @@ use Symfony\Component\Yaml\Yaml;
 final class YamlIncludeResolver
 {
     /**
+     * Realpaths of every file read during the most recent *top-level*
+     * parseFile() call — the top-level file itself plus every !include
+     * target reached from it, in read order. Reset at the start of each
+     * top-level call, detected via `$visited === []` — only a genuine
+     * top-level call ever passes that; every recursive !include call
+     * already has at least the calling file's own key in $visited (see
+     * resolveIncludes()'s `[...$visited, $key]`), so this can't be
+     * mistaken for a fresh top-level parse mid-recursion.
+     *
+     * Exists for bin/worker.php's own config-reload mtime watch (see
+     * CLAUDE.md "Worker loop — config reload"): a change to config.yml
+     * itself is one thing to watch for, but a file spliced in via !include
+     * is just as much a part of "the configuration", and needs the same
+     * restart-on-change treatment — this class is the only place that ever
+     * knows which files those actually were. `ConfigResolver` captures this
+     * list into its own instance state immediately after its own top-level
+     * parseFile() call, specifically so a *later* parseFile() call for an
+     * unrelated purpose (YamlListProvider's own list file, which also goes
+     * through this same resolver) can never silently overwrite it from
+     * underneath a caller that already read it.
+     *
+     * @var string[]
+     */
+    private static array $lastParsedFiles = [];
+
+    /** @return string[] See $lastParsedFiles. */
+    public static function getLastParsedFiles(): array
+    {
+        return self::$lastParsedFiles;
+    }
+
+    /**
      * @param string[] $visited Realpaths of files already in the include chain (cycle detection)
      */
     public static function parseFile(string $path, array $visited = []): mixed
     {
+        if ($visited === []) {
+            self::$lastParsedFiles = [];
+        }
+
         $realPath = realpath($path);
         $key = $realPath !== false ? $realPath : $path;
         if (in_array($key, $visited, true)) {
             throw new \RuntimeException("Circular !include detected: $path");
         }
+        self::$lastParsedFiles[] = $key;
 
         // @-suppressed: a missing/unreadable file is expected here (a typo'd
         // config.yml path, a dangling !include) and handled cleanly via the

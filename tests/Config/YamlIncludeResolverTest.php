@@ -122,4 +122,55 @@ class YamlIncludeResolverTest extends TestCase
         $this->assertSame('alice@example.org', $result['members'][0]);
         $this->assertSame(['mail' => 'extra@example.org'], $result['members'][1]);
     }
+
+    public function testGetLastParsedFilesIncludesTopLevelFileAloneWhenNoIncludes(): void
+    {
+        $path = $this->write('main.yml', "key: value\n");
+        YamlIncludeResolver::parseFile($path);
+        $this->assertSame([realpath($path)], YamlIncludeResolver::getLastParsedFiles());
+    }
+
+    public function testGetLastParsedFilesListsEveryIncludedFile(): void
+    {
+        $extraPath = $this->write('extra.yml', "mail: extra@example.org\n");
+        $path = $this->write('main.yml', "members: !include extra.yml\n");
+
+        YamlIncludeResolver::parseFile($path);
+
+        $this->assertSame([realpath($path), realpath($extraPath)], YamlIncludeResolver::getLastParsedFiles());
+    }
+
+    public function testGetLastParsedFilesListsNestedIncludesAtAnyDepth(): void
+    {
+        mkdir($this->dir . '/sub');
+        file_put_contents($this->dir . '/sub/inner.yml', "value: deeply-nested\n");
+        file_put_contents($this->dir . '/sub/middle.yml', "nested: !include inner.yml\n");
+        $path = $this->write('main.yml', "outer: !include sub/middle.yml\n");
+
+        YamlIncludeResolver::parseFile($path);
+
+        $this->assertSame(
+            [realpath($path), realpath($this->dir . '/sub/middle.yml'), realpath($this->dir . '/sub/inner.yml')],
+            YamlIncludeResolver::getLastParsedFiles(),
+        );
+
+        @unlink($this->dir . '/sub/inner.yml');
+        @unlink($this->dir . '/sub/middle.yml');
+        @rmdir($this->dir . '/sub');
+    }
+
+    public function testGetLastParsedFilesIsResetByANewTopLevelParse(): void
+    {
+        $this->write('extra.yml', "mail: extra@example.org\n");
+        $withInclude = $this->write('main.yml', "members: !include extra.yml\n");
+        YamlIncludeResolver::parseFile($withInclude);
+        $this->assertCount(2, YamlIncludeResolver::getLastParsedFiles());
+
+        // A later, unrelated top-level parse (e.g. YamlListProvider parsing
+        // its own list file through the same resolver) must not leave stale
+        // entries from the previous call mixed in.
+        $simple = $this->write('other.yml', "key: value\n");
+        YamlIncludeResolver::parseFile($simple);
+        $this->assertSame([realpath($simple)], YamlIncludeResolver::getLastParsedFiles());
+    }
 }

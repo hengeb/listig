@@ -609,6 +609,10 @@ A `type: subaddress` list forwards mail sent to `{local-part}+{subaddress}@{doma
 Third top-level key in `config.yml`, alongside the root config and `list-providers`. Globally *configured* — one `filters:` list applies to every list — but each mail is checked against it together with the specific list it was sent to, since a rule's pattern may reference that list's own `{}` variables (see below). Checked by `IncomingMailFilter` for every incoming mail on every list (see "IncomingMailFilter — check order"). Implemented by `Hengeb\Listig\Mail\SpamFilter`, constructed from `ConfigResolver::getFilters()`.
 
 ```yaml
+filters-default-action: discard   # optional root key — the action a rule falls back to when it
+                                   # sets no action: of its own (default: reject if this key is
+                                   # absent too — the original, pre-existing behavior)
+
 filters:
   - subject: abc                  # str_contains(strtolower($subject), 'abc') — case-insensitive
   - subject: def
@@ -620,14 +624,14 @@ filters:
   - to: foo                       # a multi-key entry ANDs its conditions — this rule only
     subject: bar                  # matches a mail whose To *and* Subject both match
   - subject: spam                 # action: discard — mail is silently dropped (marked seen, no
-    from: johnny                  # notice to the sender, unlike the default action: reject).
-    action: discard               # Either action deletes the mail outright, never archives it.
+    from: johnny                  # notice to the sender). Either action deletes the mail
+    action: discard               # outright, never archives it.
   - from: "MAILER-DAEMON@{domain}" # {} variables resolve against the specific list a mail
     to: "{list-mail}"              # was sent to — see "Variable resolution in filter patterns"
 ```
 
 - Each entry is a map with one or more of `subject`, `body`, `from`, `to` as keys, plus an optional `action` key (any other key is a hard error at startup, fail fast, same philosophy as missing `$VAR`s). A single field key is just the common case; when an entry has more than one field key, **all** of that entry's conditions must match (AND) for the entry itself to match — different top-level entries are still ORed against each other (see below). `SpamFilter::normalizeRule()` turns each raw entry into `{conditions, action}`; `match()` returns the first fully-matching entry's action, or `null` if none matched.
-- `action` is `reject` (default — the original, pre-existing behavior) or `discard`. It is **not** a match condition itself — it's read and stripped from the entry before the field keys above are validated/compiled, so it can appear alongside any number of them without affecting what the rule matches on. An entry with only an `action` key and no field key at all (nothing to actually match on) is a hard startup error, same as an entry with zero keys.
+- `action` is `reject` or `discard` — defaulting to whichever `filters-default-action` resolves to (`'app.filters-default-action'` in `config/container.php`, read the same `getResolvedDefault()`-backed way as `language`/`log-level`; unlike `filters:` itself, a plain scalar key needs no special-casing in `ConfigResolver::processConfig()` at all — only *array*-shaped root keys like `filters:`/`lists:` do), itself defaulting to `reject` (the original, pre-existing behavior) if the key is absent too. Validated in `SpamFilter`'s own constructor (not just at the `config/container.php` wiring call site) against the same `SpamFilter::ACTIONS` list a per-rule `action:` is checked against, so a typo'd `filters-default-action` fails the same way an invalid per-rule value already does. `action` is **not** a match condition itself — it's read and stripped from the entry before the field keys above are validated/compiled, so it can appear alongside any number of them without affecting what the rule matches on. An entry with only an `action` key and no field key at all (nothing to actually match on) is a hard startup error, same as an entry with zero keys.
   - `reject`: same reject *notification* pipeline as every other reject reason — `RejectionNotifier` notifies the sender (translation key `reject.spam`, e.g. "Spam message rejected" / "Spam-Nachricht abgelehnt") and the mail is marked seen.
   - `discard`: `FilterResult::discard(forceDelete: true)` — no notice to the sender at all (unlike `reject`), but still marked seen. Distinct from a bare `FilterResult::discard()` (the X-Loop case, `IncomingMailFilter` check 1), which deliberately leaves the mail sitting in the inbox for manual inspection rather than deleting it — named `discard`, not `delete`, for that broader "mail-handling outcome" sense (matching the internal `FilterResult` type), not because of what specifically happens to the IMAP message.
 - **Either action deletes the mail outright** (`ImapArchiver::delete()`) rather than going through `ImapArchiver::archiveOrDelete()` — unlike every other reject reason (auth failure, size, rate limit, ...), a spam-filter match is never worth archiving, regardless of what the list's own `archive:` setting says for everything else; `reject`/`discard` set `FilterResult::$forceDelete = true` specifically for this. Confirmed live: a mail matching a `filters:` rule on a list with `archive: members` was deleted from the inbox outright, not moved into the archive folder the way a `reject.size_exceeded` mail on the same list still is.
@@ -1542,19 +1546,21 @@ What `reset()` does *not* cover: `$this->providerConfig` (a provider's own raw `
 To still catch a `config.yml` structural change without a manual restart, the worker separately watches the file's mtime once per loop iteration and exits cleanly (`exit(0)`) the moment it changes:
 
 ```php
-clearstatcache(true, $configPath);  // filemtime() is cached per-process — without
-                                     // this, every check after the first would keep
-                                     // returning the original mtime forever
-$currentConfigMtime = @filemtime($configPath) ?: null;
-if ($currentConfigMtime !== $configMtime) {
-    error_log('Listig: config.yml changed on disk — restarting worker to reload configuration.');
+clearstatcache(true, $watchedFile);  // filemtime() is cached per-process — without
+                                      // this, every check after the first would keep
+                                      // returning the original mtime forever
+$currentMtime = @filemtime($watchedFile) ?: null;
+if ($currentMtime !== $configMtimes[$i]) {
+    error_log("Listig: $watchedFile changed on disk — restarting worker to reload configuration.");
     exit(0);
 }
 ```
 
 `docker/supervisord.conf`'s `[program:worker]` already has `autorestart=true`, so supervisord immediately restarts the process — which rebuilds the container from scratch, re-parsing `config.yml`'s structure fresh (unlike a provider's own `reset()`, which re-queries the same, unchanged provider config — see above). A full process restart, rather than trying to invalidate the whole container in place, is deliberate: it's simpler, and guarantees a completely consistent state with no risk of a partially-stale `ConfigResolver`.
 
-This mtime watch only fires for `config.yml` itself — a change to a file pulled in via `!include`, or to a `type: yaml` provider's own `file:`, is **not** detected this way (no mechanism reports back which included files were actually read) and does *not* trigger a restart. That's fine for a `type: yaml` provider's `file:` specifically, since its content is re-read every cycle via `reset()` regardless (see above) — but an `!include`d fragment of `config.yml` itself is spliced in once at parse time (`YamlIncludeResolver`, before `reset()` has any effect), so editing *that* file still needs either a restart or a no-op re-save of `config.yml` to pick up.
+This watches every file `ConfigResolver::getIncludedFiles()` returns, not just `config.yml` itself — `config.yml`'s own path is always the first entry (it's `YamlIncludeResolver::parseFile()`'s own top-level call), followed by every file spliced in via `!include`, at any nesting depth. This closes a real, previously-documented gap: a `!include`d fragment of `config.yml` (e.g. `owners: !include config.local.yml`, often used to keep local overrides in a gitignored file) is spliced into the tree once at parse time, before `reset()` has any effect — editing *that* file used to need either a manual restart or a no-op re-save of `config.yml` itself to be picked up at all, silently. `YamlIncludeResolver` is the only place that ever knows which files a given parse actually read (`$lastParsedFiles`, reset at the start of each *top-level* `parseFile()` call — detected via `$visited === []`, which only a genuine top-level call ever passes); `ConfigResolver::__construct()` captures that list into its own instance state immediately after its own top-level call, specifically so a *later*, unrelated `parseFile()` call — `YamlListProvider` parsing its own list file through this same resolver — can never silently clobber it out from under a caller that already read it.
+
+A `type: yaml` provider's own `file:` is deliberately **not** part of this watched set — unlike an `!include`d fragment, its content is already re-read fresh every worker cycle via `reset()` (see above), so watching it for a restart would only cause an unnecessary one: dropping every open IMAP connection and rebuilding the whole container for a change that was already being picked up live, with no restart needed at all.
 
 ```
 loop forever:

@@ -35,11 +35,25 @@ class SpamFilter
     /** @var array<int, array{conditions: array<int, array{field: string, pattern: string, isRegex: bool}>, action: string}> */
     private readonly array $rules;
 
-    /** @param array<int, array<string, mixed>> $rawRules */
+    /**
+     * @param array<int, array<string, mixed>> $rawRules
+     * @param string $defaultAction The action a rule falls back to when it sets
+     *     no `action:` of its own — config.yml's root-level `filters-default-action`
+     *     key ('app.filters-default-action' in config/container.php), 'reject' if
+     *     unset (the original, pre-existing behavior). Validated here, not just at
+     *     the container-wiring call site, so a bad value fails the same way an
+     *     invalid per-rule `action:` already does — see normalizeRule().
+     */
     public function __construct(
         array $rawRules,
         private readonly Logger $logger,
+        private readonly string $defaultAction = 'reject',
     ) {
+        if (!in_array($this->defaultAction, self::ACTIONS, true)) {
+            throw new \RuntimeException(
+                "filters-default-action must be one of: " . implode(', ', self::ACTIONS) . ' (got: ' . json_encode($this->defaultAction) . ')'
+            );
+        }
         $this->rules = array_map($this->normalizeRule(...), $rawRules);
     }
 
@@ -145,16 +159,18 @@ class SpamFilter
             throw new \RuntimeException('Each entry in filters: must have at least one key (subject/body/from/to)');
         }
 
-        // Default 'reject' — the pre-existing behavior, still the common case: notify
-        // the sender and go through the normal reject pipeline (see reject.spam).
-        // 'discard' silently drops the mail instead — marked seen and removed from
-        // the inbox the same way a normal reject is (archived or deleted, per the
-        // list's own archive: setting — see ImapArchiver::archiveOrDelete(), which
-        // is why this isn't called 'delete': it may not delete anything at all),
-        // just with no notice to the sender (e.g. for mail that's confidently spam,
-        // where a rejection notice would itself be unwanted noise, or could
-        // backscatter to a forged sender address).
-        $action = $rawRule['action'] ?? 'reject';
+        // Falls back to $this->defaultAction ('reject' unless the operator set
+        // filters-default-action: discard) when the rule sets no action: of its
+        // own. 'reject' notifies the sender and goes through the normal reject
+        // pipeline (see reject.spam). 'discard' silently drops the mail instead
+        // — marked seen and removed from the inbox the same way a normal reject
+        // is (archived or deleted, per the list's own archive: setting — see
+        // ImapArchiver::archiveOrDelete(), which is why this isn't called
+        // 'delete': it may not delete anything at all), just with no notice to
+        // the sender (e.g. for mail that's confidently spam, where a rejection
+        // notice would itself be unwanted noise, or could backscatter to a
+        // forged sender address).
+        $action = $rawRule['action'] ?? $this->defaultAction;
         if (!is_string($action) || !in_array($action, self::ACTIONS, true)) {
             throw new \RuntimeException(
                 "filters: 'action' must be one of: " . implode(', ', self::ACTIONS) . ' (got: ' . json_encode($action) . ')'

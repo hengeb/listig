@@ -101,6 +101,24 @@ class SpamFilterTest extends TestCase
         new SpamFilter([['subject' => 'x', 'action' => 'not-a-real-action']], $this->logger());
     }
 
+    public function testConfiguredDefaultActionAppliesToRulesWithoutTheirOwn(): void
+    {
+        $filter = new SpamFilter([['subject' => 'spam']], $this->logger(), 'discard');
+        $this->assertSame('discard', $filter->match($this->mailWithSubject('spam mail'), $this->list()));
+    }
+
+    public function testConfiguredDefaultActionDoesNotOverrideARulesOwnAction(): void
+    {
+        $filter = new SpamFilter([['subject' => 'spam', 'action' => 'reject']], $this->logger(), 'discard');
+        $this->assertSame('reject', $filter->match($this->mailWithSubject('spam mail'), $this->list()));
+    }
+
+    public function testInvalidConfiguredDefaultActionThrowsAtConstruction(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        new SpamFilter([['subject' => 'x']], $this->logger(), 'not-a-real-action');
+    }
+
     public function testUnknownFieldThrowsAtConstruction(): void
     {
         $this->expectException(\RuntimeException::class);

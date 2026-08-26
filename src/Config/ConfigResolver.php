@@ -13,6 +13,7 @@ class ConfigResolver
     private array $lists = [];
     private array $globalScopedSources = [];
     private array $reliableSpamReporters = [];
+    private array $includedFiles = [];
 
     /** Root keys forming the global level of the three-level (global/provider/list) member/owner/sender/restriction mechanism — see getGlobalScopedSources(). */
     private const array SCOPED_KEYS = ['members', 'owners', 'member-resolver', 'owner-resolver', 'senders', 'restricted-members'];
@@ -20,11 +21,30 @@ class ConfigResolver
     public function __construct(string $configPath)
     {
         $config = YamlIncludeResolver::parseFile($configPath);
+        // Captured immediately, into our own instance state — not read lazily
+        // later via YamlIncludeResolver::getLastParsedFiles(), since a *later*
+        // parseFile() call for an unrelated purpose (YamlListProvider's own
+        // list file, which shares the same resolver) would otherwise silently
+        // overwrite it out from under us. See YamlIncludeResolver's own
+        // docblock and CLAUDE.md "Worker loop — config reload".
+        $this->includedFiles = YamlIncludeResolver::getLastParsedFiles();
         if (!is_array($config)) {
             throw new \RuntimeException("Invalid config file: $configPath");
         }
 
         $this->processConfig($config);
+    }
+
+    /**
+     * Realpaths of config.yml itself plus every file spliced in via
+     * `!include`, reachable from it at any depth — see
+     * YamlIncludeResolver::$lastParsedFiles for why this exists.
+     *
+     * @return string[]
+     */
+    public function getIncludedFiles(): array
+    {
+        return $this->includedFiles;
     }
 
     /**

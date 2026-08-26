@@ -336,4 +336,35 @@ class ConfigResolverTest extends TestCase
         ]);
         $this->assertSame('explicit', $merged['list-description']);
     }
+
+    // --- getIncludedFiles() (bin/worker.php's own config-reload mtime watch) ---
+
+    public function testGetIncludedFilesContainsOnlyItselfWhenNoIncludes(): void
+    {
+        $resolver = $this->resolverFor("language: de\n");
+        $this->assertCount(1, $resolver->getIncludedFiles());
+    }
+
+    public function testGetIncludedFilesListsAnIncludedFileToo(): void
+    {
+        $dir = sys_get_temp_dir() . '/listig_config_resolver_include_test_' . uniqid();
+        mkdir($dir);
+        $includedPath = $dir . '/local.yml';
+        file_put_contents($includedPath, "owners:\n  - mail: admin@example.org\n");
+        $mainPath = $dir . '/main.yml';
+        file_put_contents($mainPath, "owners: !include local.yml\n");
+
+        try {
+            $resolver = new ConfigResolver($mainPath);
+
+            $this->assertSame(
+                [realpath($mainPath), realpath($includedPath)],
+                $resolver->getIncludedFiles(),
+            );
+        } finally {
+            @unlink($includedPath);
+            @unlink($mainPath);
+            @rmdir($dir);
+        }
+    }
 }

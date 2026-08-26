@@ -7,6 +7,7 @@ use Hengeb\Listig\Archive\ArchiveIndexer;
 use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Imap\ImapArchiver;
 use Hengeb\Listig\Imap\ImapPoller;
+use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\BounceHandler;
 use Hengeb\Listig\Mail\HeaderFilter;
@@ -84,14 +85,18 @@ try {
     exit(1);
 }
 
-// Watched so a change to config.yml on disk (edited in place, or a fresh
-// docker compose up after editing it) causes a clean self-restart instead of
-// running indefinitely on a stale, already-parsed configuration — see "Worker
-// loop — config reload" in CLAUDE.md. clearstatcache() is required: PHP caches
+// Watched so a change to config.yml — or to any file spliced into it via
+// !include — on disk (edited in place, or a fresh docker compose up after
+// editing it) causes a clean self-restart instead of running indefinitely on
+// a stale, already-parsed configuration — see "Worker loop — config reload"
+// in CLAUDE.md. ConfigResolver::getIncludedFiles() already has config.yml's
+// own path as its first entry (YamlIncludeResolver::parseFile()'s top-level
+// call), so that alone is the full watch list — no separate config.path
+// lookup needed. clearstatcache() is required in the loop below: PHP caches
 // filemtime() per-process, so without it every check in this same process
 // would keep returning the mtime from the very first call.
-$configPath  = $container->get('config.path');
-$configMtime = @filemtime($configPath) ?: null;
+$watchedConfigFiles = $container->get(ConfigResolver::class)->getIncludedFiles();
+$configMtimes = array_map(fn(string $path) => @filemtime($path) ?: null, $watchedConfigFiles);
 
 /**
  * Processes a single already-fetched incoming mail through the full filter
@@ -186,17 +191,19 @@ $processIncomingMail = function (
 error_log('Listig worker started');
 
 while (true) {
-    clearstatcache(true, $configPath);
-    $currentConfigMtime = @filemtime($configPath) ?: null;
-    if ($currentConfigMtime !== $configMtime) {
-        error_log('Listig: config.yml changed on disk — restarting worker to reload configuration.');
-        // No ImapMailboxFactory::reset() call needed here (and none existed
-        // here before either) — exit(0) ends the process immediately, and the
-        // OS reclaims every open IMAP socket along with it. supervisord's
-        // autorestart then builds a brand new process (and therefore a brand
-        // new, empty connection cache) from scratch, same as any other
-        // config-reload restart.
-        exit(0);
+    foreach ($watchedConfigFiles as $i => $watchedFile) {
+        clearstatcache(true, $watchedFile);
+        $currentMtime = @filemtime($watchedFile) ?: null;
+        if ($currentMtime !== $configMtimes[$i]) {
+            error_log("Listig: $watchedFile changed on disk — restarting worker to reload configuration.");
+            // No ImapMailboxFactory::reset() call needed here (and none
+            // existed here before either) — exit(0) ends the process
+            // immediately, and the OS reclaims every open IMAP socket along
+            // with it. supervisord's autorestart then builds a brand new
+            // process (and therefore a brand new, empty connection cache)
+            // from scratch, same as any other config-reload restart.
+            exit(0);
+        }
     }
 
     $cycleStart = microtime(true);

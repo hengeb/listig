@@ -214,6 +214,17 @@ $builder->addDefinitions([
         return new Logger(LogLevel::fromString($c->get('app.log-level')));
     },
 
+    // Fallback action for a filters: rule that sets no action: of its own —
+    // config.yml's 'filters-default-action' root key (default 'reject', see
+    // CLAUDE.md "Spam filtering"). Validated inside SpamFilter's own
+    // constructor, not here, so a bad value fails the same way an invalid
+    // per-rule action: already does.
+    'app.filters-default-action' => function (ContainerInterface $c): string {
+        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $raw = $cfg['filters-default-action'] ?? null;
+        return $raw !== null ? VariableResolver::resolve((string) $raw, [$cfg]) : 'reject';
+    },
+
     // Translator — resolves keys from translations/messages.{locale}.yaml, falling
     // back to English for anything missing in the current locale.
     TranslatorInterface::class => function (ContainerInterface $c): TranslatorInterface {
@@ -416,7 +427,11 @@ $builder->addDefinitions([
 
     // Global, list-independent spam filter — rules from the top-level filters: section
     SpamFilter::class => function (ContainerInterface $c): SpamFilter {
-        return new SpamFilter($c->get(ConfigResolver::class)->getFilters(), $c->get(Logger::class));
+        return new SpamFilter(
+            $c->get(ConfigResolver::class)->getFilters(),
+            $c->get(Logger::class),
+            $c->get('app.filters-default-action'),
+        );
     },
 
     IncomingMailFilter::class => function (ContainerInterface $c): IncomingMailFilter {
