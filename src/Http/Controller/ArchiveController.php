@@ -25,6 +25,7 @@ use Latte\Engine;
 use PDO;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Slim\Exception\HttpNotFoundException;
 use Slim\Psr7\Response;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
@@ -70,7 +71,12 @@ class ArchiveController
     {
         $list = $this->listProvider->getList($args['listname']);
         if ($list === null) {
-            return $response->withStatus(404);
+            // A real, human-navigated page (someone opening the archive link
+            // for a stale/mistyped list name) — same reasoning as
+            // ListController::manage()'s identical fix: no privacy trade-off
+            // here, unlike checkAccess()'s own Hidden/Off masquerade below,
+            // which runs *after* this and stays a bare 404 deliberately.
+            throw new HttpNotFoundException($request);
         }
         $denied = $this->checkAccess($request, $list);
         if ($denied !== null) {
@@ -132,7 +138,9 @@ class ArchiveController
     {
         $list = $this->listProvider->getList($args['listname']);
         if ($list === null) {
-            return $response->withStatus(404);
+            // See index()'s identical check just above for why this one gets
+            // a real page instead of a bare 404.
+            throw new HttpNotFoundException($request);
         }
         $denied = $this->checkAccess($request, $list);
         if ($denied !== null) {

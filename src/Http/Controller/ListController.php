@@ -14,7 +14,7 @@ use Latte\Engine;
 use PDO;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Slim\Psr7\Response;
+use Slim\Exception\HttpNotFoundException;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 class ListController
@@ -38,7 +38,22 @@ class ListController
 
         $list = $this->listProvider->getList($listName);
         if ($list === null) {
-            return (new Response())->withStatus(404);
+            // This is the single most public-facing page in the whole app —
+            // {list-url} is embedded in every distributed mail's own
+            // footer/subject-label, sent to every recipient (see
+            // ListConfig::createContext()) — so a stale/mistyped/no-longer-
+            // existing list name here is routine, not an edge case, and
+            // deserves the same real "Not Found" page a genuinely unmatched
+            // route already gets, not a bare, bodyless 404 (confirmed live:
+            // the previous `(new Response())->withStatus(404)` produced a
+            // literally empty page, no explanation at all). Unlike the
+            // archive viewer's own bare 404s (Hidden/Off deliberately
+            // indistinguishable from "doesn't exist", see CLAUDE.md "Archive
+            // viewer"), there is no equivalent privacy reason to stay silent
+            // here — a list either exists or it doesn't, and this route is
+            // already behind AuthMiddleware, so only an authenticated user
+            // ever sees it anyway.
+            throw new HttpNotFoundException($request);
         }
 
         // {list-url} (https://{hostname}/{list-name}) is embedded in every

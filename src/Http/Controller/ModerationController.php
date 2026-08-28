@@ -21,6 +21,7 @@ use PDO;
 use PhpImap\IncomingMailAttachment;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Slim\Exception\HttpNotFoundException;
 use Slim\Psr7\Response;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
@@ -65,7 +66,7 @@ class ModerationController
     public function show(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         $user = $request->getAttribute('user');
-        [$item, $list, $denied] = $this->loadOwnedItem($request, (int) $args['id']);
+        [$item, $list, $denied] = $this->loadOwnedItem($request, (int) $args['id'], notFoundAsException: true);
         if ($denied !== null) {
             return $denied;
         }
@@ -216,17 +217,32 @@ class ModerationController
      * own variant, since it also accepts a token as an alternative to a session
      * — see its own comment).
      *
+     * $notFoundAsException: show() (a real, human-navigated page) passes
+     * true, so a missing item/list throws Slim's own HttpNotFoundException —
+     * the normal, informative 404 page, same fix as
+     * ListController::manage()/ArchiveController::index()/show() for the
+     * identical bug (confirmed live: a bare, bodyless 404 with no
+     * explanation at all). frame() leaves it false and keeps the bare 404 —
+     * it renders inside a sandboxed iframe with no page chrome expected
+     * either way, so there's nothing to gain from a styled error page there.
+     *
      * @return array{0: ?array, 1: ?ListConfig, 2: ?ResponseInterface}
      */
-    private function loadOwnedItem(ServerRequestInterface $request, int $id): array
+    private function loadOwnedItem(ServerRequestInterface $request, int $id, bool $notFoundAsException = false): array
     {
         $item = $this->fetchItem($id);
         if ($item === null) {
+            if ($notFoundAsException) {
+                throw new HttpNotFoundException($request);
+            }
             return [null, null, (new Response())->withStatus(404)];
         }
 
         $list = $this->listProvider->getList($item['list_cn']);
         if ($list === null) {
+            if ($notFoundAsException) {
+                throw new HttpNotFoundException($request);
+            }
             return [null, null, (new Response())->withStatus(404)];
         }
 
