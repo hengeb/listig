@@ -16,7 +16,8 @@ use Hengeb\Listig\Http\Middleware\ApiTokenMiddleware;
 use Hengeb\Listig\Http\Middleware\AuthMiddleware;
 use Hengeb\Listig\Http\Middleware\CsrfMiddleware;
 use Hengeb\Listig\Http\Middleware\OptionalAuthMiddleware;
-use Hengeb\Listig\Http\QuietNotFoundErrorHandler;
+use Hengeb\Listig\Http\QuietBotNoiseErrorHandler;
+use Slim\Exception\HttpMethodNotAllowedException;
 use Slim\Exception\HttpNotFoundException;
 use Slim\Factory\AppFactory;
 use Slim\Routing\RouteCollectorProxy;
@@ -42,14 +43,22 @@ $container = require __DIR__ . '/../config/container.php';
 AppFactory::setContainer($container);
 $app = AppFactory::create();
 
-$errorMiddleware = $app->addErrorMiddleware(true, true, true);
-// A 404 is already visible in nginx's own access log — see
-// QuietNotFoundErrorHandler's docblock for why this exception alone gets a
-// quiet handler while every other error keeps the default, fully-logged one.
-$errorMiddleware->setErrorHandler(
-    HttpNotFoundException::class,
-    new QuietNotFoundErrorHandler($app->getCallableResolver(), $app->getResponseFactory())
-);
+// $displayErrorDetails=false: never show a stack trace or internal file paths
+// to the client — confirmed live as a real leak, not just theoretical, via an
+// automated /.git/HEAD scan that happened to path-match the {listname}/{mail}
+// route (registered PUT/DELETE only) and got back a full 405 error page with
+// Slim's own vendor path and a complete trace, to an anonymous, unauthenticated
+// request. $logErrors/$logErrorDetails stay true — full detail still reaches
+// `docker logs` for every error, same "log everything, show the client
+// nothing" split docker/php.ini's own display_errors=Off/log_errors=On already
+// documents for PHP-level errors; this is Slim's own, independent equivalent.
+$errorMiddleware = $app->addErrorMiddleware(false, true, true);
+// A 404/405 is already visible in nginx's own access log — see
+// QuietBotNoiseErrorHandler's docblock for why these two exceptions alone get
+// a quiet handler while every other error keeps the default, fully-logged one.
+$quietBotNoiseErrorHandler = new QuietBotNoiseErrorHandler($app->getCallableResolver(), $app->getResponseFactory());
+$errorMiddleware->setErrorHandler(HttpNotFoundException::class, $quietBotNoiseErrorHandler);
+$errorMiddleware->setErrorHandler(HttpMethodNotAllowedException::class, $quietBotNoiseErrorHandler);
 $app->addBodyParsingMiddleware();
 
 // Public routes. Anything not scoped to a specific list lives under the reserved
