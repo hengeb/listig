@@ -9,6 +9,10 @@ use Hengeb\Listig\Logging\LogLevel;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
+use Hengeb\Listig\Mail\ReplyTarget;
+use Hengeb\Listig\Mail\ReplyTargetStore;
+use Hengeb\Listig\Member\InlineMemberResolver;
+use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Mail\SpamFilter;
 use Hengeb\Listig\RateLimit\RateLimiter;
 use PhpImap\IncomingMail;
@@ -22,6 +26,7 @@ class IncomingMailFilterTest extends TestCase
             $this->createStub(RateLimiter::class),
             new HeaderFilter(),
             new SpamFilter([], new Logger(LogLevel::Error)),
+            $this->createStub(ReplyTargetStore::class),
         );
     }
 
@@ -58,5 +63,59 @@ class IncomingMailFilterTest extends TestCase
     {
         $result = $this->runFilter("X-Auto-Response-Suppress: All\r\n", '', 'Undelivered Mail Returned to Sender', 'MAILER-DAEMON@example.com');
         $this->assertTrue($result->isBounce);
+    }
+
+    private function runReply(array $rawConfig, string $sender, bool $targetResolves = true): \Hengeb\Listig\Mail\FilterResult
+    {
+        $store = $this->createStub(ReplyTargetStore::class);
+        $store->method('extractToken')->willReturn('tok');
+        $store->method('resolve')->willReturn($targetResolves ? new ReplyTarget(new Member('t@example.org'), true) : null);
+        $filter = new IncomingMailFilter(
+            $this->createStub(RateLimiter::class),
+            new HeaderFilter(),
+            new SpamFilter([], new Logger(LogLevel::Error)),
+            $store,
+        );
+        $mail = new IncomingMail();
+        $mail->headersRaw = "To: mylist+r-tok@example.org\r\n";
+        $mail->autoSubmitted = '';
+        $mail->subject = 'Re: Hallo';
+        $mail->fromAddress = $sender;
+        $list = new ListConfig('mylist', 'mylist@example.org', $rawConfig, new InlineMemberResolver(['m@example.org'], ['o@example.org']));
+        return $filter->filter($mail, $list, 'raw', []);
+    }
+
+    public function testReplyTokenRejectedForNonMember(): void
+    {
+        $result = $this->runReply(['reply-to' => 'masked-sender'], 'outsider@example.com');
+        $this->assertSame('reject.reply_not_allowed', $result->reason);
+    }
+
+    public function testReplyTokenOnNonMaskedListIsRejected(): void
+    {
+        $result = $this->runReply(['reply-to' => 'list'], 'm@example.org');
+        $this->assertSame('reject.reply_not_enabled', $result->reason);
+    }
+
+    public function testReplyTokenWithUnresolvableTargetIsRejected(): void
+    {
+        $result = $this->runReply(['reply-to' => 'masked-sender'], 'm@example.org', false);
+        $this->assertSame('reject.reply_target_unknown', $result->reason);
+    }
+
+    public function testMaskedSenderIgnoresPostAccessMembers(): void
+    {
+        $result = $this->runReply(['reply-to' => 'masked-sender', 'post-access-members' => 'moderate'], 'm@example.org');
+        $this->assertTrue($result->isDistribute);
+        $result = $this->runReply(['reply-to' => 'masked-sender', 'post-access-members' => 'deny'], 'm@example.org');
+        $this->assertTrue($result->isDistribute);
+    }
+
+    public function testMaskedBothHonoursPostAccessMembers(): void
+    {
+        $result = $this->runReply(['reply-to' => 'masked-both', 'post-access-members' => 'deny'], 'm@example.org');
+        $this->assertSame('reject.members_denied', $result->reason);
+        $result = $this->runReply(['reply-to' => 'masked-both', 'post-access-members' => 'moderate'], 'm@example.org');
+        $this->assertTrue($result->isModeration);
     }
 }

@@ -8,6 +8,7 @@ use Hengeb\Listig\Http\Controller\BounceController;
 use Hengeb\Listig\Http\Controller\AuthController;
 use Hengeb\Listig\Http\Controller\DashboardController;
 use Hengeb\Listig\Http\Controller\ListApiController;
+use Hengeb\Listig\Http\Controller\ComposeController;
 use Hengeb\Listig\Http\Controller\ListController;
 use Hengeb\Listig\Http\Controller\ModerationController;
 use Hengeb\Listig\Http\Controller\QueueController;
@@ -217,6 +218,8 @@ $app->get('/_/health', function ($request, $response) use ($container): \Psr\Htt
 $app->group('', function (RouteCollectorProxy $group): void {
     $group->get('/', [DashboardController::class, 'index']);
     $group->get('/{listname}', [ListController::class, 'manage']);
+    // First mail to an external address, sent as the list — see ComposeController.
+    $group->get('/{listname}/compose', [ComposeController::class, 'show']);
 
     // Owner-only preview of a still-pending (not yet accepted/rejected) mail,
     // clicked from the moderation queue table on the manage page — reuses the
@@ -240,6 +243,7 @@ $app->group('', function (RouteCollectorProxy $group): void {
     // API routes (also need CSRF)
     $group->group('/_/api', function (RouteCollectorProxy $api): void {
         $api->post('/logout', [AuthController::class, 'logout']);
+        $api->post('/compose/{listname}', [ComposeController::class, 'createAddress']);
         $api->post('/moderation/{id}/accept', [ModerationController::class, 'accept']);
         $api->post('/moderation/{id}/reject', [ModerationController::class, 'reject']);
         $api->get('/queue/{listname}', [QueueController::class, 'status']);

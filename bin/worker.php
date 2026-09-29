@@ -55,6 +55,7 @@ try {
     $imapPoller                = $container->get(ImapPoller::class);
     $imapArchiver               = $container->get(ImapArchiver::class);
     $archiveIndexer             = $container->get(ArchiveIndexer::class);
+    $replyTargetStore           = $container->get(\Hengeb\Listig\Mail\ReplyTargetStore::class);
     $archiveSynchronizer        = $container->get(ArchiveSynchronizer::class);
     $mailFilter                 = $container->get(IncomingMailFilter::class);
     $headerFilter               = $container->get(HeaderFilter::class);
@@ -113,6 +114,7 @@ $processIncomingMail = function (
     int $uidValidity,
     ListConfig $list,
 ) use (
+    $replyTargetStore,
     $moderationResponseHandler,
     $headerFilter,
     $mailFilter,
@@ -166,7 +168,8 @@ $processIncomingMail = function (
         // forceDelete (a `filters:` spam match, see FilterResult) skips
         // the list's own archive: setting entirely — every other reject
         // reason still goes through the normal archiveOrDelete().
-        if ($result->forceDelete) {
+        // A rejected mail to a `+r-` reply address is private content too — never archived.
+        if ($result->forceDelete || $replyTargetStore->isReplyMail($mail, $list)) {
             $imapArchiver->delete($list, $uid);
         } else {
             $imapArchiver->archiveOrDelete($list, $uid);
@@ -183,8 +186,15 @@ $processIncomingMail = function (
     if ($result->isDistribute) {
         $mailProcessor->process($mail, $rawMime, $list);
         $imapPoller->markSeen($list, $uid, $uidValidity);
-        $imapArchiver->archiveOrDelete($list, $uid);
-        $archiveIndexer->index($list, $mail);
+        // A masked-sender reply is private (see ReplyTargetStore::isPrivateReply()) —
+        // deleted outright regardless of the list's archive: setting, and never listed
+        // in the web archive, unlike every other distributed mail.
+        if ($replyTargetStore->isPrivateReply($mail, $list)) {
+            $imapArchiver->delete($list, $uid);
+        } else {
+            $imapArchiver->archiveOrDelete($list, $uid);
+            $archiveIndexer->index($list, $mail);
+        }
     }
 };
 
@@ -306,6 +316,7 @@ while (true) {
         // catches one that got stuck (e.g. the give-up notification/archive call
         // itself kept failing) so it doesn't linger in the table forever.
         $db->exec("DELETE FROM processing_failures WHERE last_attempt_at < NOW() - INTERVAL 31 DAY");
+        $replyTargetStore->purgeUnused();
     } catch (\Throwable $e) {
         error_log("Listig: Cleanup failed: " . $e->getMessage());
     }

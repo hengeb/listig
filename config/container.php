@@ -21,6 +21,7 @@ use Hengeb\Listig\Http\Controller\AuthController;
 use Hengeb\Listig\Http\Controller\BounceController;
 use Hengeb\Listig\Http\Controller\DashboardController;
 use Hengeb\Listig\Http\Controller\ListApiController;
+use Hengeb\Listig\Http\Controller\ComposeController;
 use Hengeb\Listig\Http\Controller\ListController;
 use Hengeb\Listig\Http\Controller\ModerationController;
 use Hengeb\Listig\Http\Controller\QueueController;
@@ -34,6 +35,7 @@ use Hengeb\Listig\Mail\BounceCauseClassifier;
 use Hengeb\Listig\Mail\BounceHandler;
 use Hengeb\Listig\Mail\BounceMemberActionExecutor;
 use Hengeb\Listig\Mail\BounceSuppressionList;
+use Hengeb\Listig\Mail\ReplyTargetStore;
 use Hengeb\Listig\Mail\FooterAppender;
 use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
@@ -439,6 +441,7 @@ $builder->addDefinitions([
             $c->get(RateLimiter::class),
             $c->get(HeaderFilter::class),
             $c->get(SpamFilter::class),
+            $c->get(ReplyTargetStore::class),
         );
     },
 
@@ -453,6 +456,7 @@ $builder->addDefinitions([
             $c->get(Logger::class),
             $c->get(TranslatorInterface::class),
             $c->get(BounceSuppressionList::class),
+            $c->get(ReplyTargetStore::class),
         );
     },
 
@@ -469,6 +473,10 @@ $builder->addDefinitions([
     // Backs the `restrict` automatic bounce action — see CLAUDE.md "Automatic
     // bounce actions". Independent of any list's own ListProvider/
     // MemberResolver backend.
+    ReplyTargetStore::class => function (ContainerInterface $c): ReplyTargetStore {
+        return new ReplyTargetStore($c->get(PDO::class), $c->get(TokenService::class), $c->get(HeaderFilter::class));
+    },
+
     BounceSuppressionList::class => function (ContainerInterface $c): BounceSuppressionList {
         return new BounceSuppressionList($c->get(PDO::class));
     },
@@ -661,6 +669,17 @@ $builder->addDefinitions([
             $c->get(TranslatorInterface::class),
             $c->get(TokenService::class),
             $c->get('app.hostname'),
+            $c->get('app.name'),
+        );
+    },
+
+    ComposeController::class => function (ContainerInterface $c): ComposeController {
+        return new ComposeController(
+            $c->get(Engine::class),
+            $c->get(ListProvider::class),
+            $c->get(ReplyTargetStore::class),
+            $c->get(RateLimiter::class),
+            $c->get(TranslatorInterface::class),
             $c->get('app.name'),
         );
     },

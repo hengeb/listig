@@ -13,7 +13,8 @@
             {$list->resolveMemberDisplayName($owner)}{sep}, {/sep}
         {/foreach}
     </p>
-    <p n:if="$showArchiveLink || $unsubscribeLink">
+    <p n:if="$showArchiveLink || $unsubscribeLink || $list->canComposeExternal($user['email'])">
+        <a n:if="$list->canComposeExternal($user['email'])" href="/{$list->name}/compose" class="btn btn-secondary">{$translator->trans('dashboard.compose_button')}</a>
         <a n:if="$showArchiveLink" href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a>
         <a n:if="$unsubscribeLink" href="{$unsubscribeLink}" class="btn btn-secondary">{$translator->trans('dashboard.unsubscribe_button')}</a>
     </p>

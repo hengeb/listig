@@ -36,6 +36,9 @@ reject:
   members_denied: "List members are currently not allowed to post to this list"
   public_denied: "Only list members may post to this list"
   sender_restricted: "This address is currently blocked from posting to this list"
+  reply_not_enabled: "This reply address is no longer valid for this list"
+  reply_not_allowed: "Only list members may use this reply address"
+  reply_target_unknown: "This reply address has expired or the recipient is no longer reachable"
   rate_limited: "Rate limit exceeded"
   no_owners: "This list requires moderation but has no owners to approve it"
   moderation_declined: "Rejected by a list owner."
@@ -93,11 +96,22 @@ login:
   email_label: "Email address"
   submit: "Request access link"
 
+compose:
+  title: "Mail from %list%"
+  heading: "Send a mail to an external address"
+  intro: "Write to an external recipient as %list%. Enter the address; your mail program opens with a special recipient address of the list (%list_mail%), and Listig delivers your mail from the list address. Replies go to the list."
+  recipient_label: "Recipient"
+  submit: "Write mail"
+  error_invalid_address: "Please enter a valid external address."
+  error_rate_limited: "Too many requests, please try again later."
+  error_generic: "Error"
+
 dashboard:
   title: "My lists – %app_name%"
   heading: "My lists"
   empty: "You are not a member of any mailing list."
   unsubscribe_button: "Unsubscribe"
+  compose_button: "Send a mail to an external address"
   manage_button: "Manage"
 
 unsubscribe_page:

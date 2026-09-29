@@ -8,6 +8,7 @@ use Hengeb\Listig\Config\Enum\AllowLeave;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
+use Hengeb\Listig\Config\Enum\SenderAddressHeader;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Config\RestrictionList;
 use Hengeb\Listig\Member\InlineMemberResolver;
@@ -279,5 +280,40 @@ class ListConfigTest extends TestCase
         // NullMemberResolver never supports removal.
         $list = $this->list();
         $this->assertFalse($list->supportsUnsubscribe);
+    }
+
+    public function testMaskedReplyToModes(): void
+    {
+        $list = new ListConfig('mylist', 'mylist@example.org', ['reply-to' => 'masked-both']);
+        $this->assertSame(ReplyToBehavior::MaskedBoth, $list->replyTo);
+        $this->assertTrue($list->replyTo->isMasked());
+        $this->assertFalse(ReplyToBehavior::Both->isMasked());
+    }
+
+    public function testSenderAddressHeaderDefaultsToNever(): void
+    {
+        $this->assertSame(SenderAddressHeader::Never, $this->list()->senderAddressHeader);
+        $list = new ListConfig('mylist', 'mylist@example.org', ['sender-address-header' => 'external']);
+        $this->assertSame(SenderAddressHeader::External, $list->senderAddressHeader);
+    }
+
+    public function testCanComposeExternal(): void
+    {
+        $resolver = new \Hengeb\Listig\Member\InlineMemberResolver(['m@example.org'], ['o@example.org']);
+        $make = fn(array $raw) => new ListConfig('mylist', 'mylist@example.org', $raw, $resolver);
+
+        // needs a masked mode
+        $this->assertFalse($make(['reply-to' => 'both', 'post-access-public' => 'allow'])->canComposeExternal('m@example.org'));
+        // needs post-access-public != deny (default)
+        $this->assertFalse($make(['reply-to' => 'masked-both'])->canComposeExternal('m@example.org'));
+
+        $both = $make(['reply-to' => 'masked-both', 'post-access-public' => 'moderate', 'post-access-members' => 'deny']);
+        $this->assertFalse($both->canComposeExternal('m@example.org'));
+        $this->assertTrue($both->canComposeExternal('o@example.org'));
+        $this->assertFalse($both->canComposeExternal('stranger@example.org'));
+
+        // masked-sender: members may even with post-access-members: deny
+        $sender = $make(['reply-to' => 'masked-sender', 'post-access-public' => 'allow', 'post-access-members' => 'deny']);
+        $this->assertTrue($sender->canComposeExternal('m@example.org'));
     }
 }

@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Mail;
 
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
+use Hengeb\Listig\Config\Enum\SenderAddressHeader;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Member\Member;
@@ -32,6 +33,7 @@ class MailProcessor
         private readonly Logger $logger,
         private readonly TranslatorInterface $translator,
         private readonly BounceSuppressionList $bounceSuppressionList,
+        private readonly ReplyTargetStore $replyTargetStore,
     ) {
     }
 
@@ -48,8 +50,25 @@ class MailProcessor
         // silently degrade to just the bare address for such a sender.
         $senderMember   = $list->findMemberByEmail($senderEmail) ?? $list->findAuthorizedSender($senderEmail) ?? new Member($senderEmail);
 
+        // A mail to a masked-reply address (`{localPart}+r-{TOKEN}@…`, see ReplyTargetStore)
+        // is a reply relayed to that address's owner — IncomingMailFilter has already
+        // verified sender, list and target; a target that vanished since (e.g. between
+        // moderation and accept) throws and is handled by the processing-failure limit.
+        $replyToken = $list->replyTo->isMasked() && $list->subaddressMemberTemplates === null
+            ? $this->replyTargetStore->extractToken($incomingMail, $list)
+            : null;
+        $replyTarget = null;
+        if ($replyToken !== null) {
+            $replyTarget = $this->replyTargetStore->resolve($list, $replyToken)
+                ?? throw new \RuntimeException("Reply target of list {$list->name} no longer resolvable");
+            $this->replyTargetStore->markUsed($list, $replyToken);
+        }
+
         // Build the outgoing Email from the parsed incoming mail
         $email = $this->buildOutgoingEmail($incomingMail);
+        if ($replyTarget !== null) {
+            $this->replaceReplyAddressInRecipients($email, $list);
+        }
 
         $subaddress = SubaddressExtractor::extract($incomingMail, $list);
 
@@ -58,9 +77,25 @@ class MailProcessor
         $mailContexts = [$listContext, $mailContext];
 
         $this->setOutgoingHeaders($email, $list, $senderEmail, $mailContexts);
+
+        // An external reply target gets a plain mail: no list label, footer or List-*
+        // headers (it is not a list member), and replies go to the list address, since
+        // an outsider can never use a reply token. Built before the label is applied.
+        $externalEmail = null;
+        if ($replyTarget?->external) {
+            $externalEmail = clone $email;
+            $externalHeaders = $externalEmail->getHeaders();
+            foreach (['list-id', 'list-post', 'list-help', 'precedence', 'reply-to'] as $name) {
+                $externalHeaders->remove($name);
+            }
+            $externalEmail->replyTo(new Address($list->mail));
+        }
+
         $this->applySubjectLabel($email, $list, $mailContexts);
 
-        $recipients = $this->resolveRecipients($incomingMail, $list, $mailContexts);
+        $recipients = $replyTarget !== null
+            ? $this->resolveReplyRecipients($incomingMail, $list, $mailContexts, $replyTarget, $senderEmail)
+            : $this->resolveRecipients($incomingMail, $list, $mailContexts);
 
         $personalizeKeys = $list->personalizeKeys;
 
@@ -82,9 +117,14 @@ class MailProcessor
             $recipientContext  = $this->buildRecipientContext($recipient);
             $recipientContexts = [...$mailContexts, $recipientContext];
 
-            $recipientEmail = clone $email;
+            $isExternalTarget = $externalEmail !== null && strcasecmp($recipient->email, $replyTarget->recipient->email) === 0;
+            $recipientEmail = clone ($isExternalTarget ? $externalEmail : $email);
 
             $this->bodyPersonalizer->personalize($recipientEmail, $recipientContexts, $personalizeKeys);
+            if ($isExternalTarget) {
+                $this->queueWriter->enqueue($list->name, $recipientEmail, $recipient->email, $batchId);
+                continue;
+            }
             $this->footerAppender->append($recipientEmail, $list, $recipientContexts);
 
             // 'u' — short token purpose code, see CLAUDE.md "Token Format".
@@ -340,7 +380,8 @@ class MailProcessor
         $exposesSenderAddress = match ($list->replyTo) {
             ReplyToBehavior::Sender => true,
             ReplyToBehavior::Both => !$list->isMember($senderEmail),
-            ReplyToBehavior::List, ReplyToBehavior::Nobody => false,
+            // Masked: the address deliberately never reaches Reply-To — see below.
+            ReplyToBehavior::List, ReplyToBehavior::Nobody, ReplyToBehavior::MaskedSender, ReplyToBehavior::MaskedBoth => false,
         };
 
         $headers->remove('reply-to');
@@ -365,7 +406,26 @@ class MailProcessor
                 "noreply@{$list->domain}.invalid",
                 $this->translator->trans('mail.no_reply_name', [], null, $list->language),
             )),
+            // A single signed token address for both masked modes — the group copy of
+            // masked-both is made server-side when the reply arrives, so (unlike Both)
+            // no second Reply-To address is needed, and a member sender needs no
+            // exemption either. See ReplyTargetStore / CLAUDE.md "Masked reply addresses".
+            ReplyToBehavior::MaskedSender, ReplyToBehavior::MaskedBoth => $email->replyTo(new Address(
+                "{$list->localPart}+r-" . $this->replyTargetStore->tokenFor($list, $senderEmail) . "@{$list->domain}"
+            )),
         };
+
+        // Opt-in header for members who need to see who actually wrote (mainly the masked
+        // modes, where Reply-To no longer shows it). Default never.
+        $exposeHeader = match ($list->senderAddressHeader) {
+            SenderAddressHeader::Never => false,
+            SenderAddressHeader::External => !$list->isMember($senderEmail),
+            SenderAddressHeader::Always => true,
+        };
+        if ($exposeHeader && $senderEmail !== '') {
+            $headers->remove('x-original-sender-address');
+            $headers->addTextHeader('X-Original-Sender-Address', $senderEmail);
+        }
 
         // X-Original-Sender (the privacy-preserving username, not the address)
         // is the CN a reply-based reveal is paired with — only meaningful when
@@ -414,6 +474,62 @@ class MailProcessor
         if (stripos($subject, $resolvedLabel) === false) {
             $email->subject("{$resolvedLabel} {$subject}");
         }
+    }
+
+    /**
+     * Rewrites the visible To/Cc of a relayed reply: the `+r-{TOKEN}` address (which names
+     * the original sender and is meaningless to everyone else) is replaced by the list
+     * address, so no copy shows the token and a reply-all goes to the group.
+     */
+    private function replaceReplyAddressInRecipients(Email $email, ListConfig $list): void
+    {
+        $isToken = fn(Address $a) => (bool) preg_match('/^' . preg_quote($list->localPart, '/') . '\+r-/i', $a->getAddress());
+        foreach (['to', 'cc'] as $field) {
+            $addresses = $field === 'to' ? $email->getTo() : $email->getCc();
+            if (!array_filter($addresses, $isToken)) {
+                continue;
+            }
+            $kept = array_values(array_filter($addresses, fn(Address $a) => !$isToken($a)));
+            if ($field === 'to') {
+                $kept[] = new Address($list->mail);
+                $email->to(...$kept);
+            } elseif ($kept === []) {
+                $email->getHeaders()->remove('cc');
+            } else {
+                $email->cc(...$kept);
+            }
+        }
+    }
+
+    /**
+     * Recipients of a relayed reply. masked-sender: only the target. masked-both: the
+     * group as for any list mail — minus the replier — plus an external target, who is
+     * not a member. Receive restrictions and bounce suppression apply to the target too.
+     *
+     * @return Member[]
+     */
+    private function resolveReplyRecipients(IncomingMail $incomingMail, ListConfig $list, array $mailContexts, ReplyTarget $target, string $senderEmail): array
+    {
+        $allowed = fn(Member $m) => !$list->isReceiverRestricted($m->email)
+            && !$this->bounceSuppressionList->isSuppressed($list->name, $m->email);
+
+        if ($list->replyTo !== ReplyToBehavior::MaskedBoth) {
+            return array_values(array_filter([$target->recipient], $allowed));
+        }
+
+        $recipients = array_values(array_filter(
+            $this->resolveRecipients($incomingMail, $list, $mailContexts),
+            fn(Member $m) => strcasecmp($m->email, $senderEmail) !== 0,
+        ));
+        // resolveRecipients() excludes everyone in the original To/Cc — the target must still
+        // get their copy even if the client listed them there.
+        $already = array_map(fn(Member $m) => strtolower($m->email), $recipients);
+        if (!in_array(strtolower($target->recipient->email), $already, true)
+            && strcasecmp($target->recipient->email, $senderEmail) !== 0
+            && $allowed($target->recipient)) {
+            $recipients[] = $target->recipient;
+        }
+        return $recipients;
     }
 
     /** @return Member[] */

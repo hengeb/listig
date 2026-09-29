@@ -9,6 +9,7 @@ use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\Enum\BounceAction;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
+use Hengeb\Listig\Config\Enum\SenderAddressHeader;
 use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Member\MemberResolver;
@@ -244,6 +245,46 @@ class ListConfig
         }
     }
 
+    /**
+     * Whether $identity (the session's `user.email`, which is the member's `username`
+     * where one exists, else the address) may start a mail to an external address via
+     * the web form (ComposeController) — see CLAUDE.md "Masked reply addresses". Needs a
+     * masked reply-to mode (the token is the only way back in) and `post-access-public`
+     * != deny (else the external's answer would be rejected). Owners and `senders:`
+     * addresses may always; a member may unless masked-both is combined with
+     * `post-access-members: deny` (masked-sender never reaches the list, so that
+     * setting doesn't apply). A `restricted-members:` sender never may.
+     */
+    public function canComposeExternal(string $identity): bool
+    {
+        if (!$this->replyTo->isMasked() || $this->postAccessPublic === PostAccess::Deny) {
+            return false;
+        }
+
+        $owner = $this->findOwnerInList($identity) ?? $this->findByUsername($this->getOwners(), $identity);
+        $sender = $this->findAuthorizedSender($identity);
+        $member = $this->findMemberInList($identity) ?? $this->findMemberInListByUserCn($identity);
+        $who = $owner ?? $sender ?? $member;
+        if ($who === null || $this->isSenderRestricted($who->email)) {
+            return false;
+        }
+        if ($owner !== null || $sender !== null) {
+            return true;
+        }
+        return $this->replyTo === ReplyToBehavior::MaskedSender || $this->postAccessMembers !== PostAccess::Deny;
+    }
+
+    /** @param Member[] $members */
+    private function findByUsername(array $members, string $username): ?Member
+    {
+        foreach ($members as $m) {
+            if (($m->attributes['username'] ?? $m->email) === $username) {
+                return $m;
+            }
+        }
+        return null;
+    }
+
     public function isAuthorizedSender(string $email): bool
     {
         return self::matchEmail($email, $this->authorizedSenders) !== null;
@@ -405,6 +446,11 @@ class ListConfig
      * opts in explicitly, same safe-by-default philosophy as `archive: off`/
      * `public-subscribe: off`.
      */
+    /** Default 'never'. See MailProcessor::setOutgoingHeaders() / CLAUDE.md "Masked reply addresses". */
+    public SenderAddressHeader $senderAddressHeader {
+        get => SenderAddressHeader::from($this->resolve((string) ($this->raw['sender-address-header'] ?? 'never')));
+    }
+
     public BounceAction $bounceAction {
         get => BounceAction::from($this->resolve($this->raw['bounce-action'] ?? 'none'));
     }

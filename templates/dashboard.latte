@@ -24,6 +24,7 @@
         </div>
         <span class="list-summary-actions">
             <a n:if="$list->archive->value === 'members' || $list->archive->value === 'public'" href="/{$list->name}/archive" class="btn btn-secondary nowrap">{$translator->trans('archive.index.heading')}</a>
+            <a n:if="$list->canComposeExternal($user['email'])" href="/{$list->name}/compose" class="btn btn-secondary nowrap">{$translator->trans('dashboard.compose_button')}</a>
             <a n:if="isset($manageLinks[$list->name])" href="{$manageLinks[$list->name]}" class="btn btn-secondary nowrap">{$translator->trans('dashboard.manage_button')}</a>
             <a n:if="isset($unsubscribeLinks[$list->name])" href="{$unsubscribeLinks[$list->name]}" class="btn btn-secondary nowrap">{$translator->trans('dashboard.unsubscribe_button')}</a>
         </span>

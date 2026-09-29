@@ -1,0 +1,23 @@
+{layout 'layout.latte'}
+
+{block title}{$translator->trans('compose.title', ['%list%' => $list->displayName])} – {$appName ?? 'Listig'}{/block}
+
+{block content}
+<div id="compose-i18n" hidden
+    data-list="{$list->name}"
+    data-error-generic="{$translator->trans('compose.error_generic')}"
+></div>
+<h1>{$translator->trans('compose.heading')}</h1>
+<p class="text-muted">{$list->displayName} &lt;{$list->mail}&gt;</p>
+
+<div class="card">
+    <p>{$translator->trans('compose.intro', ['%list%' => $list->displayName, '%list_mail%' => $list->mail])}</p>
+    <form id="compose-form">
+        <label for="compose-mail">{$translator->trans('compose.recipient_label')}</label>
+        <input type="email" id="compose-mail" required autocomplete="off" placeholder="name@example.com">
+        <p id="compose-error" class="error" hidden></p>
+        <button type="submit" class="btn">{$translator->trans('compose.submit')}</button>
+    </form>
+</div>
+<script src="/assets/compose.js"></script>
+{/block}

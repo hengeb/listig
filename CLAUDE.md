@@ -104,6 +104,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │       ├── archive-index.js          # templates/archive/index.latte's client-side thread toggle/quick filter — see "Threading"
 │       ├── archive-show.js           # templates/archive/show.latte's image-toggle/HTML-text-toggle/delete button — see "Archive viewer"
 │       ├── list-manage.js            # templates/list/manage.latte's moderation accept/reject — see "Moderation via UI"
+│       ├── compose.js                # templates/compose.latte's address request + mailto redirect
 │       ├── logo.svg                  # full wordmark
 │       └── logo-mark.svg             # icon only, no baked-in text — see "App name (`app-name`)"
 ├── src/
@@ -139,6 +140,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   │   ├── RejectionNotifier.php     # Sender-facing reject notice for every reject.* reason, with the original mail attached — see "Making clear which mail a reject/pending notice is about"
 │   │   ├── ProcessingFailureTracker.php  # DB-backed per-mail attempt counter, bounds bin/worker.php's retry loop — see "Processing-failure retry limit"
 │   │   ├── ProcessingFailureNotifier.php # Owner-facing "mail could not be processed after N attempts" notice, original mail attached — see "Processing-failure retry limit"
+│   │   ├── ReplyTarget.php           # Value object: resolved recipient behind a `+r-` address
+│   │   ├── ReplyTargetStore.php      # Creates/resolves the per-list `+r-{TOKEN}` addresses of the masked reply-to modes — see "Masked reply addresses"
 │   │   ├── SpamFilter.php            # Global content filter from filters: in config.yml; matches subject/body/from/to via str_contains or /regex/
 │   │   ├── BodyPersonalizer.php      # Replaces variables in decoded body/subject via VariableResolver
 │   │   ├── FooterAppender.php        # Appends footer to symfony/mime object (always if configured)
@@ -211,6 +214,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │       ├── Controller/
 │       │   ├── AuthController.php        # Magic-link login flow, optional OIDC login, logout
 │       │   ├── DashboardController.php   # Member view: subscribed lists
+│       │   ├── ComposeController.php     # First-mail-to-external form + masked address issuing — see "Masked reply addresses"
 │       │   ├── ListController.php        # Owner manage page
 │       │   ├── ListApiController.php     # Bearer-token list management API: subscribe/unsubscribe/encrypt-password
 │       │   ├── ModerationController.php  # Accept/reject moderation items via API; preview a still-pending mail — see "Preview: pending mail"
@@ -228,6 +232,7 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 ├── templates/
 │   ├── layout.latte           # Optionally imports /app/config/custom.latte (operator-mounted, not part of this tree) — see "Custom layout"
 │   ├── login.latte
+│   ├── compose.latte          # see "Masked reply addresses"
 │   ├── dashboard.latte
 │   ├── unsubscribe.latte
 │   ├── subscribe-confirm.latte
@@ -248,7 +253,8 @@ On every push to `main`, every `v*` tag, and manual dispatch: builds `docker/Doc
 │   ├── 003_bounce_log_message_id.sql # adds message_id to bounce_log, not backfilled — see "Bounce preview"
 │   ├── 004_processing_failures.sql   # new processing_failures table — see "Processing-failure retry limit"
 │   ├── 005_archived_mail_sender_local_part.sql # adds sender_local_part to archived_mail, not backfilled — see "Archive viewer" Privacy
-│   └── 006_bounce_auto_actions.sql # adds queue_recipients.retry_not_before + bounce_suppressed_members table — see "Automatic bounce actions"
+│   ├── 006_bounce_auto_actions.sql # adds queue_recipients.retry_not_before + bounce_suppressed_members table — see "Automatic bounce actions"
+│   └── 007_reply_targets.sql      # reply_targets table — see "Masked reply addresses"
 ├── docker/
 │   ├── Dockerfile             # php-fpm + nginx + worker, all in one image
 │   ├── entrypoint.sh          # ENTRYPOINT: runs bin/migrate.php, then execs CMD (supervisord)
@@ -901,7 +907,7 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `smtp-from-name` | string | Display name in From header; may contain mail-context variables e.g. `{sender-name} (via {display-name})` |
 | `display-name` | string | Human-readable list name for UI (falls back to `cn`); used in `List-Id` header |
 | `description` | string | Optional list description shown in UI. Renamed to `list-description` on ingest by `ConfigResolver::resolveListConfig()` (applies to every provider, not just LDAP) — see "`description` → `list-description`" |
-| `reply-to` | `list` \| `sender` \| `both` \| `nobody` | Reply-To behavior — `both` sets both list and sender addresses, *unless* the sender is already a list member, in which case it's just the list address (see "Headers to set on outgoing mail" for why); `nobody` sets a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (replies are guaranteed undeliverable — `.invalid` per RFC 2606 — and the display name is what a mail client actually shows when Reply is clicked) |
+| `reply-to` | `list` \| `sender` \| `both` \| `nobody` \| `masked-sender` \| `masked-both` | Reply-To behavior — `both` sets both list and sender addresses, *unless* the sender is already a list member, in which case it's just the list address (see "Headers to set on outgoing mail" for why); `masked-sender`/`masked-both` set a signed `{localPart}+r-{TOKEN}@{domain}` address instead of the sender's own — see "Masked reply addresses"; `nobody` sets a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (replies are guaranteed undeliverable — `.invalid` per RFC 2606 — and the display name is what a mail client actually shows when Reply is clicked) |
 | `post-access-members` | `allow` \| `deny` \| `moderate` | Whether list members may post (default: `allow`) |
 | `post-access-public` | `allow` \| `deny` \| `moderate` | Whether non-members may post (default: `deny`) |
 | `allow-leave` | `direct` \| `moderated` | Unsubscribe behavior |
@@ -917,6 +923,7 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `language` | `de` \| `en` | Locale for this list's outgoing mails and manage page (inherits global default, code-default `en`) — see Internationalization |
 | `api-token` | string | Bearer token for the list-management API (plaintext — see "List Management API"). Empty/absent = API disabled for this list |
 | `public-subscribe` | `on` \| `off` | Whether `POST /{listname}/subscribe` accepts unauthenticated requests (default: `off`) — see "List Management API" |
+| `sender-address-header` | `never` \| `external` \| `always` | Put the original sender's address into an `X-Original-Sender-Address` header (default `never`; `external` = only for non-members) — see "Masked reply addresses" |
 | `bounce-action` | `none` \| `mark-invalid` \| `restrict` \| `remove` | Automatic action for a recognized, authenticated permanent bounce (user/mailbox unknown) or an escalated repeated temporary one (mailbox full) — default `none`. See "Automatic bounce actions" |
 
 **`post-access-members`/`post-access-public` — owners have no key of their own.** List owners can always post, and are never moderated, regardless of what these two keys are set to — there is deliberately no `post-access-owners` (owners posting is not something an operator can restrict). "Owners only may post" is expressed by setting *both* keys to `deny`: `post-access-members: deny`, `post-access-public: deny`. `moderate` queues the mail for owner accept/reject via the normal moderation flow (see "Moderation") exactly as the old `moderation: on` did, just scoped to whichever sender class (members/public) is actually set to it, instead of applying list-wide to everyone who already cleared the (now-removed) single `post-access` gate. See `IncomingMailFilter::checkPostAccess()`/`requiresModeration()`.
@@ -939,6 +946,19 @@ list-providers:
 `ListConfig::isAuthorizedSender()`/`findAuthorizedSender()` are consulted in two places:
 - `IncomingMailFilter::checkPostAccess()`/`requiresModeration()` — the same early-return that already exempts owners (`if ($list->isOwnedBy($senderEmail) || $list->isAuthorizedSender($senderEmail)) { return null; }` / `return false;`) — bypasses `post-access-public: deny`/`post-access-members: moderate` without granting any other owner privilege.
 - `MailProcessor::process()`'s sender lookup (`$list->findMemberByEmail($senderEmail) ?? $list->findAuthorizedSender($senderEmail) ?? new Member($senderEmail)`) — so `{sender-*}` personalization (e.g. a custom From display name) still resolves correctly for a `senders:`-only poster, not just members/owners.
+
+### Masked reply addresses (`reply-to: masked-sender` / `masked-both`)
+
+Like `sender`/`both`, but the sender's address never appears in the mail: `Reply-To` is `{list->localPart}+r-{TOKEN}@{domain}` (`MailProcessor::setOutgoingHeaders()`). Only group members will be able to write to that address, and Listig relays the reply. Use cases: a shared contact address (`kontakt@`) that a group answers from, and protecting members' addresses from each other.
+
+- Both modes use a **single** token address (no second `Reply-To` address — not all mail clients handle several). The copy to the group for `masked-both` is made server-side when the reply arrives, so unlike `both` no member-sender exemption is needed (the replier is excluded from the group copy).
+- `ReplyTargetStore` (`src/Mail/ReplyTargetStore.php`, table `reply_targets`, migration 007): one row per `(list_cn, kind, target_key)`. `kind = member` stores the member's `username` attribute if present (LDAP: `cn`), else the address, and is resolved live against the current members when a reply arrives — an address change is followed automatically (with a `username`). `kind = external` stores the address. Rows unused for `ReplyTargetStore::MAX_AGE_DAYS` (180, also the token max age) are purged in the worker cleanup step.
+- **Tokens are list-specific**: a separate row (hence token) per list for the same address; the payload carries `ListFingerprint`, and `ReplyTargetStore::find()` always looks up `(id, list_cn)` of the list the mail arrived on — the database check is the real boundary.
+- **Receiving** (implemented): `ReplyTargetStore::extractToken()` reads `{localPart}+r-{TOKEN}@` from the *raw* To (fallback Delivered-To/X-Original-To) header — not `$mail->to`, which PhpImap lowercases (same reason as accept/reject). `IncomingMailFilter` step 7 then applies `checkMaskedReply()` instead of `checkPostAccess()` (skipped for `type: subaddress` lists): on a list that is not masked → `reject.reply_not_enabled` (so an old token can never leak a private reply into the group after a mode change); `restricted-members:` → `reject.sender_restricted`; sender not member/owner/`senders:` → `reject.reply_not_allowed`; token invalid/expired/other list/target gone → `reject.reply_target_unknown`. `post-access-members` (`deny`/`moderate`) applies only to `masked-both` (whose reply also reaches the group); `masked-sender` reaches one person and is never moderated. Size, SPF/DKIM and rate limit apply as always.
+- **Relay** (`MailProcessor::process()`): the target is resolved live (`ReplyTargetStore::resolve()` → `ReplyTarget`, a member by `username` else address, owners included). Recipients (`resolveReplyRecipients()`): `masked-sender` → only the target; `masked-both` → the group minus the replier, plus an external target. Receive restrictions and bounce suppression apply to the target too. The mail goes out `From: <list address>` with `smtp-from-name`; its `Reply-To` is again the replier's own token (an anonymous back-and-forth between members). The visible To/Cc has the token address replaced by the list address (`replaceReplyAddressInRecipients()`). An **external** target gets a plain copy (`$externalEmail`): no list label, footer, `List-*`/`Precedence` headers, `Reply-To: <list address>` — an outsider can't use a token, so their answer goes through the normal list pipeline (`post-access-public`). A successful use touches `last_used_at`.
+- **Archive**: a `masked-sender` reply is private — `bin/worker.php` deletes it from IMAP outright (`ImapArchiver::delete()`, regardless of the list's `archive:` setting) and skips `ArchiveIndexer::index()` (`ReplyTargetStore::isPrivateReply()`), so it is kept neither on IMAP nor in the web archive. Likewise a *rejected* mail to a `+r-` address (`ReplyTargetStore::isReplyMail()`) is deleted, not archived. `masked-both` replies are indexed like any distributed mail.
+- **Web form for a first mail to an external address** (`GET /{listname}/compose`, `ComposeController`, `templates/compose.latte`, `public/assets/compose.js`; API `POST /_/api/compose/{listname}` behind `AuthMiddleware` + CSRF): the member enters the recipient, the server issues the signed `{localPart}+r-{TOKEN}@{domain}` address (`ReplyTargetStore::tokenFor()`) and returns a `mailto:` link, which the browser opens in the member's mail client — Listig sends nothing itself; the normal reply pipeline then relays the mail From the list address, with a plain copy for the external (its answers go to the list). Available only when `ListConfig::canComposeExternal($identity)`: a masked reply-to mode **and** `post-access-public` != `deny` (else the external's answer would be rejected); owners and `senders:` always, members unless `masked-both` combines with `post-access-members: deny` (masked-sender never reaches the list); never a `restricted-members:` sender. Otherwise 404 and the links (dashboard, `/{listname}` info and manage page) are hidden. Rate-limited to 20 per 10 minutes and user; the address must be valid, not the list's own and not `.invalid`. Deliberately no list of previous contacts — it would reveal external addresses to members who never dealt with them.
+- `sender-address-header` (`never` default, `external`, `always`) adds `X-Original-Sender-Address` for members who need the real sender; headers are rarely visible in mail clients — the footer variable `{sender-mail}` is the visible alternative. Either exposes the address to every member; document this in a privacy policy.
 
 ### Sender restrictions (`restricted-members:`)
 
@@ -1684,7 +1704,7 @@ Visible `To`/`Cc` header: the original mail's own `To`/`Cc` addresses, copied ve
 4. **Subaddress validation** (`type: subaddress` lists only, see "type: subaddress — subaddress forwarding"): reserved subaddress (`bounce`, `accept-*`, `reject-*`, or list-configured `reserved-subaddresses`) → reject, notify sender; no subaddress at all while at least one member template requires one → reject, notify sender
 5. **Authentication-Results**: SPF or DKIM = `fail` → reject, notify sender
 6. **Size**: raw MIME size > `max-size` → reject, notify sender
-7. **Post-access** (`IncomingMailFilter::checkPostAccess()`): a `restricted-members:` hit → reject (`reject.sender_restricted`), notify sender — checked *first*, overriding even owner status (see "Sender restrictions"). Owners and `senders:` addresses (see "Additional senders") then always pass; a member or public sender whose respective `post-access-members`/`post-access-public` is `deny` → reject (`reject.members_denied`/`reject.public_denied`), notify sender. `allow` and `moderate` both pass here — deciding between them happens later, at step 9, after rate limiting.
+7. **Post-access** (`IncomingMailFilter::checkPostAccess()`; for a mail to a `+r-` masked-reply address `checkMaskedReply()` instead — see "Masked reply addresses"): a `restricted-members:` hit → reject (`reject.sender_restricted`), notify sender — checked *first*, overriding even owner status (see "Sender restrictions"). Owners and `senders:` addresses (see "Additional senders") then always pass; a member or public sender whose respective `post-access-members`/`post-access-public` is `deny` → reject (`reject.members_denied`/`reject.public_denied`), notify sender. `allow` and `moderate` both pass here — deciding between them happens later, at step 9, after rate limiting.
 8. **Rate limit**: exceeded → reject, notify sender
 9. **Moderation with no owners** (`IncomingMailFilter::requiresModeration()` — owners never moderated; only reached when the sender's `post-access-members`/`post-access-public` is `moderate`): list has zero owners → reject (`reject.no_owners`), notify sender — a moderation item nobody can ever accept/reject would otherwise vanish silently instead of being distributed or bounced back with feedback
 
@@ -2226,6 +2246,7 @@ Every purpose is signed as a single-character string, not the readable full word
 | archive-attachment | `v` | `ArchiveController` |
 | moderation-attachment | `m` | `ModerationController` |
 | bounce-attachment | `n` | `BounceController` |
+| reply | `p` | `ReplyTargetStore` — payload `ListFingerprint::of($listCn), $replyTargetId`, max age 180 days |
 
 `accept`/`reject` are the one case where the short code and the *visible* address tag genuinely differ: `ModerationMailer::send()` still builds `{list->localPart}+accept-{TOKEN}@...`/`+reject-{TOKEN}@...` (the full word, unabbreviated — an owner-facing `mailto:` address, not itself byte-constrained the way the token portion is) while signing the token itself with `'a'`/`'r'`. `ModerationResponseHandler::detectAction()` still extracts the full word from that address (`'/' . preg_quote($localPart, '/') . '\+(accept|reject)-(.+?)@/i'`, unchanged) since that's also what drives the accept-vs-reject dispatch and error-log messages elsewhere in `handle()` — only the value actually passed to `TokenService::verify()` needs to match what was signed, so `ModerationResponseHandler::TOKEN_PURPOSE_MAP` (`['accept' => 'a', 'reject' => 'r']`) translates just before that one call, nothing else in the method.
 
@@ -2531,6 +2552,8 @@ YAML key).
 | GET | `/{listname}` | user | Manage page (owner) or reduced info page (non-owner) — see "`/{listname}` — owner vs. non-owner view" |
 | POST | `/_/api/moderation/{id}/accept` | owner | Accept moderation item |
 | POST | `/_/api/moderation/{id}/reject` | owner | Reject moderation item |
+| GET | `/{listname}/compose` | user | Form for a first mail to an external address — see "Masked reply addresses" |
+| POST | `/_/api/compose/{listname}` | user | Issue the masked address for the entered recipient (returns a `mailto:` link) |
 | GET | `/{listname}/moderation/{id}` | owner | Preview a still-pending mail — see "Preview: pending mail" |
 | GET | `/{listname}/moderation/{id}/frame` | owner | Preview: sandboxed HTML body |
 | GET | `/{listname}/moderation/{id}/attachment/{index}` | owner (or signed token) | Preview: attachment download/inline |

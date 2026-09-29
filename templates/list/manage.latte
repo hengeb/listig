@@ -18,8 +18,9 @@
 ></div>
 <h1>{$list->displayName} <small class="list-mail-subtitle">{$list->mail}</small></h1>
 
-<p n:if="$list->archive->value !== 'off' && $list->archive->value !== 'hidden'">
-    <a href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a>
+<p n:if="($list->archive->value !== 'off' && $list->archive->value !== 'hidden') || $list->canComposeExternal($user['email'])">
+    <a n:if="$list->archive->value !== 'off' && $list->archive->value !== 'hidden'" href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a>
+    <a n:if="$list->canComposeExternal($user['email'])" href="/{$list->name}/compose" class="btn btn-secondary">{$translator->trans('dashboard.compose_button')}</a>
 </p>
 
 <!-- Info -->

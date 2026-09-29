@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Mail;
 
 use Hengeb\Listig\Config\Enum\PostAccess;
+use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\RateLimit\RateLimiter;
 use PhpImap\IncomingMail;
@@ -15,6 +16,7 @@ class IncomingMailFilter
         private readonly RateLimiter $rateLimiter,
         private readonly HeaderFilter $headerFilter,
         private readonly SpamFilter $spamFilter,
+        private readonly ReplyTargetStore $replyTargetStore,
     ) {
     }
 
@@ -85,8 +87,18 @@ class IncomingMailFilter
         // allow/deny/moderate (see checkPostAccess()). Only 'deny' is decided
         // here; 'moderate' falls through to the rate limiter first, same as
         // 'allow' — moderated senders are not exempt from rate limiting.
+        //
+        // A mail to a masked-reply address (`{localPart}+r-{TOKEN}@…`, see
+        // ReplyTargetStore / CLAUDE.md "Masked reply addresses") has its own
+        // rules instead, see checkMaskedReply(). Not applicable to type:
+        // subaddress lists, whose `+…` addresses mean something else.
         $senderEmail = $mail->fromAddress ?? '';
-        $accessResult = $this->checkPostAccess($list, $senderEmail);
+        $replyToken = $list->subaddressMemberTemplates === null
+            ? $this->replyTargetStore->extractToken($mail, $list)
+            : null;
+        $accessResult = $replyToken !== null
+            ? $this->checkMaskedReply($list, $senderEmail, $replyToken)
+            : $this->checkPostAccess($list, $senderEmail);
         if ($accessResult !== null) {
             return $accessResult;
         }
@@ -96,7 +108,9 @@ class IncomingMailFilter
             return FilterResult::reject('reject.rate_limited');
         }
 
-        if ($this->requiresModeration($list, $senderEmail)) {
+        // masked-sender replies never reach the list, so they are never moderated either.
+        $moderable = $replyToken === null || $list->replyTo === ReplyToBehavior::MaskedBoth;
+        if ($moderable && $this->requiresModeration($list, $senderEmail)) {
             // A moderation item nobody can ever accept/reject is worse than an
             // outright rejection — without this, the mail would silently vanish
             // (ModerationMailer::send() logs and no-ops on empty owners) with no
@@ -195,6 +209,31 @@ class IncomingMailFilter
         }
 
         return null;
+    }
+
+    /**
+     * Access rules for a mail to a `+r-{TOKEN}` address: only a member, owner or `senders:`
+     * address may use it (an outsider holding a leaked token is rejected), and the target
+     * must still resolve. `restricted-members:` applies as always. `post-access-members`
+     * applies only to masked-both, whose reply is also distributed to the group —
+     * masked-sender reaches a single person and never the list, so deny/moderate don't
+     * apply there.
+     */
+    private function checkMaskedReply(ListConfig $list, string $senderEmail, string $token): ?FilterResult
+    {
+        if (!$list->replyTo->isMasked()) {
+            return FilterResult::reject('reject.reply_not_enabled');
+        }
+        if ($list->isSenderRestricted($senderEmail)) {
+            return FilterResult::reject('reject.sender_restricted');
+        }
+        if (!$list->isMember($senderEmail) && !$list->isOwnedBy($senderEmail) && !$list->isAuthorizedSender($senderEmail)) {
+            return FilterResult::reject('reject.reply_not_allowed');
+        }
+        if ($this->replyTargetStore->resolve($list, $token) === null) {
+            return FilterResult::reject('reject.reply_target_unknown');
+        }
+        return $list->replyTo === ReplyToBehavior::MaskedBoth ? $this->checkPostAccess($list, $senderEmail) : null;
     }
 
     /** Owners and `senders:` are never moderated — see checkPostAccess() and CLAUDE.md "Moderation". */
