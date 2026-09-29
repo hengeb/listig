@@ -55,6 +55,11 @@ class IncomingMailFilter
             return FilterResult::bounce();
         }
 
+        // 3b. Auto-reply (out-of-office etc.) — not a bounce, nothing to act on
+        if ($this->isAutoReply($mail, $unfolded)) {
+            return FilterResult::discard(forceDelete: true);
+        }
+
         // 4. Subaddress validation (type: subaddress lists only)
         if ($list->subaddressMemberTemplates !== null) {
             $subaddress = SubaddressExtractor::extract($mail, $list);
@@ -114,13 +119,12 @@ class IncomingMailFilter
         // false→true here (an empty string is never null), so every mail lacking an
         // Auto-Submitted header — i.e. essentially all normal mail — was misclassified
         // as a bounce and forwarded to the owner instead of ever reaching distribute().
-        $autoSubmitted = $mail->autoSubmitted;
-        if ($autoSubmitted !== null && $autoSubmitted !== '' && strtolower(trim($autoSubmitted)) !== 'no') {
-            return true;
-        }
-
-        // X-Auto-Response-Suppress present
-        if (preg_match('/^X-Auto-Response-Suppress:/mi', $unfolded)) {
+        //
+        // `auto-replied` (RFC 3834: out-of-office and similar responders) is
+        // deliberately *not* a bounce signal on its own — see isAutoReply(). Only
+        // `auto-generated` (DSNs, system notices) and other values count here.
+        $autoSubmitted = strtolower(trim($mail->autoSubmitted ?? ''));
+        if ($autoSubmitted !== '' && $autoSubmitted !== 'no' && $autoSubmitted !== 'auto-replied') {
             return true;
         }
 
@@ -141,6 +145,22 @@ class IncomingMailFilter
         }
 
         return false;
+    }
+
+    /**
+     * A human-facing auto-responder (out-of-office): `Auto-Submitted: auto-replied`
+     * (RFC 3834), `X-Auto-Response-Suppress` or `Precedence: auto_reply`. Only
+     * consulted after isBounce() has ruled out real DSNs/system mail, so anything
+     * reaching here carries no delivery-failure information. Silently dropped —
+     * logging it in bounce_log and forwarding it to the owners would be pure noise
+     * and could trip BounceHandler's circuit breaker, suppressing real bounces.
+     */
+    private function isAutoReply(IncomingMail $mail, string $unfolded): bool
+    {
+        if (strtolower(trim($mail->autoSubmitted ?? '')) === 'auto-replied') {
+            return true;
+        }
+        return (bool) preg_match('/^(X-Auto-Response-Suppress:|Precedence:\s*auto_reply)/mi', $unfolded);
     }
 
     /**

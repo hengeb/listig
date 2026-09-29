@@ -1679,6 +1679,8 @@ Visible `To`/`Cc` header: the original mail's own `To`/`Cc` addresses, copied ve
    - `Content-Type: multipart/report; report-type=delivery-status`
    - `From` contains `MAILER-DAEMON` or `postmaster` (case-insensitive)
    - Subject matches `/^(delivery status|mail delivery failed|undelivered mail)/i`
+   - `Auto-Submitted: auto-replied` alone (RFC 3834 auto-responder), `X-Auto-Response-Suppress` alone and `Precedence: auto_reply` are **not** bounces — see step 3b.
+3b. **Auto-reply** (out-of-office etc.; only reached if step 3 didn't match, i.e. no DSN/`MAILER-DAEMON`/`auto-generated`) → `FilterResult::discard(forceDelete: true)`: silently dropped and deleted, no `bounce_log` row, no owner notice. Forwarding these was pure noise and could trip `BounceHandler`'s circuit breaker, suppressing real bounces. Implemented by `IncomingMailFilter::isAutoReply()`.
 4. **Subaddress validation** (`type: subaddress` lists only, see "type: subaddress — subaddress forwarding"): reserved subaddress (`bounce`, `accept-*`, `reject-*`, or list-configured `reserved-subaddresses`) → reject, notify sender; no subaddress at all while at least one member template requires one → reject, notify sender
 5. **Authentication-Results**: SPF or DKIM = `fail` → reject, notify sender
 6. **Size**: raw MIME size > `max-size` → reject, notify sender
