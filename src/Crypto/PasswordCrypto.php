@@ -8,7 +8,7 @@ namespace Hengeb\Listig\Crypto;
  * Encrypts/decrypts IMAP/SMTP passwords stored in LDAP description[] values
  * (mail-password, imap-password, smtp-password, legacy password) using
  * AES-256-CBC with a subkey derived from APP_SECRET via KeyDerivation — never
- * APP_SECRET itself (see CLAUDE.md "Key Derivation").
+ * APP_SECRET itself (see docs/architecture/security-and-tokens.md "Key Derivation").
  *
  * Wire format: base64(iv) . ':' . base64(ciphertext).
  *

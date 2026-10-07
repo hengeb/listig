@@ -152,7 +152,7 @@ class SpamFilterTest extends TestCase
     {
         // {list-domain} must resolve against the list actually being checked, not
         // stay a literal, never-matching "{list-domain}" string — this was a
-        // real, confirmed bug (see CLAUDE.md "Variable resolution in filter
+        // real, confirmed bug (see docs/architecture/mail-processing.md "Variable resolution in filter
         // patterns"). Matched against a domain that differs from the substring
         // "MAILER-DAEMON@" alone, so the test can't accidentally pass merely
         // because the literal prefix matched regardless of resolution.

@@ -90,7 +90,7 @@ class ModerationMailer
         // idempotency/still-pending check regardless. One shared pair per message
         // (not per owner): the token doesn't identify which owner approved, that is
         // checked separately via $list->isOwnedBy() on arrival.
-        // 'a'/'r' — short token purpose codes, see CLAUDE.md "Token Format".
+        // 'a'/'r' — short token purpose codes, see docs/architecture/security-and-tokens.md "Token Format".
         // The visible +accept-/+reject- address tag stays the full word (only
         // the internally-signed purpose is shortened) — ModerationResponseHandler
         // translates the address-derived word back to these same codes before

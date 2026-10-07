@@ -103,7 +103,7 @@ class ArchiveMailLocator
                 return false;
             }
             // deleteMail() only marks the message for deletion — expungeDeletedMails()
-            // is required to actually remove it (see CLAUDE.md "Library API Notes").
+            // is required to actually remove it (see docs/library-notes.md "Library API Notes").
             $mailbox->deleteMail($uid);
             $mailbox->expungeDeletedMails();
             return true;

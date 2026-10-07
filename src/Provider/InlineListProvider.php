@@ -35,13 +35,13 @@ class InlineListProvider extends AbstractListProvider
         // are excluded from the plain raw-config merge below — ConfigResolver::mergeBlock()
         // replaces rather than combines, so these six keys are instead gathered explicitly
         // across all three levels (global/provider/list) via scopedLevels() further down.
-        // See CLAUDE.md "Global / provider / list levels".
+        // See docs/architecture/config.md "Global / provider / list levels".
         $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners', 'senders', 'restricted-members']);
 
         foreach ($this->providerConfig['lists'] ?? [] as $listName => $listDef) {
             // Root-level `lists: <name>:` — an additional, highest-priority per-list
             // source layered on top of this provider's own listDef, matched purely by
-            // name. See CLAUDE.md "Root-level lists:".
+            // name. See docs/architecture/config.md "Root-level lists:".
             $rootOverride = $this->configResolver->getListOverride($listName);
 
             $listOverrides = array_diff_key($listDef, $excludedKeys);
@@ -66,7 +66,7 @@ class InlineListProvider extends AbstractListProvider
 
             // $listConfig for scopedLevels() combines this provider's own listDef
             // with the root-level lists: override — both are per-list sources, see
-            // CLAUDE.md "Root-level lists:".
+            // docs/architecture/config.md "Root-level lists:".
             $listConfig = array_merge($listDef, $rootOverride);
 
             $memberResolver = $this->memberResolverFactory->buildComposedResolver(

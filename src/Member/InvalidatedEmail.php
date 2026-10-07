@@ -6,7 +6,7 @@ namespace Hengeb\Listig\Member;
 
 /**
  * Builds the placeholder address a `mark-invalid` bounce action replaces a
- * member's own address with — see CLAUDE.md "Automatic bounce actions". The
+ * member's own address with — see docs/architecture/bounces.md "Automatic bounce actions". The
  * single shared implementation of this format, used identically by
  * LdapMemberResolver/DatabaseMemberResolver/CsvMemberResolver so the three
  * backends can never drift apart on it.

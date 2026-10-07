@@ -78,7 +78,7 @@ try {
             "Listig: WARNING: 'hostname' is not set in config.yml — falling back to gethostname() "
             . "('" . (gethostname() ?: 'localhost') . "'), which is almost always wrong in a "
             . "containerized deployment behind a reverse proxy. Set 'hostname: your-public-domain.example.org' "
-            . "explicitly (see CLAUDE.md)."
+            . "explicitly (see docs/architecture/deployment.md)."
         );
     }
 } catch (\Throwable $e) {
@@ -90,7 +90,7 @@ try {
 // !include — on disk (edited in place, or a fresh docker compose up after
 // editing it) causes a clean self-restart instead of running indefinitely on
 // a stale, already-parsed configuration — see "Worker loop — config reload"
-// in CLAUDE.md. ConfigResolver::getIncludedFiles() already has config.yml's
+// in docs/architecture/worker-and-queue.md. ConfigResolver::getIncludedFiles() already has config.yml's
 // own path as its first entry (YamlIncludeResolver::parseFile()'s top-level
 // call), so that alone is the full watch list — no separate config.path
 // lookup needed. clearstatcache() is required in the loop below: PHP caches
@@ -334,7 +334,7 @@ while (true) {
     // Drop each list-provider's cached directory data (LDAP entries, DB
     // config-table rows, a type: yaml file's contents, ...) too — without this,
     // a provider that succeeded once would keep serving that same result for
-    // the worker's entire lifetime (see CLAUDE.md "Worker loop — config
+    // the worker's entire lifetime (see docs/architecture/worker-and-queue.md "Worker loop — config
     // reload"), so e.g. an LDAP description[] edit would only ever take effect
     // after a full process restart, not on the next cycle.
     $listProvider->reset();

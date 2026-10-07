@@ -32,7 +32,7 @@ class QueueController
         // (pending/failed), same as before queue_recipients started retaining
         // completed rows for 30 days (QueueSender::purgeCompletedEntries(),
         // needed so a delayed async bounce can still find and correct them —
-        // see CLAUDE.md "Automatic bounce actions") — without this filter,
+        // see docs/architecture/bounces.md "Automatic bounce actions") — without this filter,
         // an active list's successfully-sent history would flood this
         // owner-facing, unpaginated query.
         $stmt = $this->db->prepare(

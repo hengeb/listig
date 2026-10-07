@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Logging;
 
 /**
- * Thin, level-gated wrapper around error_log() — see CLAUDE.md "Debug logging".
+ * Thin, level-gated wrapper around error_log() — see docs/architecture/logging.md "Debug logging".
  * Scoped specifically to the new debug-level tracing this class was introduced
  * for (login requests/logins, mail found on IMAP poll, per-recipient enqueue).
  * The pre-existing, unconditional error_log() calls throughout the codebase
  * (operational failures/warnings) are deliberately NOT routed through this
  * class — those represent problems an operator should always see regardless of
  * the configured level, and migrating all of them was out of scope for what was
- * actually asked (see CLAUDE.md).
+ * actually asked (see docs/architecture/logging.md "Debug logging").
  */
 class Logger
 {

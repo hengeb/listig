@@ -66,7 +66,7 @@ class VariableResolverTest extends TestCase
         // A Literal-wrapped value containing '{' must never be treated as a further
         // template — this is what stops a member's own attribute (e.g. a
         // self-chosen "firstname") from being abused to reach another, unrelated
-        // key via a nested {} — see CLAUDE.md "Untrusted input in {} templates".
+        // key via a nested {} — see docs/architecture/security-and-tokens.md "Untrusted input in {} templates".
         $result = VariableResolver::resolve('{firstname}', [[
             'firstname' => new Literal('{secret}'),
             'secret' => 'leaked',

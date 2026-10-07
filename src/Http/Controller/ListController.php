@@ -48,7 +48,7 @@ class ListController
             // the previous `(new Response())->withStatus(404)` produced a
             // literally empty page, no explanation at all). Unlike the
             // archive viewer's own bare 404s (Hidden/Off deliberately
-            // indistinguishable from "doesn't exist", see CLAUDE.md "Archive
+            // indistinguishable from "doesn't exist", see docs/architecture/archive.md "Archive
             // viewer"), there is no equivalent privacy reason to stay silent
             // here — a list either exists or it doesn't, and this route is
             // already behind AuthMiddleware, so only an authenticated user
@@ -71,7 +71,7 @@ class ListController
         $queueStatus = $this->getQueueStatus($listName);
         $bounceStats = $this->getBounceStats($listName);
         // Only ever populated by the `restrict` automatic bounce action (see
-        // CLAUDE.md "Automatic bounce actions") — the template renders this
+        // docs/architecture/bounces.md "Automatic bounce actions") — the template renders this
         // section only when non-empty, so a list that never had one shows
         // nothing extra.
         $suppressedMembers = $this->bounceSuppressionList->listForOwner($listName);
@@ -119,7 +119,7 @@ class ListController
         $unsubscribeLink = null;
         if ($isMember && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
             $member = $list->findMemberInList($userEmail);
-            // 'u' — short token purpose code, see CLAUDE.md "Token Format".
+            // 'u' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
             $token = $this->tokenService->sign(
                 'u',
                 $list->name,

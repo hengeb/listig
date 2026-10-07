@@ -14,7 +14,7 @@ use Jumbojett\OpenIDConnectClient;
  *
  * Only constructed (see 'oidc.enabled' / OpenIdConnectService::class in
  * config/container.php) when oidc-provider-url/oidc-client-id/oidc-client-secret
- * are all configured — see "Authentication (OIDC)" in CLAUDE.md.
+ * are all configured — see "Authentication (OIDC)" in docs/architecture/web-ui.md.
  */
 class OpenIdConnectService
 {

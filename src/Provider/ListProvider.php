@@ -20,7 +20,7 @@ interface ListProvider
      * data fetched earlier in this same process. Called once per worker cycle
      * (see bin/worker.php, mirroring ImapMailboxFactory::reset()) — without it,
      * a provider that succeeded once would otherwise keep serving that first
-     * result for the worker's entire lifetime (see CLAUDE.md "Worker loop —
+     * result for the worker's entire lifetime (see docs/architecture/worker-and-queue.md "Worker loop —
      * config reload").
      */
     public function reset(): void;

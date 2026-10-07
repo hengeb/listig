@@ -62,7 +62,7 @@ class AggregateMemberResolver implements MemberResolver
     /**
      * Resolves a member within a *specific* list from the identifier embedded in a
      * login token — sendMagicLink() signs that token with
-     * $member->attributes['username'] ?? $member->email (see CLAUDE.md
+     * $member->attributes['username'] ?? $member->email (see docs/architecture/providers-and-members.md
      * "Privacy-preserving username"), specifically so the emailed link doesn't
      * carry a plaintext address for an LDAP-backed member. This is the inverse
      * lookup verifyToken() needs once that token round-trips back: matches on

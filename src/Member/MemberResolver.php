@@ -45,7 +45,7 @@ interface MemberResolver
     /**
      * Replaces $email, in place, with Member\InvalidatedEmail::build($email,
      * $reason) — used by the `mark-invalid` automatic bounce action (see
-     * CLAUDE.md "Automatic bounce actions") so a permanently bouncing address
+     * docs/architecture/bounces.md "Automatic bounce actions") so a permanently bouncing address
      * stops being deliverable/matchable without deleting the underlying
      * member record outright. $listName is provided for parity with
      * removeMember()/addMember() and is honored by backends whose storage is

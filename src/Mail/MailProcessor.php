@@ -127,7 +127,7 @@ class MailProcessor
             }
             $this->footerAppender->append($recipientEmail, $list, $recipientContexts);
 
-            // 'u' — short token purpose code, see CLAUDE.md "Token Format".
+            // 'u' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
             $token          = $this->tokenService->sign('u', $list->name, $recipient->attributes['username'] ?? $recipient->email);
             $unsubscribeUrl = "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}";
             $recipientEmail->getHeaders()->remove('list-unsubscribe');
@@ -303,7 +303,7 @@ class MailProcessor
      * comes from the incoming mail's sender (a directory/database/CSV row keyed
      * by their address, or the subaddress they addressed the list with), so a
      * self-chosen attribute value containing '{' must never be treated as a
-     * template to recurse into — see "Untrusted input in {} templates" in CLAUDE.md.
+     * template to recurse into — see "Untrusted input in {} templates" in docs/architecture/security-and-tokens.md.
      */
     private function buildMailContext(Member $senderMember, string $rawFromHeader, ?string $subaddress): array
     {
@@ -345,7 +345,7 @@ class MailProcessor
      * Every value is Literal-wrapped (see VariableResolver) — a recipient's own
      * data (e.g. self-set via the public subscribe API), not list config, so a
      * value containing '{' must never be recursed into as if it were a trusted
-     * template — see "Untrusted input in {} templates" in CLAUDE.md.
+     * template — see "Untrusted input in {} templates" in docs/architecture/security-and-tokens.md.
      */
     private function buildRecipientContext(Member $recipient): array
     {
@@ -409,7 +409,7 @@ class MailProcessor
             // A single signed token address for both masked modes — the group copy of
             // masked-both is made server-side when the reply arrives, so (unlike Both)
             // no second Reply-To address is needed, and a member sender needs no
-            // exemption either. See ReplyTargetStore / CLAUDE.md "Masked reply addresses".
+            // exemption either. See ReplyTargetStore / docs/architecture/masked-replies.md "Masked reply addresses".
             ReplyToBehavior::MaskedSender, ReplyToBehavior::MaskedBoth => $email->replyTo(new Address(
                 "{$list->localPart}+r-" . $this->replyTargetStore->tokenFor($list, $senderEmail) . "@{$list->domain}"
             )),
@@ -548,7 +548,7 @@ class MailProcessor
         // plain send-only restriction, this must exclude the address from
         // distribution too, regardless of what the list's own member-resolver
         // (even LDAP) still reports. bounce_suppressed_members is the same idea
-        // via the `restrict` automatic bounce action (see CLAUDE.md "Automatic
+        // via the `restrict` automatic bounce action (see docs/architecture/bounces.md "Automatic
         // bounce actions") — a separate, dynamically-populated table rather
         // than a restricted-members: config entry, checked the same way.
         return array_values(array_filter(

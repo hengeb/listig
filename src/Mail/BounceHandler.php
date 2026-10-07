@@ -32,7 +32,7 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * working through the rest of the same batch across later worker cycles —
  * without the spam case specifically, a mail one reliable provider has
  * already rejected as spam kept being sent to every remaining recipient
- * regardless. See CLAUDE.md "Automatic bounce actions".
+ * regardless. See docs/architecture/bounces.md "Automatic bounce actions".
  *
  * RFC 3464 delivery-status notifications carry no cryptographic
  * authentication at all — every field in a DSN's body (Final-Recipient, the
@@ -43,7 +43,7 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * forge a "spam" bounce for an address they merely claim, and get Listig to
  * abort delivery to every real recipient of a batch that address was never
  * actually part of. Two independent mechanisms close this (see
- * resolveVerifiedRecipient()/isDkimAuthenticated(), and CLAUDE.md
+ * resolveVerifiedRecipient()/isDkimAuthenticated(), and docs/architecture/bounces.md
  * "Automatic bounce actions" for the full reasoning):
  *
  * 1. **Who this bounce concerns** is never read from the DSN's own claims —
@@ -266,7 +266,7 @@ class BounceHandler
      * The automatic action for a hard bounce (BounceCause::UserUnknown) or an
      * escalated repeated soft bounce (BounceCause::MailboxFull, via
      * handleMailboxFull()) — dispatches on the list's own configured
-     * `bounce-action` (see CLAUDE.md "Automatic bounce actions"). `none`
+     * `bounce-action` (see docs/architecture/bounces.md "Automatic bounce actions"). `none`
      * (the default) still returns a description distinct from
      * noAutomaticAction()'s own "none" — here, a cause *was* recognized, an
      * operator has simply chosen not to act on it automatically, which is

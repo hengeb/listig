@@ -86,7 +86,7 @@ class AuthController
             if ($found !== null) {
                 ['list' => $list, 'member' => $member] = $found;
                 try {
-                    // 'l' — short token purpose code, see CLAUDE.md "Token Format".
+                    // 'l' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
                     $token = $this->tokenService->sign('l', $list->name, $member->attributes['username'] ?? $email);
                     $link = "https://{$this->hostname}/_/login/verify?token={$token}";
                     $this->sendLoginMail($list, $member, $email, $link);
@@ -124,7 +124,7 @@ class AuthController
 
         // Payload shape set by sendMagicLink() above: [listCn, userCn]. $userCn is
         // the privacy-preserving identifier the link itself was signed with (see
-        // CLAUDE.md "Privacy-preserving username") — not necessarily a real email
+        // docs/architecture/providers-and-members.md "Privacy-preserving username") — not necessarily a real email
         // address (it's the LDAP cn for an LDAP-backed member) — so it must be
         // resolved back to the actual Member here rather than stored as-is: every
         // authorization check elsewhere ($list->isMember()/isOwnedBy(), ...) reads
@@ -220,7 +220,7 @@ class AuthController
         // 'email' key is read everywhere as a real, comparable email address
         // (isMember()/isOwnedBy() etc.), unlike the token-embedded identifier
         // used by the magic-link flow (see the analogous fix/comment in
-        // verifyToken() and CLAUDE.md "Privacy-preserving username").
+        // verifyToken() and docs/architecture/providers-and-members.md "Privacy-preserving username").
         session_regenerate_id(true);
         $_SESSION['user'] = [
             'email' => $member->email,

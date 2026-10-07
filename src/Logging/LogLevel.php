@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Logging;
 
 /**
- * Mirrors the four levels documented in CLAUDE.md's "Logging" section
+ * Mirrors the four levels documented in docs/architecture/logging.md's "Logging" section
  * (config.yml's global 'log-level' default / per-list ListConfig::$logLevel
  * override) — ordered so a numeric comparison decides whether a given message
  * actually reaches error_log() (see Logger).

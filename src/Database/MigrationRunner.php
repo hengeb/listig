@@ -9,7 +9,7 @@ use PDO;
 /**
  * Applies pending *.sql files from migrations/ and records them in schema_migrations,
  * so a fresh or upgraded deployment never needs a migration file downloaded or applied
- * by hand — see CLAUDE.md "Database migrations".
+ * by hand — see docs/reference/database-schema.md "Database migrations".
  *
  * Migration files must be idempotent (e.g. CREATE TABLE IF NOT EXISTS): MariaDB commits
  * DDL implicitly, so a crash between running a file's SQL and recording it as applied
@@ -38,7 +38,8 @@ class MigrationRunner
         $appliedSet = array_flip($applied);
 
         // Zero-padded numeric prefixes (001_, 002_, ...) sort correctly as plain strings —
-        // see CLAUDE.md for the naming convention new migration files must follow.
+        // see docs/reference/database-schema.md ("Database migrations") for the naming
+        // convention new migration files must follow.
         $files = glob($this->migrationsPath . '/*.sql') ?: [];
         sort($files, SORT_STRING);
 

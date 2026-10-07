@@ -8,7 +8,7 @@ namespace Hengeb\Listig\Config\Enum;
  * The configurable consequence of a recognized, authenticated permanent bounce
  * (BounceCause::UserUnknown) or an escalated repeated temporary one
  * (BounceCause::MailboxFull, after `bounce-escalate-after` occurrences) — see
- * CLAUDE.md "Automatic bounce actions". Applied uniformly regardless of which
+ * docs/architecture/bounces.md "Automatic bounce actions". Applied uniformly regardless of which
  * of the two causes triggered it.
  */
 enum BounceAction: string

@@ -18,7 +18,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
- * Bearer-token list-management API (see CLAUDE.md "List Management API"):
+ * Bearer-token list-management API (see docs/architecture/api.md "List Management API"):
  *   PUT    /{listname}/{mail}             immediate subscribe
  *   DELETE /{listname}/{mail}              unsubscribe
  *   POST   /{listname}/subscribe           request double opt-in (Bearer or public-subscribe)
@@ -120,7 +120,7 @@ class ListApiController
         // Always rate limit and return the same response regardless of outcome.
         if (!$this->rateLimiter->isExceeded($listName, $mail, self::MAX_SUBSCRIBE_REQUESTS_PER_10MIN)) {
             try {
-                // 's' — short token purpose code, see CLAUDE.md "Token Format".
+                // 's' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
                 $token = $this->tokenService->sign(
                     's',
                     $listName,
@@ -250,7 +250,8 @@ class ListApiController
      * unrecognized column still throws), so accepting arbitrary external input
      * here would let a caller trivially trigger errors with a bogus body key.
      * Internally (LDAP/DB/CSV/inline config), Member::$attributes is otherwise
-     * fully dynamic — see CLAUDE.md "Pronoun / salutation personalization".
+     * fully dynamic — see docs/architecture/providers-and-members.md
+     * "Example: pronoun-based salutation".
      *
      * @return array<string, string>
      */

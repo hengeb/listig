@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Archive;
 
 /**
- * Shared by ArchiveController and ModerationController (see "Moderation: preview
- * pending mail" in CLAUDE.md) — both serve mail attachments straight out of IMAP
+ * Shared by ArchiveController and ModerationController (see "Preview: pending
+ * mail" in docs/architecture/moderation.md) — both serve mail attachments straight out of IMAP
  * and must never trust a mail's own Content-Type/Content-Disposition claim before
  * deciding whether it's safe to deliver inline. Kept as one class specifically so
  * a future fix to this logic can't accidentally land in only one of the two

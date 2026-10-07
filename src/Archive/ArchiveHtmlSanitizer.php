@@ -25,7 +25,7 @@ use PhpImap\IncomingMailAttachment;
  *  3. Strip off-origin (http/https) `img[src]` unless $loadImages is true — the
  *     only URL-bearing attribute HTMLPurifier's allowlist still lets through.
  *     Because the iframe this is rendered into has no `allow-scripts` (see
- *     CLAUDE.md), "load images" is a full server re-render triggered by the OUTER
+ *     docs/architecture/archive.md "Archive viewer"), "load images" is a full server re-render triggered by the OUTER
  *     page changing the iframe's src — never a live DOM mutation from inside the
  *     sandboxed content.
  */

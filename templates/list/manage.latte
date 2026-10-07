@@ -11,7 +11,7 @@
 {block content}
 {* Translated strings for list-manage.js — a static file can't itself contain
    server-rendered translations, so they're threaded through via data
-   attributes instead. See CLAUDE.md "Internationalization". *}
+   attributes instead. See docs/architecture/i18n.md "Internationalization". *}
 <div id="list-manage-i18n" hidden
     data-error-prefix="{$translator->trans('list.manage.js_error_prefix')}"
     data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
@@ -112,7 +112,7 @@
 </div>
 
 {* Only ever populated by the `restrict` automatic bounce action — see
-   CLAUDE.md "Automatic bounce actions". Rendered only when non-empty, so a
+   docs/architecture/bounces.md "Automatic bounce actions". Rendered only when non-empty, so a
    list that never triggered it shows nothing extra. *}
 <div class="card" n:if="count($suppressedMembers) > 0">
     <h2>{$translator->trans('list.manage.suppressed_members')}</h2>

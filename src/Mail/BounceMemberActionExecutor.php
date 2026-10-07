@@ -9,7 +9,7 @@ use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
  * Executes the three "mutate member data" automatic bounce actions
- * (mark-invalid/restrict/remove — see CLAUDE.md "Automatic bounce actions"),
+ * (mark-invalid/restrict/remove — see docs/architecture/bounces.md "Automatic bounce actions"),
  * extracted out of BounceHandler so that class stays focused on detection/
  * classification/notice-building. Each method is wrapped in its own
  * try/catch — a failure here (e.g. LDAP unreachable) must never prevent

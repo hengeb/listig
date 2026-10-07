@@ -7,7 +7,7 @@ namespace Hengeb\Listig\Token;
 class TokenService
 {
     /**
-     * Truncated HMAC-SHA256 output length, in bytes (96 bits) — see CLAUDE.md
+     * Truncated HMAC-SHA256 output length, in bytes (96 bits) — see docs/architecture/security-and-tokens.md
      * "Token Format" for the full reasoning. RFC 2104/NIST SP 800-107 both
      * explicitly allow a truncated MAC as long as the remaining length still
      * gives an adequate security margin against forgery; 96 bits is
@@ -65,7 +65,7 @@ class TokenService
         // encodings with a "." — dropping that (and the second, independent
         // base64-rounding-up it implied) shaves a few more bytes off every
         // token, meaningful for the ones embedded in an email address
-        // local-part — see CLAUDE.md "Token Format".
+        // local-part — see docs/architecture/security-and-tokens.md "Token Format".
         $data = substr($decoded, 0, -self::HMAC_BYTES);
         $hmac = substr($decoded, -self::HMAC_BYTES);
 
@@ -96,7 +96,7 @@ class TokenService
      * Truncated (HMAC_BYTES), raw-binary HMAC-SHA256 over $data — the
      * *whole* token (payload + this) is base64url-encoded together by
      * sign()/verify(), not this in isolation, so no encoding happens here;
-     * see CLAUDE.md "Token Format" for why HMAC_BYTES=12 (96 bits) rather
+     * see docs/architecture/security-and-tokens.md "Token Format" for why HMAC_BYTES=12 (96 bits) rather
      * than the full 32-byte digest.
      */
     private function truncatedHmac(string $data): string

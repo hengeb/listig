@@ -86,7 +86,7 @@ $builder->addDefinitions([
     },
 
     // Path to config.yml — also used by bin/worker.php to watch the file for
-    // on-disk changes (see "Worker loop — config reload" in CLAUDE.md).
+    // on-disk changes (see "Worker loop — config reload" in docs/architecture/worker-and-queue.md).
     'config.path' => function (): string {
         return $_ENV['CONFIG_PATH'] ?? getenv('CONFIG_PATH') ?: __DIR__ . '/config.yml';
     },
@@ -161,7 +161,7 @@ $builder->addDefinitions([
     // sends for (BounceHandler::handleMailboxFull()) — root-level/instance-
     // wide, not per-list, since QueueSender::sendBatch()'s own query spans
     // every list in one pass and has no per-list interval to embed (the
-    // per-list bounce-action itself stays list-scoped — see CLAUDE.md
+    // per-list bounce-action itself stays list-scoped — see docs/architecture/bounces.md
     // "Automatic bounce actions"). config.yml's 'bounce-defer-days' root key.
     'app.bounce-defer-days' => function (ContainerInterface $c): int {
         $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
@@ -181,7 +181,7 @@ $builder->addDefinitions([
     // Display name for the app itself — config.yml's 'app-name' root key, default
     // 'Listig'. Passed as 'appName' to every rendered template (page titles, header)
     // and as '%app_name%' to every translated string that names the app (login mail
-    // subject, queue failure notice, ...) — see CLAUDE.md "app-name".
+    // subject, queue failure notice, ...) — see docs/architecture/web-ui.md "App name".
     'app.name' => function (ContainerInterface $c): string {
         $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
         $raw = $cfg['app-name'] ?? null;
@@ -202,7 +202,7 @@ $builder->addDefinitions([
     },
 
     // Global default log level — config.yml's 'log-level' root key (default
-    // 'info', see CLAUDE.md "Logging"); individual lists may override via
+    // 'info', see docs/architecture/logging.md "Logging"); individual lists may override via
     // ListConfig::$logLevel, passed per call to Logger::debug() below.
     'app.log-level' => function (ContainerInterface $c): string {
         $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
@@ -211,14 +211,14 @@ $builder->addDefinitions([
     },
 
     // Debug-level tracing (login requests/logins, IMAP mail discovery,
-    // per-recipient enqueue) — see CLAUDE.md "Debug logging".
+    // per-recipient enqueue) — see docs/architecture/logging.md "Debug logging".
     Logger::class => function (ContainerInterface $c): Logger {
         return new Logger(LogLevel::fromString($c->get('app.log-level')));
     },
 
     // Fallback action for a filters: rule that sets no action: of its own —
     // config.yml's 'filters-default-action' root key (default 'reject', see
-    // CLAUDE.md "Spam filtering"). Validated inside SpamFilter's own
+    // docs/architecture/mail-processing.md "Spam filtering"). Validated inside SpamFilter's own
     // constructor, not here, so a bad value fails the same way an invalid
     // per-rule action: already does.
     'app.filters-default-action' => function (ContainerInterface $c): string {
@@ -326,7 +326,7 @@ $builder->addDefinitions([
         foreach ($providerConfigs as $name => $config) {
             // 'type' goes through the normal priority chain (root use:/direct, then this
             // provider's own use:/direct — see ConfigResolver::resolveListConfig()) before
-            // falling back to the provider's own name — see CLAUDE.md "list-providers".
+            // falling back to the provider's own name — see docs/architecture/config.md "list-providers".
             $type = $configResolver->resolveListConfig($config)['type'] ?? '';
             $type = $type !== '' ? $type : $name;
             $provider = match ($type) {
@@ -385,7 +385,7 @@ $builder->addDefinitions([
             /**
              * Root-level `lists:` names that no configured provider produced are
              * defined from scratch via an implicit `type: inline` provider — see
-             * CLAUDE.md "Root-level lists:". Built lazily (only once actually
+             * docs/architecture/config.md "Root-level lists:". Built lazily (only once actually
              * needed, not at container-build time) and cached for the rest of
              * this cycle/request, same lifetime as $this->providers' own internal
              * per-cycle caching.
@@ -466,11 +466,11 @@ $builder->addDefinitions([
     },
     // Classifies an already-authenticated bounce's diagnostic text into a
     // BounceCause an automatic action exists for (only Spam today) — see
-    // BounceHandler / CLAUDE.md "Automatic bounce actions". No dependencies —
+    // BounceHandler / docs/architecture/bounces.md "Automatic bounce actions". No dependencies —
     // it is deliberately pure text classification, since the trust/
     // authenticity decision lives entirely in BounceHandler now.
     BounceCauseClassifier::class => fn() => new BounceCauseClassifier(),
-    // Backs the `restrict` automatic bounce action — see CLAUDE.md "Automatic
+    // Backs the `restrict` automatic bounce action — see docs/architecture/bounces.md "Automatic
     // bounce actions". Independent of any list's own ListProvider/
     // MemberResolver backend.
     ReplyTargetStore::class => function (ContainerInterface $c): ReplyTargetStore {
@@ -525,7 +525,7 @@ $builder->addDefinitions([
         return new ImapArchiver($c->get(ImapMailboxFactory::class));
     },
 
-    // Archive viewer — see CLAUDE.md "Archive access levels". ArchiveIndexer is
+    // Archive viewer — see docs/architecture/archive.md "Archive access levels". ArchiveIndexer is
     // called alongside (not from within) ImapArchiver::archiveOrDelete(), only at
     // the 3 call sites that represent a successful distribute (bin/worker.php,
     // ModerationController::accept, ModerationResponseHandler) — bounce/reject
@@ -599,7 +599,7 @@ $builder->addDefinitions([
         );
     },
 
-    // OIDC login (see "Authentication (OIDC)" in CLAUDE.md) is entirely optional —
+    // OIDC login (see "Authentication (OIDC)" in docs/architecture/web-ui.md) is entirely optional —
     // enabled only if all three keys are configured. Root-level config.yml keys
     // (like hostname/language/db-*, see the block above), not per-list: the login
     // flow itself has no list in scope until after a member is found (same reason

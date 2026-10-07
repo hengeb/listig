@@ -7,7 +7,7 @@ namespace Hengeb\Listig\Mail;
 use PDO;
 
 /**
- * Backs the `restrict` automatic bounce action (see CLAUDE.md "Automatic
+ * Backs the `restrict` automatic bounce action (see docs/architecture/bounces.md "Automatic
  * bounce actions") — a small, dedicated, DB-gated collaborator (like
  * RateLimiter) rather than SQL inline in MailProcessor, which per "Coding
  * Conventions" may not run SQL itself. Deliberately independent of every
@@ -16,8 +16,8 @@ use PDO;
  * backend the list's own membership comes from, without needing write access
  * to that backend at all. Not an extension of the existing, purely
  * config-derived `restricted-members:`/RestrictionList mechanism — see the
- * class docblock discussion in CLAUDE.md for why a dedicated table was
- * chosen instead for this iteration.
+ * docs/adr/0005-bounce-suppression-table.md for why a dedicated table was
+ * chosen instead.
  */
 class BounceSuppressionList
 {
@@ -46,7 +46,7 @@ class BounceSuppressionList
     }
 
     /**
-     * For the manage page's own suppression table (see CLAUDE.md "Automatic
+     * For the manage page's own suppression table (see docs/architecture/bounces.md "Automatic
      * bounce actions") — rendered only when non-empty, so owners see *why* an
      * address stopped receiving mail instead of it silently vanishing.
      *

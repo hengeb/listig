@@ -44,7 +44,7 @@ class SpamRejectionDetector
      * @param string[] $additionalReliableDomains extra domains an operator has
      *        deliberately chosen to trust the same way, via config.yml's root-level
      *        `reliable-spam-reporters:` key — always additive to BUILTIN_DOMAINS,
-     *        never a replacement (see CLAUDE.md "Spam rejection at delivery time").
+     *        never a replacement (see docs/architecture/worker-and-queue.md "Spam rejection at delivery time").
      */
     public function __construct(array $additionalReliableDomains = [])
     {

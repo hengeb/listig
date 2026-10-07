@@ -247,7 +247,7 @@ class ArchiveController
         // login. attachment() accepts this signed, mail-scoped token as a fallback
         // grant for exactly that case (see attachment()) — checkAccess() above
         // already confirmed access once for this same request.
-        // 'v' — short token purpose code, see CLAUDE.md "Token Format".
+        // 'v' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
         $attachmentToken = $this->tokenService->sign('v', $list->name, (string) $row['id']);
 
         $bodyHtml = null;
@@ -449,7 +449,7 @@ class ArchiveController
      * Returns null if access is granted, otherwise the response to short-circuit
      * with. Off/Hidden always 404 — indistinguishable from a nonexistent list or
      * route, even for the list's own owner (Hidden means archived but exposed to
-     * no one via the UI, by design — see CLAUDE.md "Archive access levels").
+     * no one via the UI, by design — see docs/architecture/archive.md "Archive access levels").
      */
     private function checkAccess(ServerRequestInterface $request, ListConfig $list): ?ResponseInterface
     {
@@ -464,7 +464,7 @@ class ArchiveController
         $email = $user['email'] ?? null;
         if ($email === null) {
             // Same deep-link-skips-the-form behavior as AuthMiddleware (see
-            // CLAUDE.md "Deep-link redirect-back") — archive routes just don't
+            // docs/architecture/web-ui.md "Deep-link redirect-back") — archive routes just don't
             // sit behind AuthMiddleware at all (OptionalAuthMiddleware never
             // redirects, since whether login is even required depends on this
             // list's own `archive` mode, not known until here), so that logic

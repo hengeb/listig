@@ -11,7 +11,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * wherever an unauthenticated visitor gets sent straight to /_/login/oidc
  * instead of the login form — AuthMiddleware (protected pages) and
  * ArchiveController (login-gated archive views) both need the exact same
- * "current path + query string" value, see CLAUDE.md "Deep-link redirect-back".
+ * "current path + query string" value, see docs/architecture/web-ui.md "Deep-link redirect-back".
  */
 final class RequestPath
 {

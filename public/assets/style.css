@@ -1,6 +1,6 @@
 /* Listig — global stylesheet, served directly by nginx (docker/nginx.conf's
    /assets/ location), loaded once from templates/layout.latte's <head> and
-   shared by every page that extends it. See CLAUDE.md "Static assets". */
+   shared by every page that extends it. See docs/architecture/web-ui.md "Static assets". */
 
 *, *::before, *::after { box-sizing: border-box; }
 body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #f5f8fd; color: #333; }

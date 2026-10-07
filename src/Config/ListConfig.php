@@ -53,7 +53,7 @@ class ListConfig
         public readonly ?array $subaddressMemberTemplates = null,
         /**
          * Already fully assembled for this one list from all three levels
-         * (global/provider/list `restricted-members:`, see CLAUDE.md "Global /
+         * (global/provider/list `restricted-members:`, see docs/architecture/config.md "Global /
          * provider / list levels") by whichever ListProvider built this
          * ListConfig — see isSenderRestricted()/isReceiverRestricted().
          */
@@ -114,7 +114,7 @@ class ListConfig
     /**
      * Replaces $email with its invalidated placeholder (see
      * Member\InvalidatedEmail) — the `mark-invalid` automatic bounce action,
-     * see CLAUDE.md "Automatic bounce actions".
+     * see docs/architecture/bounces.md "Automatic bounce actions".
      *
      * @throws \RuntimeException if the underlying member store cannot actually persist this
      */
@@ -128,7 +128,10 @@ class ListConfig
         get => $this->memberResolver->supportsInvalidation();
     }
 
-    /** A `restricted-members:` hit (any of the three levels) blocking $email from posting to this list — see CLAUDE.md "Sender restrictions". */
+    /**
+     * A `restricted-members:` hit (any of the three levels) blocking $email from posting to this list — see
+     * docs/architecture/providers-and-members.md "Sender restrictions".
+     */
     public function isSenderRestricted(string $email): bool
     {
         return $this->restrictions->isSendRestricted($this->name, $email);
@@ -154,7 +157,7 @@ class ListConfig
 
     /**
      * Resolves a member by the privacy-preserving identifier embedded in an
-     * unsubscribe token (see CLAUDE.md "Privacy-preserving username") — the
+     * unsubscribe token (see docs/architecture/providers-and-members.md "Privacy-preserving username") — the
      * inverse of how that identifier was derived when the token was signed
      * ($recipient->attributes['username'] ?? $recipient->email, in
      * MailProcessor::process() and DashboardController::index()).
@@ -178,7 +181,7 @@ class ListConfig
      * the web UI (list/manage.latte, list/index.latte) — {firstname}/{lastname}
      * are ordinary config-key aliases (e.g. `firstname: "{givenName}"` for an
      * LDAP-backed list with no dedicated firstname field of its own — see
-     * CLAUDE.md "Member attributes — fully dynamic"), so reading
+     * docs/architecture/providers-and-members.md "Member attributes — fully dynamic"), so reading
      * $member->attributes['firstname'] directly (as this method's callers used
      * to) never resolves them: that key is only ever resolved lazily, through
      * VariableResolver, against a context built from both this list's own
@@ -227,7 +230,8 @@ class ListConfig
      * `senders:` — addresses allowed to post without being a member or owner
      * (e.g. a board that may write to the list but shouldn't receive owner-only
      * bounce mail). Inline entries only (same shape as members:/owners:), no
-     * resolver composition — see CLAUDE.md "Zusätzliche Absender".
+     * resolver composition — see docs/architecture/providers-and-members.md
+     * "Additional senders".
      *
      * $raw['senders'] is a plain YAML array when set via inline config.yml or
      * root-level `lists:`, but a single comma-separated string when it comes
@@ -248,7 +252,7 @@ class ListConfig
     /**
      * Whether $identity (the session's `user.email`, which is the member's `username`
      * where one exists, else the address) may start a mail to an external address via
-     * the web form (ComposeController) — see CLAUDE.md "Masked reply addresses". Needs a
+     * the web form (ComposeController) — see docs/architecture/masked-replies.md "Masked reply addresses". Needs a
      * masked reply-to mode (the token is the only way back in) and `post-access-public`
      * != deny (else the external's answer would be rejected). Owners and `senders:`
      * addresses may always; a member may unless masked-both is combined with
@@ -301,7 +305,7 @@ class ListConfig
      * populate its own way (LDAP: every `mail` value beyond the first;
      * inline/yaml: a `mail-aliases:` YAML list or string; csv/database: an
      * ordinary extra column) but which always ends up the same comma-separated
-     * string shape, see CLAUDE.md "Additional addresses per member
+     * string shape, see docs/architecture/providers-and-members.md "Additional addresses per member
      * (`mail-aliases`)". This is what makes findMemberInList()/findOwnerInList()
      * — and therefore isMember()/isOwnedBy(), the actual post-access gate in
      * IncomingMailFilter — recognize a sender writing from any address on file,
@@ -333,7 +337,7 @@ class ListConfig
      * so a list configured with e.g. `display-name: "{imap-password}"` must not
      * be able to leak that value just because someone reads this property
      * directly, the same way it already couldn't via {display-name} referenced
-     * from another template (list-label, footer, ...) — see CLAUDE.md
+     * from another template (list-label, footer, ...) — see docs/architecture/security-and-tokens.md
      * "Untrusted input in {} templates".
      */
     public string $displayName {
@@ -380,7 +384,7 @@ class ListConfig
      * folder, see $archiveFolder below, instead of deleting it) — they differ only in
      * who may view it through the web archive viewer (Http/Controller/ArchiveController.php):
      * Hidden archives it but exposes it to no one. Off deletes it as before. See
-     * CLAUDE.md "Archive access levels".
+     * docs/architecture/archive.md "Archive access levels".
      */
     public ArchiveMode $archive {
         get => ArchiveMode::from($this->resolve((string) ($this->raw['archive'] ?? 'off')));
@@ -441,12 +445,15 @@ class ListConfig
     /**
      * The automatic action for a recognized, authenticated permanent bounce
      * (BounceCause::UserUnknown) or an escalated repeated temporary one
-     * (BounceCause::MailboxFull) — see CLAUDE.md "Automatic bounce actions".
+     * (BounceCause::MailboxFull) — see docs/architecture/bounces.md "Automatic bounce actions".
      * Default `none`: no automatic mutation of member data until an operator
      * opts in explicitly, same safe-by-default philosophy as `archive: off`/
      * `public-subscribe: off`.
      */
-    /** Default 'never'. See MailProcessor::setOutgoingHeaders() / CLAUDE.md "Masked reply addresses". */
+    /**
+     * Default 'never'. See MailProcessor::setOutgoingHeaders() / docs/architecture/masked-replies.md "Masked
+     * reply addresses".
+     */
     public SenderAddressHeader $senderAddressHeader {
         get => SenderAddressHeader::from($this->resolve((string) ($this->raw['sender-address-header'] ?? 'never')));
     }
@@ -619,7 +626,7 @@ class ListConfig
      * empty-string entry in the result the way plain `explode()` would.
      *
      * Shared with every ListProvider's senders:/restricted-members: level-gathering
-     * (the LDAP description[] string case — see CLAUDE.md "Global / provider /
+     * (the LDAP description[] string case — see docs/architecture/config.md "Global / provider /
      * list levels").
      *
      * @return string[]
@@ -669,7 +676,7 @@ class ListConfig
         // first (they get canonical list-* names) and because resolving hostname
         // against a context that itself needs hostname would recurse — same
         // bootstrap-context pattern as a provider's own list-mail resolution
-        // (see "list-mail" in CLAUDE.md), not $this->resolve() (which builds its
+        // (see "list-mail" in docs/architecture/config.md), not $this->resolve() (which builds its
         // context from this method).
         $baseContext = array_merge(
             [

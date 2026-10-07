@@ -83,7 +83,7 @@ abstract class AbstractListProvider implements ListProvider
      * use:/direct — no per-list overrides). Cached for the process lifetime,
      * not reset()-bounded like $lists: it's derived purely from config.yml's
      * own structure, which only ever changes via a full process restart (see
-     * CLAUDE.md "Worker loop — config reload").
+     * docs/architecture/worker-and-queue.md "Worker loop — config reload").
      */
     protected function resolvedProviderConfig(): array
     {
@@ -99,7 +99,7 @@ abstract class AbstractListProvider implements ListProvider
      * MemberResolverFactory::buildSources() for resolver composition, ...) —
      * every element is an independent additional source, so the caller should
      * simply fold over all of them uniformly rather than assuming a fixed
-     * position/count. See CLAUDE.md "Global / provider / list levels".
+     * position/count. See docs/architecture/config.md "Global / provider / list levels".
      *
      * More than one raw value can come from the global or provider level each:
      * a `use:`-referenced named block's own value for $key is just as much a
@@ -110,7 +110,7 @@ abstract class AbstractListProvider implements ListProvider
      *
      * $listConfig is the list's own already-merged raw config (provider-native
      * listDef/description[]/config-table row, further merged with the
-     * root-level `lists:` override — see CLAUDE.md "Root-level lists:") —
+     * root-level `lists:` override — see docs/architecture/config.md "Root-level lists:") —
      * whatever a subclass already has in hand for this one list before
      * building its ListConfig.
      *

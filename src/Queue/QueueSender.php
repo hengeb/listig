@@ -20,7 +20,7 @@ class QueueSender
 {
     /**
      * Max age for a signed per-recipient bounce token (see sendOne()) —
-     * matches unsubscribe/accept/reject's own 7-day window (CLAUDE.md "Token
+     * matches unsubscribe/accept/reject's own 7-day window (docs/architecture/security-and-tokens.md "Token
      * Format"). A bounce can legitimately arrive well after the original
      * send, so this needs to be generous, not just long enough for the
      * fastest hard-bounce case.
@@ -51,7 +51,7 @@ class QueueSender
         // The NOT EXISTS clause skips a recipient currently deferred after a
         // mailbox-full bounce (BounceHandler::handleMailboxFull() sets
         // retry_not_before on the *bounced* row itself, via markBounced() —
-        // see CLAUDE.md "Automatic bounce actions"). Self-joins against this
+        // see docs/architecture/bounces.md "Automatic bounce actions"). Self-joins against this
         // same table/list/recipient rather than a separate tracking table,
         // since queue_recipients now retains completed rows for 30 days
         // (purgeCompletedEntries()) specifically so this history is still
@@ -130,12 +130,12 @@ class QueueSender
             // an attached original message's Message-ID — both plain text an
             // attacker fully controls). Same "URL-safe base64, safe in mail +
             // addresses" token shape already used for accept/reject — see
-            // CLAUDE.md "Token Format". ListFingerprint::of(), not $listCn
+            // docs/architecture/security-and-tokens.md "Token Format". ListFingerprint::of(), not $listCn
             // itself — this token is embedded in an email address local-part
             // (RFC 5321's 64-byte limit), so the list-mismatch sanity check
             // uses a short fingerprint instead of the (unboundedly long) raw
             // list name.
-            // 'b' — short token purpose code, see CLAUDE.md "Token Format".
+            // 'b' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
             $bounceToken = $this->tokenService->sign('b', ListFingerprint::of($listCn), $recipientId);
             $bounceFrom = "{$list->localPart}+bounce+{$bounceToken}@{$list->domain}";
 

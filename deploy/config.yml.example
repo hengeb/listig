@@ -7,17 +7,17 @@ language: de
 # used to build login/dashboard/manage-page/unsubscribe links. Required for a real
 # deployment: gethostname() (the container's own, usually meaningless hostname) is
 # only a last-resort fallback, and the worker logs a warning at startup if this is
-# left unset. See CLAUDE.md "Docker Setup".
+# left unset. See docs/architecture/deployment.md "Docker Setup".
 hostname: $APP_HOST
 
 # Optional: shown everywhere the app names itself — page titles, header, login mail
-# subject, delivery-failure notices. Defaults to "Listig". See CLAUDE.md "App name
+# subject, delivery-failure notices. Defaults to "Listig". See docs/architecture/web-ui.md "App name
 # (app-name)".
 # app-name: My Mailing Lists
 
 # Optional: log in via an OIDC provider (e.g. Keycloak, Authelia, authentik) instead
 # of / in addition to the magic-link email form. Only takes effect once all three
-# keys below are set — uncomment to enable. See CLAUDE.md "OIDC login (oidc-*)".
+# keys below are set — uncomment to enable. See docs/reference/config-yml.md "OIDC login (oidc-*)".
 # oidc-provider-url: https://sso.yourdomain.org
 # oidc-client-id: listig
 # oidc-client-secret: $OIDC_CLIENT_SECRET
@@ -56,7 +56,7 @@ database:
 # A map keyed by provider name (not a list) — the name identifies the provider in
 # logs/errors, and doubles as its 'type' if the provider sets none of its own (here,
 # 'main' has an explicit type: inline; without it, 'main' would need to be spelled
-# 'inline' to work — see CLAUDE.md "list-providers").
+# 'inline' to work — see docs/architecture/config.md "list-providers").
 list-providers:
   inline:
     lists:

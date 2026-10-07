@@ -64,7 +64,7 @@ class HeaderFilter
      * claims. Only walking every hop back this far can tell the two apart —
      * the topmost one alone cannot.
      *
-     * Used by BounceHandler::isFromTrustedRelay() — see CLAUDE.md "Automatic
+     * Used by BounceHandler::isFromTrustedRelay() — see docs/architecture/bounces.md "Automatic
      * bounce actions" for why a live-SMTP-time rejection relayed back by the
      * operator's own outbound relay needs this instead of DKIM, which is
      * structurally unavailable for that bounce shape.

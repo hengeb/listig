@@ -67,7 +67,7 @@ EXPOSE 80
 
 # Baked into the image (rather than duplicated in every compose.yaml) so it applies
 # regardless of how the container is started — docker run, docker compose, ... —
-# see src/Http/Controller and "Health check" in CLAUDE.md for the /_/health route.
+# see src/Http/Controller and "Health check" in docs/architecture/deployment.md for the /_/health route.
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s --start-interval=2s \
     CMD curl -f http://localhost/_/health || exit 1
 

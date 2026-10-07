@@ -26,7 +26,7 @@ class ConfigResolver
         // parseFile() call for an unrelated purpose (YamlListProvider's own
         // list file, which shares the same resolver) would otherwise silently
         // overwrite it out from under us. See YamlIncludeResolver's own
-        // docblock and CLAUDE.md "Worker loop — config reload".
+        // docblock and docs/architecture/worker-and-queue.md "Worker loop — config reload".
         $this->includedFiles = YamlIncludeResolver::getLastParsedFiles();
         if (!is_array($config)) {
             throw new \RuntimeException("Invalid config file: $configPath");
@@ -74,7 +74,7 @@ class ConfigResolver
      * configured provider produces (LDAP, database, inline, yaml, subaddress) and
      * merged in as an additional, highest-priority per-list source; a name with no
      * matching provider-produced list is instead used to define a brand-new list via
-     * an implicit `type: inline` provider. See CLAUDE.md "Root-level lists:".
+     * an implicit `type: inline` provider. See docs/architecture/config.md "Root-level lists:".
      *
      * Combined from every source the same way the six scoped keys are (see
      * getGlobalScopedSources()) — the root's own direct `lists:` map plus each
@@ -108,7 +108,7 @@ class ConfigResolver
      * contribute here: the root's own direct value (if set) first, then each
      * root-level `use:`-referenced named block's own value for $key, in `use:`
      * order — every one of these is an independent additional source, never one
-     * overriding another. See CLAUDE.md "Global / provider / list levels".
+     * overriding another. See docs/architecture/config.md "Global / provider / list levels".
      *
      * @return array<int, mixed>
      */
@@ -237,7 +237,7 @@ class ConfigResolver
     }
 
     /**
-     * The config.yml root is the default block (see CLAUDE.md "Configuration priority").
+     * The config.yml root is the default block (see docs/architecture/config.md "Configuration priority").
      * A root key is either:
      * - 'list-providers' / 'filters' / 'lists' / 'reliable-spam-reporters' / SCOPED_KEYS: handled separately below.
      * - 'use': the list of named blocks to merge into the default.

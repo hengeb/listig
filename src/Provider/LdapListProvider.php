@@ -93,11 +93,11 @@ class LdapListProvider extends AbstractListProvider
         }
 
         // Root-level `lists: <name>:` — see InlineListProvider for the identical
-        // pattern and CLAUDE.md "Root-level lists:". Unlike the description[]-parsed
+        // pattern and docs/architecture/config.md "Root-level lists:". Unlike the description[]-parsed
         // $descriptionOverrides above (a flat string per key), $rootOverride is
         // genuine YAML and takes priority on a plain key conflict. member-resolver:/
         // owner-resolver:/members:/owners:/senders:/restricted-members: are excluded
-        // from the plain raw-config merge below — see CLAUDE.md "Global / provider /
+        // from the plain raw-config merge below — see docs/architecture/config.md "Global / provider /
         // list levels" — and gathered separately via scopedLevels() instead.
         $rootOverride = $this->configResolver->getListOverride($name);
         $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners', 'senders', 'restricted-members']);

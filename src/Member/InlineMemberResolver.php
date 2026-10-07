@@ -8,7 +8,7 @@ namespace Hengeb\Listig\Member;
  * A fixed, statically-configured set of members/owners — the "bare inline
  * entry" building block MemberResolverFactory::buildSources() wraps every
  * plain string/mail-map entry in, at any of the three configurable levels
- * (global/provider/list — see CLAUDE.md "Global / provider / list levels").
+ * (global/provider/list — see docs/architecture/config.md "Global / provider / list levels").
  * No fallback/override concept anymore: composing multiple sources (this one
  * plus a database/LDAP/csv resolver, from any level) is CompositeMemberResolver's
  * job, not this class's — every source it's given is unconditionally additive.
@@ -29,7 +29,7 @@ class InlineMemberResolver implements MemberResolver
      * `mail-aliases` may be written as a YAML list (`mail-aliases: [a@x.org,
      * b@x.org]`) — natural for `type: inline`/`type: yaml`'s already-structured
      * config, unlike the flat comma-separated string CSV/database columns are
-     * limited to (see CLAUDE.md "Additional addresses per member (`mail-aliases`)"
+     * limited to (see docs/architecture/providers-and-members.md "Additional addresses per member (`mail-aliases`)"
      * for the mechanism this mirrors) — toMember() joins it into the same
      * comma-separated string shape every other source uses, since
      * Member::$attributes is always array<string, string>. A `mail-aliases`

@@ -105,12 +105,12 @@ class MemberResolverFactory
     /**
      * Builds the final MemberResolver for one list, composing every configured
      * source across all three levels (global config.yml root, provider, list —
-     * see CLAUDE.md "Global / provider / list levels") for both roles, always
+     * see docs/architecture/config.md "Global / provider / list levels") for both roles, always
      * additively — there is no more "base vs. override" distinction; every
      * source, from any level, simply contributes to the union. $extraBase, when
      * given, is unconditionally included in both roles — LdapListProvider's own
      * hardcoded LdapMemberResolver, which (unlike every other provider type) is
-     * never expressed via member-resolver: at all (see CLAUDE.md "type: ldap").
+     * never expressed via member-resolver: at all (see docs/reference/ldap.md "type: ldap").
      *
      * @param array<int, mixed> $memberResolverLevels member-resolver: sources, global/provider/list (see AbstractListProvider::scopedLevels())
      * @param array<int, mixed> $membersLevels members: sources, global/provider/list

@@ -89,7 +89,7 @@ class IncomingMailFilter
         // 'allow' — moderated senders are not exempt from rate limiting.
         //
         // A mail to a masked-reply address (`{localPart}+r-{TOKEN}@…`, see
-        // ReplyTargetStore / CLAUDE.md "Masked reply addresses") has its own
+        // ReplyTargetStore / docs/architecture/masked-replies.md "Masked reply addresses") has its own
         // rules instead, see checkMaskedReply(). Not applicable to type:
         // subaddress lists, whose `+…` addresses mean something else.
         $senderEmail = $mail->fromAddress ?? '';
@@ -179,14 +179,14 @@ class IncomingMailFilter
 
     /**
      * A `restricted-members:` hit (see ListConfig::isSenderRestricted() /
-     * RestrictionList — global, provider, or list level, see CLAUDE.md "Global
+     * RestrictionList — global, provider, or list level, see docs/architecture/config.md "Global
      * / provider / list levels") is checked first and overrides everything
      * below it, including owner status: a global ban is meant to be absolute,
      * even for someone who's still an owner. Owners and `senders:` (see
      * ListConfig::$authorizedSenders — a poster without becoming a
      * member/owner, e.g. a board that shouldn't receive owner-only bounce
-     * mail) then always pass, no config key of their own (see CLAUDE.md
-     * "post-access-members"/"post-access-public"). A member or public sender
+     * mail) then always pass, no config key of their own (see
+     * docs/reference/list-config-keys.md, "post-access-members"/"post-access-public"). A member or public sender
      * with PostAccess::Deny is rejected here; Allow and Moderate both pass —
      * the Allow/Moderate distinction is decided later, by requiresModeration(),
      * after rate limiting has had a chance to run.
@@ -236,7 +236,10 @@ class IncomingMailFilter
         return $list->replyTo === ReplyToBehavior::MaskedBoth ? $this->checkPostAccess($list, $senderEmail) : null;
     }
 
-    /** Owners and `senders:` are never moderated — see checkPostAccess() and CLAUDE.md "Moderation". */
+    /**
+     * Owners and `senders:` are never moderated — see checkPostAccess() and docs/architecture/moderation.md
+     * "Moderation".
+     */
     private function requiresModeration(ListConfig $list, string $senderEmail): bool
     {
         if ($list->isOwnedBy($senderEmail) || $list->isAuthorizedSender($senderEmail)) {

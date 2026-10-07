@@ -71,7 +71,7 @@ $app->get('/_/login', [AuthController::class, 'showLogin']);
 $app->post('/_/login', [AuthController::class, 'sendMagicLink']);
 $app->get('/_/login/verify', [AuthController::class, 'verifyToken']);
 
-// OIDC login — see "Authentication (OIDC)" in CLAUDE.md. Registered only when
+// OIDC login — see "Authentication (OIDC)" in docs/architecture/web-ui.md. Registered only when
 // configured (same 404-if-unconfigured philosophy as the List Management API's
 // api-token gate) — both the login-initiation *and* callback (its own redirect_uri)
 // leg of the flow share this one route, distinguished by AuthController::loginOidc()
@@ -102,7 +102,7 @@ try {
 $app->get('/{listname}/unsubscribe', [UnsubscribeController::class, 'unsubscribe']);
 
 // List-management API: Bearer-token auth, scoped per list via ApiTokenMiddleware
-// (see CLAUDE.md "List Management API"). Not part of the session/CSRF-protected
+// (see docs/architecture/api.md "List Management API"). Not part of the session/CSRF-protected
 // group below — this is a separate, machine-to-machine auth model.
 $app->put('/{listname}/{mail}', [ListApiController::class, 'subscribe'])
     ->add(ApiTokenMiddleware::class);
@@ -122,7 +122,7 @@ $app->get('/{listname}/subscribe/confirm', [ListApiController::class, 'confirmSu
 // don't) — a per-list decision AuthMiddleware's blanket redirect-if-absent can't
 // express at the route-group level. OptionalAuthMiddleware exposes the session
 // user (or null) without forcing a redirect; ArchiveController applies the actual
-// per-list access check itself (see CLAUDE.md "Archive access levels").
+// per-list access check itself (see docs/architecture/archive.md "Archive access levels").
 $app->group('', function (RouteCollectorProxy $group): void {
     $group->get('/{listname}/archive', [ArchiveController::class, 'index']);
     $group->get('/{listname}/archive/{id}', [ArchiveController::class, 'show']);
@@ -144,8 +144,8 @@ $app->group('', function (RouteCollectorProxy $group): void {
  * Attempts a bind for every distinct LDAP server referenced anywhere in
  * config.yml — both `type: ldap` list-providers and a `member-resolver:
  * {type: ldap, ...}` sub-config nested under `type: inline`/`database`/`yaml`
- * providers (see CLAUDE.md "member-resolver can be configured as a
- * sub-object"). Returns true if there is nothing to check (no LDAP configured
+ * providers (see docs/architecture/providers-and-members.md,
+ * "member-resolver can be configured as a sub-object"). Returns true if there is nothing to check (no LDAP configured
  * at all) or every configured server binds successfully.
  */
 function checkLdapReachability(ConfigResolver $configResolver): bool
@@ -155,7 +155,7 @@ function checkLdapReachability(ConfigResolver $configResolver): bool
         // Mirrors config/container.php's own type resolution (ListProvider::class
         // factory): a provider's `type` isn't necessarily a direct key — it may come
         // from a `use:`-referenced block, or fall back to the provider's own map key
-        // (its name) entirely — see CLAUDE.md "list-providers — provider name as
+        // (its name) entirely — see docs/architecture/config.md "list-providers — provider name as
         // implicit type". Reading raw $config['type'] here (the pre-fix behavior)
         // was always null for a provider like `ldap: { use: [ldap-config] }`, which
         // silently skipped it — the loop below never ran and this function returned

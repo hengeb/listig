@@ -7,7 +7,7 @@ services:
       - "8080:80"
     volumes:
       - ../config/config.yml:/app/config/config.yml:ro
-      # Optional — see CLAUDE.md "Custom layout".
+      # Optional — see docs/architecture/web-ui.md "Custom layout".
       # - ../config/custom.latte:/app/config/custom.latte:ro
     env_file:
       - ../.env

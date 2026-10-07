@@ -80,12 +80,12 @@ class DatabaseListProvider extends AbstractListProvider
         }
 
         // Root-level `lists: <name>:` — see InlineListProvider for the identical
-        // pattern and CLAUDE.md "Root-level lists:". config-table rows are plain
+        // pattern and docs/architecture/config.md "Root-level lists:". config-table rows are plain
         // key/value TEXT pairs, so member-resolver:/owner-resolver: (structured,
         // possibly nested config) can never come from $rows — but a scalar
         // `senders:`/`restricted-members:` string can, so all six keys are
         // excluded from the plain raw-config merge below and gathered separately
-        // via scopedLevels() instead — see CLAUDE.md "Global / provider / list
+        // via scopedLevels() instead — see docs/architecture/config.md "Global / provider / list
         // levels".
         $rootOverride = $this->configResolver->getListOverride($name);
         $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners', 'senders', 'restricted-members']);

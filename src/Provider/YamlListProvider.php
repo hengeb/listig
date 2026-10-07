@@ -43,12 +43,12 @@ class YamlListProvider extends AbstractListProvider
 
         // members:/owners:/member-resolver:/owner-resolver:/senders:/restricted-members:
         // are excluded from the plain raw-config merge below — see InlineListProvider for
-        // the identical pattern and CLAUDE.md "Global / provider / list levels".
+        // the identical pattern and docs/architecture/config.md "Global / provider / list levels".
         $excludedKeys = array_flip(['member-resolver', 'owner-resolver', 'members', 'owners', 'senders', 'restricted-members']);
 
         foreach ($data['lists'] ?? [] as $listName => $listDef) {
             // Root-level `lists: <name>:` — see InlineListProvider for the identical
-            // pattern and CLAUDE.md "Root-level lists:".
+            // pattern and docs/architecture/config.md "Root-level lists:".
             $rootOverride = $this->configResolver->getListOverride($listName);
 
             $listOverrides = array_diff_key($listDef, $excludedKeys);
@@ -73,7 +73,7 @@ class YamlListProvider extends AbstractListProvider
 
             // $listConfig for scopedLevels() combines this provider's own listDef
             // with the root-level lists: override — both are per-list sources, see
-            // CLAUDE.md "Root-level lists:".
+            // docs/architecture/config.md "Root-level lists:".
             $listConfig = array_merge($listDef, $rootOverride);
 
             $memberResolver = $this->memberResolverFactory->buildComposedResolver(

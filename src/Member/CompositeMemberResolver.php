@@ -10,7 +10,7 @@ namespace Hengeb\Listig\Member;
  * come from more than one place, and more than one level (global/provider/list,
  * always additive), at once (e.g. LDAP directory membership plus a database of
  * external members, or LDAP owners plus a couple of inline system-administrator
- * addresses configured at provider level). See CLAUDE.md "Global / provider /
+ * addresses configured at provider level). See docs/architecture/config.md "Global / provider /
  * list levels".
  *
  * $memberSources and $ownerSources are independent — getMembers() only ever

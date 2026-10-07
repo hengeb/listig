@@ -14,7 +14,7 @@ use Slim\Exception\HttpNotFoundException;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
- * Web form for a first mail to an external address, sent as the list (see CLAUDE.md
+ * Web form for a first mail to an external address, sent as the list (see docs/architecture/masked-replies.md
  * "Masked reply addresses"). Does not send anything itself: it only issues the signed
  * `{localPart}+r-{TOKEN}@{domain}` address for the entered recipient and hands back a
  * `mailto:` link, so the member writes the mail in their usual mail client; the reply

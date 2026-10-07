@@ -28,7 +28,7 @@ class ModerationResponseHandler
      * Maps the address-derived purpose word (detectAction()'s own
      * "accept"|"reject" capture, from the visible +accept-/+reject- tag,
      * which stays the full word) to the short code ModerationMailer actually
-     * signed into the token itself — see CLAUDE.md "Token Format" for why
+     * signed into the token itself — see docs/architecture/security-and-tokens.md "Token Format" for why
      * the two differ. $purpose (the full word) is still used for the
      * accept-vs-reject dispatch below and in error_log messages; only the
      * value passed to TokenService::verify() needs translating.

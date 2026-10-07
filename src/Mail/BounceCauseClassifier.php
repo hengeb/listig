@@ -18,7 +18,7 @@ use Hengeb\Listig\Queue\SpamRejectionDetector;
  * recipient, reliable domain, DKIM/null-envelope-authenticated origin, a
  * final (not "delayed") delivery outcome — is decided once, generically, in
  * BounceHandler *before* this class is ever consulted, since that gate
- * applies uniformly to every cause, not just one (see CLAUDE.md "Automatic
+ * applies uniformly to every cause, not just one (see docs/architecture/bounces.md "Automatic
  * bounce actions"). This class only ever sees a reason string it can already
  * trust.
  *

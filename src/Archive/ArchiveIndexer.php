@@ -12,7 +12,7 @@ use PhpImap\IncomingMail;
 
 /**
  * Indexes a successfully distributed mail into archived_mail for the web archive
- * viewer (Http/Controller/ArchiveController.php; see CLAUDE.md "Archive access
+ * viewer (Http/Controller/ArchiveController.php; see docs/architecture/archive.md "Archive access
  * levels"). Deliberately NOT called from ImapArchiver::archiveOrDelete(), which
  * also runs for bounce/reject outcomes that were never sent to the list — callers
  * only invoke index() at the three call sites representing a successful distribute
@@ -67,7 +67,7 @@ class ArchiveIndexer
             // Display name only — never the address. Empty means the template falls
             // back to sender_local_part (below), then a translated placeholder at
             // render time (like reject.* keys, translation happens at render, not
-            // at write, see CLAUDE.md).
+            // at write, see docs/architecture/archive.md "Archive viewer", Privacy).
             'sender_name'     => ($mail->fromName ?? '') !== '' ? $mail->fromName : null,
             // Local part only, never the full address — see this column's own
             // migration for why. A mail with no From address at all (essentially

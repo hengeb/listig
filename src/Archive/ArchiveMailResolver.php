@@ -9,7 +9,7 @@ use PhpImap\IncomingMailAttachment;
 
 /**
  * Locate-by-Message-ID + eager-attachment-caching logic shared by
- * ArchiveController and BounceController (see CLAUDE.md "Bounce preview") —
+ * ArchiveController and BounceController (see docs/architecture/bounces.md "Bounce preview") —
  * both ultimately show a mail that lives in the list's IMAP archive folder,
  * keyed by Message-ID, with the same "several separate HTTP requests for one
  * page view" performance problem ArchiveMailCache exists to solve (see its own

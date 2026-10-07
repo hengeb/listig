@@ -12,7 +12,7 @@ use PDO;
 use PhpImap\IncomingMail;
 
 /**
- * Backs the masked-sender / masked-both reply-to modes (see CLAUDE.md "Masked reply
+ * Backs the masked-sender / masked-both reply-to modes (see docs/architecture/masked-replies.md "Masked reply
  * addresses"): creates and resolves the per-list, signed `+r-{TOKEN}` addresses that
  * stand in for a sender's real address. DB-gated collaborator, since MailProcessor
  * may not run SQL itself.
@@ -23,7 +23,7 @@ use PhpImap\IncomingMail;
  */
 class ReplyTargetStore
 {
-    /** Token purpose code — see CLAUDE.md "Short purpose codes". */
+    /** Token purpose code — see docs/architecture/security-and-tokens.md "Short purpose codes". */
     public const string PURPOSE = 'p';
 
     /** Also the retention of unused rows, see purgeUnused(). */

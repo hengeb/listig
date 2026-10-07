@@ -23,7 +23,7 @@ use PhpImap\Mailbox;
  * directions, and that was a real bug: bin/worker.php moves a bounced or
  * rejected mail's raw MIME into the *same* archive folder as a distributed
  * one (ImapArchiver::archiveOrDelete() runs for all three outcomes — see
- * CLAUDE.md "IncomingMailFilter — check order"), but only ever calls
+ * docs/architecture/mail-processing.md "IncomingMailFilter — check order"), but only ever calls
  * ArchiveIndexer::index() for an actual distribute — bounce/reject mail is
  * deliberately kept off the member-facing index (see ArchiveIndexer's own
  * docblock). Nothing on the raw IMAP message distinguishes "this is a

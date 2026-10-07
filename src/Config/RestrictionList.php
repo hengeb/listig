@@ -6,7 +6,8 @@ namespace Hengeb\Listig\Config;
 
 /**
  * Global, list-independent sender restrictions from the top-level
- * `restricted-members:` section — see CLAUDE.md "Sperren (restricted-members:)".
+ * `restricted-members:` section — see docs/architecture/providers-and-members.md
+ * "Sender restrictions".
  * A single mechanism for both a temporary, single-list write-only mute and a
  * permanent, instance-wide send-and-receive ban: each entry independently
  * chooses its scope (`lists:`/`except:`, omitted = every list) and whether it

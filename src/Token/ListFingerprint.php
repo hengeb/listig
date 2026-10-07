@@ -14,7 +14,7 @@ namespace Hengeb\Listig\Token;
  * breaking the signature). Deliberately not the full list name:
  * bounce/accept/reject tokens are embedded directly in an email address
  * local-part (RFC 5321's 64-byte limit), and a raw list name has no length
- * bound an operator is required to respect — see CLAUDE.md "Token Format"
+ * bound an operator is required to respect — see docs/architecture/security-and-tokens.md "Token Format"
  * for the numbers that made this necessary.
  *
  * A single byte (0-255) is enough for this purpose: an accidental collision

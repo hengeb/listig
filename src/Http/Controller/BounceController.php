@@ -31,7 +31,7 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * mode is Off) by ImapArchiver::archiveOrDelete() by the time anyone could
  * open this preview — so it's located the same way the archive viewer locates
  * any other archived mail: by Message-ID via ArchiveMailResolver, not by UID.
- * See CLAUDE.md "Bounce preview".
+ * See docs/architecture/bounces.md "Bounce preview".
  */
 class BounceController
 {
@@ -80,7 +80,7 @@ class BounceController
             'list'                => $list,
             // The bounce table (manage.latte) already shows this same raw sender
             // address in its own "Sender" column — unlike the archive/moderation
-            // views, which only ever show a display name (see CLAUDE.md
+            // views, which only ever show a display name (see docs/architecture/archive.md
             // "Privacy"), a bounce's own sender is the remote MTA
             // (MAILER-DAEMON@...), not a list member, so there is nothing extra
             // to redact here that isn't already on the same page.
@@ -118,7 +118,7 @@ class BounceController
 
         // Same sandboxed-iframe-has-no-session-cookie problem as the archive
         // viewer's/moderation preview's own frame() — see their comments. Its
-        // own token purpose ('n', see CLAUDE.md "Token Format" for the short-
+        // own token purpose ('n', see docs/architecture/security-and-tokens.md "Token Format" for the short-
         // purpose-code convention) keeps this grant from being replayable
         // against the other two.
         $attachmentToken = $this->tokenService->sign('n', $list->name, (string) $item['id']);

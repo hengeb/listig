@@ -1,6 +1,6 @@
 // templates/archive/show.latte — "load external images" and HTML/plain-text
 // toggle buttons, both of which reload the sandboxed iframe with a different
-// query string rather than mutating its content directly (see CLAUDE.md
+// query string rather than mutating its content directly (see docs/architecture/archive.md
 // "Archive viewer"); deleteArchivedMail() for the owner-only delete button.
 // getCsrfToken() comes from the shared script.js, loaded first (see
 // templates/layout.latte).

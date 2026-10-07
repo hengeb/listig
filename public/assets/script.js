@@ -1,5 +1,5 @@
 // Listig — shared JS, loaded on every page from templates/layout.latte's <head>
-// (see CLAUDE.md "Static assets"). Page-specific behavior lives in its own file
+// (see docs/architecture/web-ui.md "Static assets"). Page-specific behavior lives in its own file
 // (archive-index.js, archive-show.js, list-manage.js), loaded alongside this one.
 
 function getCsrfToken() {

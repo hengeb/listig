@@ -26,7 +26,7 @@ cp config.yml.example config.yml
 docker compose up -d
 ```
 
-The web UI is then reachable at `http://localhost:8080`. Database tables are created and kept up to date automatically on container start (see [`CLAUDE.md`](CLAUDE.md) "Database migrations") — there is nothing to download or run by hand. See `CLAUDE.md` for the full configuration reference — every `config.yml` key, all list-provider types (LDAP, database, CSV, inline, subaddress), moderation, the archive access levels, and the security model.
+The web UI is then reachable at `http://localhost:8080`. Database tables are created and kept up to date automatically on container start (see [`docs/reference/database-schema.md`](docs/reference/database-schema.md), "Database migrations") — there is nothing to download or run by hand. See [`docs/`](docs/README.md) for the full configuration reference — every `config.yml` key, all list-provider types (LDAP, database, CSV, inline, subaddress), moderation, the archive access levels, and the security model.
 
 ### Running as a single container
 

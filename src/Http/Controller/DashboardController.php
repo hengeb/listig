@@ -67,7 +67,7 @@ class DashboardController
             // to unsubscribe from.
             if ($isMember && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
                 $member = $list->findMemberInList($userEmail);
-                // 'u' — short token purpose code, see CLAUDE.md "Token Format".
+                // 'u' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
                 $token = $this->tokenService->sign(
                     'u',
                     $list->name,

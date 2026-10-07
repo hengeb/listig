@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{block title}{$appName ?? 'Listig'}{/block}</title>
     {* Static assets, served directly by nginx (docker/nginx.conf's /assets/
-       location), never routed through Slim — see CLAUDE.md "Static assets".
+       location), never routed through Slim — see docs/architecture/web-ui.md "Static assets".
        script.js is loaded here (not at the end of <body>, where it lived as an
        inline block before this file was split up) so that page-specific
        scripts declared inside {block head} (archive-index.js, list-manage.js,
@@ -17,7 +17,7 @@
     <script src="/assets/script.js" defer></script>
     {block head}{/block}
     {*
-        Optional operator customization — see CLAUDE.md "Custom layout" for the
+        Optional operator customization — see docs/architecture/web-ui.md "Custom layout" for the
         full mechanism. /app/config/custom.latte is never baked into the image;
         an operator mounts it as a read-only volume (same convention as
         config.yml/filters.yml) and defines any subset of five named blocks

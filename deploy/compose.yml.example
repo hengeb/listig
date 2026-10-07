@@ -6,7 +6,7 @@ services:
       - "80:80"
     volumes:
       - ./config.yml:/app/config/config.yml:ro
-      # Optional — see CLAUDE.md "Custom layout". Only mount this if you actually
+      # Optional — see docs/architecture/web-ui.md "Custom layout". Only mount this if you actually
       # have a custom.latte to provide; an empty/missing host file here becomes an
       # empty directory inside the container, which breaks the layout's file_exists()
       # check differently (but just as unintentionally) as simply not mounting it.

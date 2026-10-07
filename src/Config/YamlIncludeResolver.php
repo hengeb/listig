@@ -27,7 +27,7 @@ final class YamlIncludeResolver
      * mistaken for a fresh top-level parse mid-recursion.
      *
      * Exists for bin/worker.php's own config-reload mtime watch (see
-     * CLAUDE.md "Worker loop — config reload"): a change to config.yml
+     * docs/architecture/worker-and-queue.md "Worker loop — config reload"): a change to config.yml
      * itself is one thing to watch for, but a file spliced in via !include
      * is just as much a part of "the configuration", and needs the same
      * restart-on-change treatment — this class is the only place that ever

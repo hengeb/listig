@@ -122,7 +122,7 @@ class LdapMemberResolver implements MemberResolver
      * every list this person belongs to. See MemberResolver::invalidateEmail()'s
      * own docblock.
      *
-     * `mail` is multi-valued by schema (see CLAUDE.md "Additional addresses
+     * `mail` is multi-valued by schema (see docs/architecture/providers-and-members.md "Additional addresses
      * per member (mail-aliases)") — the value to replace is found by *value*,
      * not by position/index, since the entry's own attribute order isn't
      * guaranteed stable and Member::$email only ever reflected whichever
@@ -190,8 +190,8 @@ class LdapMemberResolver implements MemberResolver
      * fixed mapping to pronoun/title/etc. A list can still define its own
      * mapping as a normal config key for anything not covered below, e.g.
      * `pronoun: "{businessCategory}"`, resolved lazily per recipient — see
-     * MailProcessor::buildRecipientContext() and CLAUDE.md "Pronoun / salutation
-     * personalization".
+     * MailProcessor::buildRecipientContext() and docs/architecture/providers-and-members.md
+     * "Example: pronoun-based salutation".
      *
      * Two exceptions, both populated here unconditionally/as-fallback rather
      * than requiring a per-list config alias, since `firstname`/`lastname` are
@@ -224,7 +224,7 @@ class LdapMemberResolver implements MemberResolver
      *   exists purely so ListConfig::matchEmail() (isMember()/isOwnedBy(),
      *   the actual post-access gate) can recognize a sender writing from any
      *   of their directory's `mail` values, not just the one Listig happens
-     *   to use as their primary address — see CLAUDE.md "Additional addresses
+     *   to use as their primary address — see docs/architecture/providers-and-members.md "Additional addresses
      *   per member (`mail-aliases`)".
      */
     private function entryToMember(Entry $entry): Member

@@ -1,6 +1,6 @@
 // templates/archive/index.latte — thread toggle, per-thread expand/collapse, and
-// the quick filter. Pure client-side, no network round-trips (see CLAUDE.md
-// "Threading").
+// the quick filter. Pure client-side, no network round-trips (see
+// docs/architecture/archive.md "Archive viewer", Threading).
 
 let flatMode = false;
 let originalOrder = null;
