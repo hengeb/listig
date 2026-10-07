@@ -170,7 +170,9 @@ on it.
 - Global: `list_cn='__login__'`, `sender='__global__'`, max 20/hour
 - Always show same response regardless of result — prevents enumeration
 
-Rows older than 1 hour deleted each worker cycle.
+**Sender notices:** `list_cn='__notice__'`, `sender=<lowercased From>` — one per `sender-notice-interval` (default 1 hour, max 1 day), see [Sender notices](mail-processing.md#sender-notices-backscatter-protection).
+
+Rows older than 1 day deleted each worker cycle (every user filters by its own window).
 
 **Compose form:** `POST /_/api/compose/{listname}` records `list_cn=<list>`, `sender='__compose__:<user>'` via `RateLimiter::isExceeded()` — max 20 per 10 minutes per user and list (`ComposeController`), since each call may create a `reply_targets` row.
 
@@ -178,6 +180,12 @@ Rows older than 1 hour deleted each worker cycle.
 attempt via `RateLimiter::isExceeded($listName, '__api-token__', 20)` (same 10-minute
 window) — past 20 failed attempts for a list within 10 minutes, further requests get
 `429` instead of `401`. Every invalid attempt is also logged via `error_log()`.
+
+---
+
+## Sender authentication
+
+Only the **topmost** `Authentication-Results` header is believed ([ADR-0018](../adr/0018-sender-notices-only-to-authenticated-senders.md)): the own MTA prepends its header to every mail it accepts, so the topmost one is its verdict, while a header forged by the sender can only sit below it. This is a requirement on the operator: the MTA (opendkim, rspamd, ...) must add `Authentication-Results` to **every** mail, including locally submitted ones. If it ever does not, a sender-supplied header becomes the topmost one and is believed. A mail without the header counts as unauthenticated (the worker logs a warning, at most once per hour and list, only to the log — it is a server problem, not the list owners'): no sender notice in the default mode, no SPF/DKIM reject, no DKIM-authenticated bounce action.
 
 ---
 

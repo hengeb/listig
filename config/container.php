@@ -43,7 +43,10 @@ use Hengeb\Listig\Mail\MailProcessor;
 use Hengeb\Listig\Mail\NotificationMailer;
 use Hengeb\Listig\Mail\ProcessingFailureNotifier;
 use Hengeb\Listig\Mail\ProcessingFailureTracker;
+use Hengeb\Listig\Mail\OrganizationalDomain;
 use Hengeb\Listig\Mail\RejectionNotifier;
+use Hengeb\Listig\Mail\SenderAuthenticator;
+use Hengeb\Listig\Mail\SenderNoticePolicy;
 use Hengeb\Listig\Mail\SpamFilter;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
 use Hengeb\Listig\Database\MigrationRunner;
@@ -503,8 +506,22 @@ $builder->addDefinitions([
             $c->get('app.bounce-escalate-after'),
         );
     },
+    SenderAuthenticator::class => function (ContainerInterface $c): SenderAuthenticator {
+        return new SenderAuthenticator($c->get(HeaderFilter::class), new OrganizationalDomain());
+    },
+    SenderNoticePolicy::class => function (ContainerInterface $c): SenderNoticePolicy {
+        return new SenderNoticePolicy(
+            $c->get(SenderAuthenticator::class),
+            $c->get(RateLimiter::class),
+            $c->get(HeaderFilter::class),
+        );
+    },
     RejectionNotifier::class => function (ContainerInterface $c): RejectionNotifier {
-        return new RejectionNotifier($c->get(NotificationMailer::class), $c->get(TranslatorInterface::class));
+        return new RejectionNotifier(
+            $c->get(NotificationMailer::class),
+            $c->get(TranslatorInterface::class),
+            $c->get(SenderNoticePolicy::class),
+        );
     },
     ProcessingFailureTracker::class => function (ContainerInterface $c): ProcessingFailureTracker {
         return new ProcessingFailureTracker($c->get(PDO::class));
@@ -554,6 +571,7 @@ $builder->addDefinitions([
             $c->get(TokenService::class),
             $c->get(TranslatorInterface::class),
             $c->get(NotificationMailer::class),
+            $c->get(SenderNoticePolicy::class),
         );
     },
 

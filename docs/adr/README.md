@@ -23,3 +23,4 @@ To add one: use the next free number, copy the structure of an existing ADR (Sta
 | [0015](0015-fully-dynamic-member-attributes.md) | Keep `Member` fully dynamic, with one LDAP exception |
 | [0016](0016-compact-signed-tokens.md) | Compact signed tokens |
 | [0017](0017-masked-reply-addresses.md) | Masked reply addresses via a single signed Reply-To token |
+| [0018](0018-sender-notices-only-to-authenticated-senders.md) | Send sender notices only to authenticated senders |

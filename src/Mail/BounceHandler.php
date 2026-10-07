@@ -415,6 +415,10 @@ class BounceHandler
      * mail server forging a "spam" report for a recipient they have no
      * relationship to.
      *
+     * The verdict is read from the topmost Authentication-Results header only
+     * (the own MTA's, see HeaderFilter::parseAuthResults()) — a further header
+     * supplied by the bounce's sender proves nothing.
+     *
      * Only ever checked for BounceCause::Spam (see applyAutomaticAction()) —
      * not a generic authenticity gate for every cause. UserUnknown/
      * MailboxFull don't call this at all: their actions

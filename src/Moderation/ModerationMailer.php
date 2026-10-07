@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Moderation;
 
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\NotificationMailer;
+use Hengeb\Listig\Mail\SenderNoticePolicy;
 use Hengeb\Listig\Smtp\SmtpConnectionFactory;
 use Hengeb\Listig\Token\ListFingerprint;
 use Hengeb\Listig\Token\TokenService;
@@ -27,6 +28,7 @@ class ModerationMailer
         private readonly TokenService $tokenService,
         private readonly TranslatorInterface $translator,
         private readonly NotificationMailer $notificationMailer,
+        private readonly SenderNoticePolicy $noticePolicy,
     ) {
     }
 
@@ -163,7 +165,10 @@ class ModerationMailer
         // vanished. Sent once per incoming mail (only on first queueing, not
         // again on every 7-day reminder resend — see $isNewItem above), not once
         // per owner above.
-        if ($isNewItem && $senderMail !== '') {
+        // Only to an authenticated sender, without the original otherwise — see
+        // SenderNoticePolicy / ADR-0018 (backscatter). Owners are always informed above.
+        $decision = $isNewItem && $senderMail !== '' ? $this->noticePolicy->decide($list, $mail, null) : null;
+        if ($decision?->send) {
             $this->notificationMailer->send(
                 $list,
                 $senderMail,
@@ -177,9 +182,9 @@ class ModerationMailer
                 // Same attachment as the owners' own copy above — lets the sender
                 // tell which of their mails this notice is about, same reasoning
                 // as RejectionNotifier::notify().
-                $rawMime,
-                'original.eml',
-                'message/rfc822',
+                $decision->attachOriginal ? $rawMime : null,
+                $decision->attachOriginal ? 'original.eml' : null,
+                $decision->attachOriginal ? 'message/rfc822' : null,
             );
         }
     }

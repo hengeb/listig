@@ -10,6 +10,7 @@ use Hengeb\Listig\Config\Enum\BounceAction;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\Enum\SenderAddressHeader;
+use Hengeb\Listig\Config\Enum\SenderNotices;
 use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Member\MemberResolver;
@@ -435,6 +436,35 @@ class ListConfig
             } catch (\Throwable $e) {
                 throw new \RuntimeException("List '{$this->name}' has an invalid archive-max-age value '$raw' (expected e.g. \"30 days\"): " . $e->getMessage());
             }
+        }
+    }
+
+    public SenderNotices $senderNotices {
+        get => SenderNotices::from($this->resolve((string) ($this->raw['sender-notices'] ?? 'authenticated')));
+    }
+
+    /**
+     * Minimum seconds between two notices to the same address (`sender-notice-interval`):
+     * plain seconds or a relative time like "1 hour" / "30 minutes"; 0 disables throttling.
+     * Default 1 hour, at most 1 day (rate_limit rows are kept one day). Throws on invalid values.
+     */
+    public int $senderNoticeInterval {
+        get {
+            $raw = trim($this->resolve((string) ($this->raw['sender-notice-interval'] ?? '1 hour')));
+            if (ctype_digit($raw)) {
+                $seconds = (int) $raw;
+            } else {
+                $base = new \DateTimeImmutable('@0');
+                $target = preg_match('/^\d+\s*(second|minute|hour|day)s?$/i', $raw) ? $base->modify("+$raw") : false;
+                if ($target === false) {
+                    throw new \RuntimeException("List '{$this->name}' has an invalid sender-notice-interval '$raw' (expected seconds or e.g. \"1 hour\")");
+                }
+                $seconds = $target->getTimestamp();
+            }
+            if ($seconds > 86400) {
+                throw new \RuntimeException("List '{$this->name}': sender-notice-interval must not exceed 1 day");
+            }
+            return $seconds;
         }
     }
 

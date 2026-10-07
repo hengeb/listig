@@ -316,4 +316,31 @@ class ListConfigTest extends TestCase
         $sender = $make(['reply-to' => 'masked-sender', 'post-access-public' => 'allow', 'post-access-members' => 'deny']);
         $this->assertTrue($sender->canComposeExternal('m@example.org'));
     }
+
+    public function testSenderNoticeKeys(): void
+    {
+        $list = new ListConfig('mylist', 'mylist@example.org', []);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\SenderNotices::Authenticated, $list->senderNotices);
+        $this->assertSame(3600, $list->senderNoticeInterval);
+
+        $list = new ListConfig('mylist', 'mylist@example.org', [
+            'sender-notices' => 'never',
+            'sender-notice-interval' => '30 minutes',
+        ]);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\SenderNotices::Never, $list->senderNotices);
+        $this->assertSame(1800, $list->senderNoticeInterval);
+        $this->assertSame(0, (new ListConfig('l', 'l@example.org', ['sender-notice-interval' => '0']))->senderNoticeInterval);
+    }
+
+    public function testInvalidSenderNoticeIntervalFailsFast(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        (new ListConfig('l', 'l@example.org', ['sender-notice-interval' => 'soon']))->senderNoticeInterval;
+    }
+
+    public function testTooLargeSenderNoticeIntervalFailsFast(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        (new ListConfig('l', 'l@example.org', ['sender-notice-interval' => '2 days']))->senderNoticeInterval;
+    }
 }

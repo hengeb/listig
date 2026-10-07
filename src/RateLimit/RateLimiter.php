@@ -29,6 +29,29 @@ class RateLimiter
         return false;
     }
 
+    /**
+     * At most one sender notice per address within $intervalSeconds, across all lists
+     * (sentinel list_cn `__notice__`). Records the notice when not throttled.
+     * 0 disables throttling.
+     */
+    public function isNoticeThrottled(string $email, int $intervalSeconds): bool
+    {
+        if ($intervalSeconds <= 0) {
+            return false;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM rate_limit WHERE list_cn = '__notice__' AND sender = :email AND sent_at > NOW() - INTERVAL :seconds SECOND"
+        );
+        $stmt->bindValue('email', $email);
+        $stmt->bindValue('seconds', $intervalSeconds, PDO::PARAM_INT);
+        $stmt->execute();
+        if ((int) $stmt->fetchColumn() > 0) {
+            return true;
+        }
+        $this->record('__notice__', $email);
+        return false;
+    }
+
     public function isLoginExceeded(string $email): bool
     {
         // Per-address: max 5/hour

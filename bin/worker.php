@@ -107,6 +107,8 @@ $configMtimes = array_map(fn(string $path) => @filemtime($path) ?: null, $watche
  * ProcessingFailureTracker), regardless of which branch below actually
  * handled it.
  */
+$lastMissingAuthResultsLog = [];
+
 $processIncomingMail = function (
     IncomingMail $mail,
     string $rawMime,
@@ -125,6 +127,7 @@ $processIncomingMail = function (
     $moderationMailer,
     $mailProcessor,
     $archiveIndexer,
+    &$lastMissingAuthResultsLog,
 ): void {
     // Owner replies to +accept-{token}/+reject-{token} — handled separately,
     // never subject to the normal incoming-mail filter chain. This is the
@@ -138,6 +141,20 @@ $processIncomingMail = function (
         $imapPoller->markSeen($list, $uid, $uidValidity);
         $imapArchiver->archiveOrDelete($list, $uid);
         return;
+    }
+
+    // The MTA must add Authentication-Results to every mail it accepts (ADR-0018);
+    // without it no sender counts as authenticated. Log only — it is a server
+    // problem, not the list owners' — at most once per hour and list.
+    if ($headerFilter->parseAuthResults($mail->headersRaw ?? '') === null
+        && time() - ($lastMissingAuthResultsLog[$list->name] ?? 0) >= 3600
+    ) {
+        $lastMissingAuthResultsLog[$list->name] = time();
+        error_log(
+            "Listig: WARNING mail for list {$list->name} has no Authentication-Results header — "
+            . 'the receiving MTA must add one to every mail; until then senders count as unauthenticated '
+            . '(no sender notices, no SPF/DKIM reject).'
+        );
     }
 
     $authResults = $headerFilter->readAuthResults($mail->headersRaw ?? '');
@@ -309,7 +326,8 @@ while (true) {
     try {
         $queueSender->purgeCompletedEntries();
         $db->exec("DELETE FROM imap_seen WHERE seen_at < NOW() - INTERVAL 31 DAY");
-        $db->exec("DELETE FROM rate_limit WHERE sent_at < NOW() - INTERVAL 1 HOUR");
+        // 1 day: sender notices (sender-notice-interval, max 1 day) live in this table too; the other users filter by their own window.
+        $db->exec("DELETE FROM rate_limit WHERE sent_at < NOW() - INTERVAL 1 DAY");
         $db->exec("DELETE FROM bounce_log WHERE bounced_at < NOW() - INTERVAL 90 DAY");
         // Safety net only — a row here is normally cleared within one cycle of
         // reaching ProcessingFailureTracker::MAX_ATTEMPTS (see above); this just

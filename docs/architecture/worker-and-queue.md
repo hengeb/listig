@@ -73,7 +73,7 @@ loop forever:
     3. QueueSender::sendBatch(batch-size, see 'worker.batch-size' above)
     4. Cleanup:
         - DELETE FROM imap_seen WHERE seen_at < NOW() - INTERVAL 31 DAY
-        - DELETE FROM rate_limit WHERE sent_at < NOW() - INTERVAL 1 HOUR
+        - DELETE FROM rate_limit WHERE sent_at < NOW() - INTERVAL 1 DAY
         - DELETE FROM bounce_log WHERE bounced_at < NOW() - INTERVAL 90 DAY
         - DELETE FROM processing_failures WHERE last_attempt_at < NOW() - INTERVAL 31 DAY (safety net, see below)
         - QueueSender::purgeCompletedEntries() — finished queue entries older than 30 days

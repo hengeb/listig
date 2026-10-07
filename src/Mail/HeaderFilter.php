@@ -137,47 +137,50 @@ class HeaderFilter
     }
 
     /**
-     * Parses SPF and DKIM results from the Authentication-Results header(s)
-     * in a raw header block.
+     * Parses the **topmost** Authentication-Results header (RFC 8601) of the
+     * top-level header block, or null if there is none.
+     *
+     * The own MTA always prepends its header, so the topmost one is the own
+     * server's verdict; any further ones may come from the sender and are
+     * ignored. This relies on the MTA adding the header to every mail it
+     * accepts — see docs/architecture/security-and-tokens.md "Sender
+     * authentication" and ADR-0018.
+     */
+    public function parseAuthResults(string $headersRaw): ?AuthResultsHeader
+    {
+        // Only the header block: callers sometimes pass a whole MIME message
+        // (BounceHandler), whose body can quote arbitrary headers.
+        $block = preg_split('/\r?\n\r?\n/', $headersRaw, 2)[0];
+
+        if (!preg_match('/^Authentication-Results:[ \t]*(.*)$/mi', $this->unfold($block), $m)) {
+            return null;
+        }
+        return AuthResultsHeader::parse($m[1]);
+    }
+
+    /**
+     * SPF and DKIM verdicts from the topmost Authentication-Results header
+     * (see parseAuthResults()) — the first result per method; all null when
+     * there is no such header.
      *
      * @return array{spf: string|null, dkim: string|null, dkimDomain: string|null}
      */
     public function readAuthResults(string $headersRaw): array
     {
-        $unfolded = $this->unfold($headersRaw);
+        $header = $this->parseAuthResults($headersRaw);
+        $spf = $header?->first('spf');
+        $dkim = $header?->first('dkim');
 
-        $spf        = null;
-        $dkim       = null;
-        $dkimDomain = null;
-
-        if (preg_match_all('/^Authentication-Results:\s*(.+)$/mi', $unfolded, $matches)) {
-            foreach ($matches[1] as $value) {
-                // Stop at ';' too — some MTAs write "spf=fail;" with no space before
-                // the next method, and a bare \S+ would swallow the separator and
-                // everything after it, so the result would never equal 'fail'/'pass'.
-                if ($spf === null && preg_match('/\bspf\s*=\s*([^\s;]+)/i', $value, $m)) {
-                    $spf = strtolower($m[1]);
-                }
-                if ($dkim === null && preg_match('/\bdkim\s*=\s*([^\s;]+)/i', $value, $m)) {
-                    $dkim = strtolower($m[1]);
-                    // The domain DKIM actually authenticated (RFC 8601's
-                    // header.d= parameter, e.g. "dkim=pass header.d=gmail.com
-                    // header.s=... header.b=...") — deliberately read only
-                    // from the *same* Authentication-Results value as the
-                    // dkim= verdict itself, not just "the first header.d=
-                    // found anywhere", since a value can carry more than one
-                    // method's own parameters. Used by
-                    // BounceHandler::isDkimAuthenticated() to verify a
-                    // bounce's DKIM signature genuinely belongs to the
-                    // domain it's being trusted for, not just that *some*
-                    // domain's signature happens to be present and valid.
-                    if (preg_match('/header\.d\s*=\s*([^\s;]+)/i', $value, $dm)) {
-                        $dkimDomain = strtolower(trim($dm[1]));
-                    }
-                }
-            }
-        }
-
-        return ['spf' => $spf, 'dkim' => $dkim, 'dkimDomain' => $dkimDomain];
+        return [
+            'spf' => $spf['result'] ?? null,
+            'dkim' => $dkim['result'] ?? null,
+            // The domain DKIM actually authenticated (header.d=), read only from
+            // the same result as the dkim= verdict. BounceHandler::isDkimAuthenticated()
+            // uses it to verify a bounce's signature belongs to the domain it is
+            // trusted for.
+            'dkimDomain' => ($dkim['result'] ?? null) === 'pass' && isset($dkim['props']['header.d'])
+                ? strtolower($dkim['props']['header.d'])
+                : null,
+        ];
     }
 }

@@ -125,17 +125,36 @@ class HeaderFilterTest extends TestCase
         $this->assertNull($result['dkimDomain']);
     }
 
-    public function testReadAuthResultsDkimDomainNotTakenFromDifferentAuthResultsValue(): void
+    public function testReadAuthResultsUsesOnlyTheTopmostHeader(): void
     {
-        // header.d= must come from the *same* Authentication-Results value as
-        // the dkim= verdict itself — a value with only spf=pass and its own
-        // unrelated header.d= (e.g. an SPF-only host param, contrived here)
-        // must not leak into dkimDomain for a dkim=fail found elsewhere.
-        $raw = "Authentication-Results: mx.example.org; spf=pass header.d=unrelated.example;\r\n"
-            . "Authentication-Results: mx2.example.org; dkim=fail\r\n";
+        // The own MTA prepends its header; a header supplied by the sender further down must lose.
+        $raw = "Authentication-Results: mx.example.org; dkim=none\r\n"
+            . "Authentication-Results: evil.example; dkim=pass header.d=bank.de\r\n";
         $result = $this->headerFilter->readAuthResults($raw);
-        $this->assertSame('fail', $result['dkim']);
+        $this->assertSame('none', $result['dkim']);
         $this->assertNull($result['dkimDomain']);
+    }
+
+    public function testReadAuthResultsIgnoresVersionAfterAuthservId(): void
+    {
+        $raw = "Authentication-Results: MX.Example.org 1; spf=pass\r\n";
+        $this->assertSame('pass', $this->headerFilter->readAuthResults($raw)['spf']);
+    }
+
+    public function testReadAuthResultsIgnoresCommentsAndQuotedSeparators(): void
+    {
+        $raw = "Authentication-Results: mx.example.org; spf=fail (sender SPF; dkim=pass header.d=bank.de) smtp.mailfrom=a@x.de;\r\n"
+            . " dkim=none reason=\"x; dkim=pass\"\r\n";
+        $result = $this->headerFilter->readAuthResults($raw);
+        $this->assertSame('fail', $result['spf']);
+        $this->assertSame('none', $result['dkim']);
+    }
+
+    public function testReadAuthResultsOnlyReadsTheHeaderBlock(): void
+    {
+        // BounceHandler passes a whole MIME message; quoted headers in the body must not count.
+        $raw = "From: a@b.de\r\n\r\nAuthentication-Results: mx.example.org; dkim=pass header.d=bank.de\r\n";
+        $this->assertNull($this->headerFilter->readAuthResults($raw)['dkim']);
     }
 
     public function testReadAllConnectingIpsExtractsEveryHopInOrder(): void

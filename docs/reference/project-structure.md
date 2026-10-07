@@ -54,6 +54,11 @@ Annotated directory tree.
 │   │   ├── FilterResult.php          # final class (not enum — needs per-instance reason string): discard | bounce | reject | moderation | distribute
 │   │   ├── NotificationMailer.php    # Shared helper for every system notification (owner notices, pending-moderation notice to the sender, ...) — see "Moderation" (docs/architecture/moderation.md); sends every notification via NullSenderEnvelope + X-Listig-Auto/Auto-Submitted — see "Bounce loop prevention" (docs/architecture/bounces.md)
 │   │   ├── NullSenderEnvelope.php    # Envelope with MAIL FROM:<> (RFC 5321 null reverse-path), via Reflection — see "Bounce loop prevention" (docs/architecture/bounces.md)
+│   │   ├── SenderNoticePolicy.php    # Single decision point: notice to the sender yes/no, with/without original (ADR-0018)
+│   │   ├── SenderAuthenticator.php   # DMARC-aligned authentication of the From address from the trusted Authentication-Results
+│   │   ├── OrganizationalDomain.php  # Organizational domain heuristic for relaxed alignment (no PSL)
+│   │   ├── AuthResultsHeader.php     # Parsed Authentication-Results header (RFC 8601)
+│   │   ├── NoticeDecision.php        # Result of SenderNoticePolicy::decide()
 │   │   ├── RejectionNotifier.php     # Sender-facing reject notice for every reject.* reason, with the original mail attached — see "Making clear which mail a reject/pending notice is about" (docs/architecture/mail-processing.md)
 │   │   ├── ProcessingFailureTracker.php  # DB-backed per-mail attempt counter, bounds bin/worker.php's retry loop — see "Processing-failure retry limit" (docs/architecture/worker-and-queue.md)
 │   │   ├── ProcessingFailureNotifier.php # Owner-facing "mail could not be processed after N attempts" notice, original mail attached — see "Processing-failure retry limit" (docs/architecture/worker-and-queue.md)
@@ -78,6 +83,7 @@ Annotated directory tree.
 │   │       ├── PostAccess.php        # 'allow' | 'deny' | 'moderate' — used for both post-access-members and post-access-public
 │   │       ├── AllowLeave.php        # 'direct' | 'moderated'
 │   │       ├── ArchiveMode.php       # 'members' | 'owners' | 'public' | 'hidden' | 'off'
+│   │       ├── SenderNotices.php     # 'authenticated' | 'always' | 'never' — see "Sender notices" (docs/architecture/mail-processing.md)
 │   │       ├── SenderAddressHeader.php # 'never' | 'external' | 'always' — see "Masked reply addresses" (docs/architecture/masked-replies.md)
 │   │       └── BounceAction.php      # 'none' | 'mark-invalid' | 'restrict' | 'remove' — see "Automatic bounce actions" (docs/architecture/bounces.md)
 │   ├── Member/

@@ -40,7 +40,6 @@ class MailProcessor
     public function process(IncomingMail $incomingMail, string $rawMime, ListConfig $list): void
     {
         $headersRaw  = $incomingMail->headersRaw ?? '';
-        $authResults = $this->headerFilter->readAuthResults($headersRaw);
 
         $senderEmail    = $incomingMail->fromAddress ?? '';
         $rawFromHeader  = $this->extractFromHeader($headersRaw);
