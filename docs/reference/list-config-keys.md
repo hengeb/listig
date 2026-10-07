@@ -4,7 +4,7 @@ Keys settable per list (shown as LDAP `description[]` entries; identical in data
 
 ## LDAP description[] keys
 
-Each `description` value is a `key:value` string. These have the highest priority (level 5).
+Each `description` value is a `key:value` string. These have the highest priority (level 5). The key is everything before the first `:` on the first line; the value may span several lines (e.g. an HTML `footer`). A `description` value without a `key:` prefix is ignored.
 
 | Key | Values | Description |
 |---|---|---|

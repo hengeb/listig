@@ -80,7 +80,10 @@ class LdapListProvider extends AbstractListProvider
         $descriptions = $entry->getAttribute('description') ?? [];
         $descriptionOverrides = [];
         foreach ($descriptions as $desc) {
-            if (preg_match('/^([^:]+):(.*)$/', $desc, $m)) {
+            // /s: a value may span several lines (a multi-line `footer:` HTML); without it
+            // `.` stops at the first newline and the whole entry was silently ignored.
+            // The key itself stays on the first line.
+            if (preg_match('/^([^:\r\n]+):(.*)$/s', $desc, $m)) {
                 $descriptionOverrides[trim($m[1])] = trim($m[2]);
             }
         }
