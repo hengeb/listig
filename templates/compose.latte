@@ -6,6 +6,8 @@
 <div id="compose-i18n" hidden
     data-list="{$list->name}"
     data-error-generic="{$translator->trans('compose.error_generic')}"
+    data-copy="{$translator->trans('compose.copy')}"
+    data-copied="{$translator->trans('compose.copied')}"
 ></div>
 <h1>{$translator->trans('compose.heading')}</h1>
 <p class="text-muted">{$list->displayName} &lt;{$list->mail}&gt;</p>
@@ -19,5 +21,16 @@
         <button type="submit" class="btn">{$translator->trans('compose.submit')}</button>
     </form>
 </div>
+
+{* The address is shown, not opened right away, so it can also be copied into another mail program. *}
+<dialog id="compose-dialog" class="compose-dialog" aria-labelledby="compose-dialog-title">
+    <h2 id="compose-dialog-title">{$translator->trans('compose.dialog_title')}</h2>
+    <p><a id="compose-dialog-address" class="compose-dialog-address" href="#"></a></p>
+    <p class="text-muted">{$translator->trans('compose.dialog_hint')}</p>
+    <div class="compose-dialog-actions">
+        <button type="button" id="compose-dialog-copy" class="btn btn-primary"></button>
+        <button type="button" id="compose-dialog-close" class="btn btn-secondary">{$translator->trans('compose.close')}</button>
+    </div>
+</dialog>
 <script src="/assets/compose.js"></script>
 {/block}
