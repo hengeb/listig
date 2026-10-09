@@ -34,6 +34,18 @@ final class AuthResultsHeader
         return array_values(array_filter($this->results, fn(array $r) => $r['method'] === $method));
     }
 
+    /**
+     * Concatenates the results of several headers (same trusted authserv-id), in
+     * the given order — so first($method) is the topmost header's result for
+     * that method, and a method only present in a lower header is still found.
+     *
+     * @param non-empty-list<self> $headers topmost first
+     */
+    public static function merge(array $headers): self
+    {
+        return new self($headers[0]->authservId, array_merge(...array_map(fn(self $h) => $h->results, $headers)));
+    }
+
     /** @param string $value the (unfolded) header value after "Authentication-Results:" */
     public static function parse(string $value): ?self
     {

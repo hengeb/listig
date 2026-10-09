@@ -1,5 +1,7 @@
 # Listig
 
+[![CI](https://github.com/hengeb/listig/actions/workflows/ci.yml/badge.svg)](https://github.com/hengeb/listig/actions/workflows/ci.yml)
+
 Listig is a self-hosted, Docker-based mailing list manager written in PHP 8.5.
 
 - Polls IMAP mailboxes for incoming mail and distributes it to list members

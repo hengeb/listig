@@ -1,6 +1,6 @@
 # ADR-0018: Send sender notices only to authenticated senders
 
-Status: Accepted
+Status: Accepted. The authserv-id allow-list rejected below was later added as an optional key — see [ADR-0019](0019-optional-trusted-authserv-id.md).
 
 ## Context
 

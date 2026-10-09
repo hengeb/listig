@@ -343,4 +343,14 @@ class ListConfigTest extends TestCase
         $this->expectException(\RuntimeException::class);
         (new ListConfig('l', 'l@example.org', ['sender-notice-interval' => '2 days']))->senderNoticeInterval;
     }
+
+    public function testTrustedAuthservIdAcceptsStringCommaListAndYamlList(): void
+    {
+        $make = fn(array $raw) => (new ListConfig('l', 'l@example.org', $raw))->trustedAuthservIds;
+        $this->assertSame([], $make([]));
+        $this->assertSame([], $make(['trusted-authserv-id' => '']));
+        $this->assertSame(['mx.example.org'], $make(['trusted-authserv-id' => 'MX.example.org']));
+        $this->assertSame(['a.example', 'b.example'], $make(['trusted-authserv-id' => 'a.example, B.example']));
+        $this->assertSame(['a.example', 'b.example'], $make(['trusted-authserv-id' => ['a.example', 'b.example', 'A.example']]));
+    }
 }

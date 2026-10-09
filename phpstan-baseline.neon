@@ -1,0 +1,187 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Offset ''mime'' on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Archive/AttachmentSafety.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Contracts\\Translation\\TranslatorInterface\:\:setLocale\(\)\.$#'
+			identifier: method.notFound
+			count: 4
+			path: src/Http/Controller/ArchiveController.php
+
+		-
+			message: '#^Match arm comparison between Hengeb\\Listig\\Config\\Enum\\ArchiveMode\:\:Owners and Hengeb\\Listig\\Config\\Enum\\ArchiveMode\:\:Owners is always true\.$#'
+			identifier: match.alwaysTrue
+			count: 1
+			path: src/Http/Controller/ArchiveController.php
+
+		-
+			message: '#^Parameter \#3 \$attachments of method Hengeb\\Listig\\Archive\\ArchiveHtmlSanitizer\:\:hasExternalResources\(\) expects array\<PhpImap\\IncomingMailAttachment\>, array\<Hengeb\\Listig\\Archive\\CachedAttachment\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controller/ArchiveController.php
+
+		-
+			message: '#^Parameter \#3 \$attachments of method Hengeb\\Listig\\Archive\\ArchiveHtmlSanitizer\:\:render\(\) expects array\<PhpImap\\IncomingMailAttachment\>, array\<Hengeb\\Listig\\Archive\\CachedAttachment\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controller/ArchiveController.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Contracts\\Translation\\TranslatorInterface\:\:setLocale\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: src/Http/Controller/BounceController.php
+
+		-
+			message: '#^Parameter \#3 \$attachments of method Hengeb\\Listig\\Archive\\ArchiveHtmlSanitizer\:\:hasExternalResources\(\) expects array\<PhpImap\\IncomingMailAttachment\>, array\<Hengeb\\Listig\\Archive\\CachedAttachment\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controller/BounceController.php
+
+		-
+			message: '#^Parameter \#3 \$attachments of method Hengeb\\Listig\\Archive\\ArchiveHtmlSanitizer\:\:render\(\) expects array\<PhpImap\\IncomingMailAttachment\>, array\<Hengeb\\Listig\\Archive\\CachedAttachment\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Http/Controller/BounceController.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Contracts\\Translation\\TranslatorInterface\:\:setLocale\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: src/Http/Controller/ComposeController.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Contracts\\Translation\\TranslatorInterface\:\:setLocale\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Http/Controller/ListApiController.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Contracts\\Translation\\TranslatorInterface\:\:setLocale\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: src/Http/Controller/ListController.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Contracts\\Translation\\TranslatorInterface\:\:setLocale\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: src/Http/Controller/ModerationController.php
+
+		-
+			message: '#^Property PhpImap\\IncomingMail\:\:\$textHtml \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: src/Http/Controller/ModerationController.php
+
+		-
+			message: '#^Property PhpImap\\IncomingMail\:\:\$textPlain \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: src/Http/Controller/ModerationController.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Contracts\\Translation\\TranslatorInterface\:\:setLocale\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Http/Controller/UnsubscribeController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: src/Http/Controller/UnsubscribeController.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: src/Imap/ImapPoller.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between Symfony\\Component\\Mime\\Part\\AbstractPart and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Mail/BodyPersonalizer.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between Symfony\\Component\\Mime\\Part\\AbstractPart and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Mail/FooterAppender.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: src/Mail/MailProcessor.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''mail'' and ''mail'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: src/Mail/MailProcessor.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: src/Mail/MailProcessor.php
+
+		-
+			message: '#^Match expression does not handle remaining value\: string$#'
+			identifier: match.unhandled
+			count: 1
+			path: src/Mail/SpamFilter.php
+
+		-
+			message: '#^Property PhpImap\\IncomingMail\:\:\$textHtml \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: src/Mail/SpamFilter.php
+
+		-
+			message: '#^Property PhpImap\\IncomingMail\:\:\$textPlain \(string\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: src/Mail/SpamFilter.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Component\\Ldap\\Adapter\\EntryManagerInterface\:\:addAttributeValues\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: src/Member/LdapMemberResolver.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Component\\Ldap\\Adapter\\EntryManagerInterface\:\:removeAttributeValues\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: src/Member/LdapMemberResolver.php
+
+		-
+			message: '#^Dead catch \- Hengeb\\Listig\\OpenIdConnect\\OidcRedirectException is never thrown in the try block\.$#'
+			identifier: catch.neverThrown
+			count: 2
+			path: src/OpenIdConnect/OpenIdConnectService.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Component\\Ldap\\Adapter\\EntryManagerInterface\:\:addAttributeValues\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Provider/LdapListProvider.php
+
+		-
+			message: '#^Call to an undefined method Symfony\\Component\\Ldap\\Adapter\\EntryManagerInterface\:\:removeAttributeValues\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/Provider/LdapListProvider.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between string and false will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: src/Token/TokenService.php

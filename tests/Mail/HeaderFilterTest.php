@@ -157,6 +157,69 @@ class HeaderFilterTest extends TestCase
         $this->assertNull($this->headerFilter->readAuthResults($raw)['dkim']);
     }
 
+    public function testWithoutTrustedIdsTheTopmostHeaderCountsWhateverItsId(): void
+    {
+        $raw = "Authentication-Results: whatever.example; dkim=pass header.d=a.de\r\n"
+            . "Authentication-Results: mx.example.org; dkim=fail\r\n";
+        $this->assertSame('pass', $this->headerFilter->readAuthResults($raw)['dkim']);
+        $this->assertSame('pass', $this->headerFilter->readAuthResults($raw, [])['dkim']);
+    }
+
+    public function testTrustedIdIgnoresForgedHeaderAboveTheRealOne(): void
+    {
+        $raw = "Authentication-Results: evil.example; dkim=pass header.d=bank.de\r\n"
+            . "Authentication-Results: mx.example.org; dkim=none\r\n";
+        $result = $this->headerFilter->readAuthResults($raw, ['mx.example.org']);
+        $this->assertSame('none', $result['dkim']);
+        $this->assertNull($result['dkimDomain']);
+    }
+
+    public function testTrustedIdWithoutMatchingHeaderYieldsNothing(): void
+    {
+        $raw = "Authentication-Results: evil.example; spf=pass; dkim=pass header.d=bank.de\r\n";
+        $result = $this->headerFilter->readAuthResults($raw, ['mx.example.org']);
+        $this->assertNull($result['spf']);
+        $this->assertNull($result['dkim']);
+        $this->assertNull($this->headerFilter->parseAuthResults($raw, ['mx.example.org']));
+        $this->assertNull($this->headerFilter->parseAuthResults("From: a@b.de\r\n", ['mx.example.org']));
+    }
+
+    public function testTrustedIdsMatchAnyOfSeveralValuesCaseInsensitively(): void
+    {
+        $raw = "Authentication-Results: MX2.Example.org 1; spf=pass\r\n";
+        $this->assertSame('pass', $this->headerFilter->readAuthResults($raw, ['mx1.example.org', 'mx2.example.org'])['spf']);
+    }
+
+    public function testTrustedIdMatchWorksOnFoldedHeader(): void
+    {
+        $raw = "Authentication-Results:\r\n mx.example.org 1;\r\n dkim=pass\r\n header.d=example.com\r\n";
+        $result = $this->headerFilter->readAuthResults($raw, ['mx.example.org']);
+        $this->assertSame('pass', $result['dkim']);
+        $this->assertSame('example.com', $result['dkimDomain']);
+    }
+
+    public function testTrustedIdMergesSeparateHeadersOfTheSameServerTopmostFirst(): void
+    {
+        // e.g. opendkim and an SPF filter each write their own header with the same id.
+        $raw = "Authentication-Results: mx.example.org; dkim=fail header.d=a.de\r\n"
+            . "Authentication-Results: evil.example; spf=pass\r\n"
+            . "Authentication-Results: mx.example.org; spf=pass smtp.mailfrom=a@a.de; dkim=pass header.d=a.de\r\n";
+        $result = $this->headerFilter->readAuthResults($raw, ['mx.example.org']);
+        $this->assertSame('pass', $result['spf']);
+        $this->assertSame('fail', $result['dkim'], 'topmost matching header wins per method');
+        $header = $this->headerFilter->parseAuthResults($raw, ['mx.example.org']);
+        $this->assertCount(2, $header->all('dkim'));
+    }
+
+    public function testReadAuthservIdsListsDistinctIdsTopmostFirst(): void
+    {
+        $raw = "Authentication-Results: mx.example.org; spf=pass\r\n"
+            . "Authentication-Results: other.example 1; dkim=none\r\n"
+            . "Authentication-Results: MX.example.org; dkim=pass\r\n";
+        $this->assertSame(['mx.example.org', 'other.example'], $this->headerFilter->readAuthservIds($raw));
+        $this->assertSame([], $this->headerFilter->readAuthservIds("From: a@b.de\r\n"));
+    }
+
     public function testReadAllConnectingIpsExtractsEveryHopInOrder(): void
     {
         // The exact real-world shape confirmed in production: a topmost

@@ -129,6 +129,7 @@ class AuthController
         // resolved back to the actual Member here rather than stored as-is: every
         // authorization check elsewhere ($list->isMember()/isOwnedBy(), ...) reads
         // $_SESSION['user']['email'] expecting a real, comparable email address.
+        [$listCn, $userCn] = $payload;
         $found = $this->memberResolver->findMemberInListByUserCn($listCn, $userCn);
         if ($found === null) {
             $_SESSION['flash'] = $this->translator->trans('auth.link_invalid');

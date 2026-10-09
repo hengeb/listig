@@ -13,6 +13,7 @@ use Hengeb\Listig\Mail\BounceHandler;
 use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
 use Hengeb\Listig\Mail\MailProcessor;
+use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Mail\ProcessingFailureNotifier;
 use Hengeb\Listig\Mail\ProcessingFailureTracker;
 use Hengeb\Listig\Mail\RejectionNotifier;
@@ -59,6 +60,7 @@ try {
     $archiveSynchronizer        = $container->get(ArchiveSynchronizer::class);
     $mailFilter                 = $container->get(IncomingMailFilter::class);
     $headerFilter               = $container->get(HeaderFilter::class);
+    $logger                     = $container->get(Logger::class);
     $mailProcessor              = $container->get(MailProcessor::class);
     $moderationMailer           = $container->get(ModerationMailer::class);
     $moderationChecker          = $container->get(ModerationChecker::class);
@@ -143,21 +145,28 @@ $processIncomingMail = function (
         return;
     }
 
-    // The MTA must add Authentication-Results to every mail it accepts (ADR-0018);
-    // without it no sender counts as authenticated. Log only — it is a server
-    // problem, not the list owners' — at most once per hour and list.
-    if ($headerFilter->parseAuthResults($mail->headersRaw ?? '') === null
+    // The receiving MTA must add Authentication-Results to every mail (ADR-0018);
+    // without a usable header no sender counts as authenticated. Log only — a
+    // server problem, not the list owners' — at most once per hour and list.
+    // With trusted-authserv-id set, the hint names the ids actually found.
+    $trustedIds = $list->trustedAuthservIds;
+    if ($headerFilter->parseAuthResults($mail->headersRaw ?? '', $trustedIds) === null
         && time() - ($lastMissingAuthResultsLog[$list->name] ?? 0) >= 3600
     ) {
         $lastMissingAuthResultsLog[$list->name] = time();
+        $found = $headerFilter->readAuthservIds($mail->headersRaw ?? '');
         error_log(
-            "Listig: WARNING mail for list {$list->name} has no Authentication-Results header — "
-            . 'the receiving MTA must add one to every mail; until then senders count as unauthenticated '
-            . '(no sender notices, no SPF/DKIM reject).'
+            $trustedIds === []
+                ? "Listig: WARNING mail for list {$list->name} has no Authentication-Results header — "
+                    . 'the receiving MTA must add one to every mail; until then senders count as unauthenticated '
+                    . '(no sender notices, no SPF/DKIM reject).'
+                : "Listig: WARNING mail for list {$list->name} has no Authentication-Results header with authserv-id "
+                    . implode(' / ', $trustedIds) . ' (found: ' . ($found === [] ? 'none' : implode(', ', $found)) . ') — '
+                    . 'senders count as unauthenticated (no sender notices, no SPF/DKIM reject). Check trusted-authserv-id.'
         );
     }
 
-    $authResults = $headerFilter->readAuthResults($mail->headersRaw ?? '');
+    $authResults = $headerFilter->readAuthResults($mail->headersRaw ?? '', $trustedIds);
     $result      = $mailFilter->filter($mail, $list, $rawMime, $authResults);
 
     if ($result->isDiscard) {
@@ -217,6 +226,9 @@ $processIncomingMail = function (
 
 error_log('Listig worker started');
 
+// Lists already given the trusted-authserv-id hint (once per worker start).
+$hintedNoAuthservId = [];
+
 while (true) {
     foreach ($watchedConfigFiles as $i => $watchedFile) {
         clearstatcache(true, $watchedFile);
@@ -237,6 +249,15 @@ while (true) {
 
     // 1. Process each list
     foreach ($listProvider->getLists() as $list) {
+        if ($list->trustedAuthservIds === [] && !isset($hintedNoAuthservId[$list->name])) {
+            $hintedNoAuthservId[$list->name] = true;
+            $logger->info(
+                "Listig: list {$list->name} has no trusted-authserv-id — the topmost Authentication-Results header is believed. "
+                . 'Set it if this mailbox is at a provider whose MTA might not always add its own header '
+                . '(docs/reference/list-config-keys.md).',
+                $list->logLevel,
+            );
+        }
         try {
             $mails = $imapPoller->poll($list);
         } catch (\Throwable $e) {

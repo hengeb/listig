@@ -194,6 +194,8 @@ Annotated directory tree.
 ├── docs/                      # Architecture notes, references, ADRs — see CLAUDE.md for the index
 ├── tests/                     # PHPUnit, require-dev only — see "Testing" (docs/architecture/testing.md). Mirrors src/'s namespace under Hengeb\Listig\Tests\
 ├── phpunit.xml
+├── phpstan.neon                    # PHPStan level 5; phpstan-baseline.neon holds the findings accepted at introduction
+├── .github/workflows/ci.yml        # tests + static analysis, then build/publish — see Deployment "CI"
 ├── LICENSE
 ├── README.md
 └── composer.json

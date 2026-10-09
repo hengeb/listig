@@ -35,4 +35,13 @@ class Logger
             error_log($message);
         }
     }
+
+    /** Like debug(), but reaches error_log() at the default `info` level too. Same $listLevel semantics. */
+    public function info(string $message, ?string $listLevel = null): void
+    {
+        $threshold = $listLevel !== null ? LogLevel::fromString($listLevel) : $this->defaultLevel;
+        if (LogLevel::Info->value >= $threshold->value) {
+            error_log($message);
+        }
+    }
 }

@@ -15,6 +15,14 @@ Writing this suite surfaced a few small, real issues in `src/` along the way (no
 **A test that deliberately exercises an `error_log()` call must declare `$this->expectErrorLog();`** — see [PHPUnit 12 and `error_log()`](../library-notes.md#phpunit-12-tests-that-trigger-error_log-must-call-expecterrorlog).
 
 
+## CI
+
+`.github/workflows/ci.yml` runs on every push to `main`, tag and pull request ([Deployment](deployment.md#ci-test-build--publish-githubworkflowsciyml)); the image is only published when it is green. Run the same checks locally before committing:
+
+- `composer test` — PHPUnit. `phpunit.xml` fails the run on warnings, deprecations, notices and risky tests.
+- `composer stan` — PHPStan level 5 (`phpstan.neon`). Findings that existed when it was introduced are in `phpstan-baseline.neon` (mostly typing imprecision of third-party libraries, e.g. `TranslatorInterface::setLocale()`, php-imap's non-null properties, `EntryManagerInterface` LDAP methods); **new findings fail CI**. Fix a finding rather than adding it to the baseline; when fixing baselined ones, regenerate with `vendor/bin/phpstan analyse --generate-baseline phpstan-baseline.neon`. Local runs without `ext-imap`/`ext-ldap`/`apcu` give the same result as CI, which doesn't install them either.
+- `composer validate --strict` and `php -l` over `src/ bin/ config/ public/`.
+
 ## Live verification
 
 Everything that needs real LDAP/IMAP/SMTP/DB is verified on a running container instead of in the suite:

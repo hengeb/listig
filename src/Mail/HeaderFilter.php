@@ -137,37 +137,75 @@ class HeaderFilter
     }
 
     /**
-     * Parses the **topmost** Authentication-Results header (RFC 8601) of the
-     * top-level header block, or null if there is none.
+     * Selects the Authentication-Results (RFC 8601) the receiving MTA's verdict
+     * is read from — the one place that decides which header is believed, shared
+     * by the SPF/DKIM reject, SenderAuthenticator and
+     * BounceHandler::isDkimAuthenticated(). Only the top-level header block is
+     * read; returns null when no header qualifies.
      *
-     * The own MTA always prepends its header, so the topmost one is the own
-     * server's verdict; any further ones may come from the sender and are
-     * ignored. This relies on the MTA adding the header to every mail it
-     * accepts — see docs/architecture/security-and-tokens.md "Sender
-     * authentication" and ADR-0018.
+     * - `$trustedAuthservIds` empty (default): the **topmost** header. The own MTA
+     *   prepends its header, so it is the first one; this relies on the MTA adding
+     *   one to every mail (ADR-0018).
+     * - `$trustedAuthservIds` set (`trusted-authserv-id`): only headers whose
+     *   authserv-id is in the list (case-insensitive, exact) count, all others are
+     *   treated as absent; the matching ones are merged, topmost first, so servers
+     *   writing SPF and DKIM into separate headers work (ADR-0019).
+     *
+     * @param string[] $trustedAuthservIds compared case-insensitively
      */
-    public function parseAuthResults(string $headersRaw): ?AuthResultsHeader
+    public function parseAuthResults(string $headersRaw, array $trustedAuthservIds = []): ?AuthResultsHeader
+    {
+        $headers = $this->parseAllAuthResults($headersRaw);
+        if ($trustedAuthservIds === []) {
+            return $headers[0] ?? null;
+        }
+
+        $trusted = array_map('strtolower', $trustedAuthservIds);
+        $matching = array_values(array_filter(
+            $headers,
+            fn(AuthResultsHeader $h) => in_array($h->authservId, $trusted, true),
+        ));
+        return $matching === [] ? null : AuthResultsHeader::merge($matching);
+    }
+
+    /**
+     * The distinct authserv-ids of all Authentication-Results headers, topmost
+     * first — for the log hint that tells an operator which value to configure.
+     *
+     * @return string[]
+     */
+    public function readAuthservIds(string $headersRaw): array
+    {
+        return array_values(array_unique(array_map(
+            fn(AuthResultsHeader $h) => $h->authservId,
+            $this->parseAllAuthResults($headersRaw),
+        )));
+    }
+
+    /** @return AuthResultsHeader[] topmost first */
+    private function parseAllAuthResults(string $headersRaw): array
     {
         // Only the header block: callers sometimes pass a whole MIME message
         // (BounceHandler), whose body can quote arbitrary headers.
         $block = preg_split('/\r?\n\r?\n/', $headersRaw, 2)[0];
 
-        if (!preg_match('/^Authentication-Results:[ \t]*(.*)$/mi', $this->unfold($block), $m)) {
-            return null;
+        if (!preg_match_all('/^Authentication-Results:[ \t]*(.*)$/mi', $this->unfold($block), $m)) {
+            return [];
         }
-        return AuthResultsHeader::parse($m[1]);
+        return array_values(array_filter(array_map(AuthResultsHeader::parse(...), $m[1])));
     }
 
     /**
-     * SPF and DKIM verdicts from the topmost Authentication-Results header
-     * (see parseAuthResults()) — the first result per method; all null when
-     * there is no such header.
+     * SPF and DKIM verdicts from the Authentication-Results selected by
+     * parseAuthResults() — the first result per method; all null when none
+     * qualifies.
      *
+     * @param string[] $trustedAuthservIds
      * @return array{spf: string|null, dkim: string|null, dkimDomain: string|null}
      */
-    public function readAuthResults(string $headersRaw): array
+    public function readAuthResults(string $headersRaw, array $trustedAuthservIds = []): array
     {
-        $header = $this->parseAuthResults($headersRaw);
+        $header = $this->parseAuthResults($headersRaw, $trustedAuthservIds);
         $spf = $header?->first('spf');
         $dkim = $header?->first('dkim');
 

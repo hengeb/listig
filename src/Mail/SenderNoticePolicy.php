@@ -65,7 +65,7 @@ class SenderNoticePolicy
             return NoticeDecision::suppress('forged_or_spam');
         }
 
-        $authenticated = $this->authenticator->isAuthenticated($mail->headersRaw ?? '', $sender);
+        $authenticated = $this->authenticator->isAuthenticated($mail->headersRaw ?? '', $sender, $list->trustedAuthservIds);
         if ($mode === SenderNotices::Authenticated && !$authenticated) {
             return NoticeDecision::suppress('unauthenticated');
         }

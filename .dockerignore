@@ -14,3 +14,10 @@ deploy/config.yml
 *.swo
 *~
 *.cache
+# Dev only — never needed in the image
+tests/
+phpunit.xml
+.phpunit.cache/
+phpstan.neon
+phpstan-baseline.neon
+.github/

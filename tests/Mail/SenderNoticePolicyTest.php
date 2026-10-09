@@ -108,4 +108,15 @@ class SenderNoticePolicyTest extends TestCase
     {
         $this->assertFalse($this->policy()->decide($this->list(), $this->mail(self::AUTH, ''), null)->send);
     }
+
+    public function testConfiguredAuthservIdRejectsForgedTopmostHeader(): void
+    {
+        $this->expectErrorLog();
+        $forged = "Authentication-Results: attacker.example; dkim=pass header.d=example.com\r\n"
+            . "Authentication-Results: mx.example.org; dkim=none\r\n";
+        $list = $this->list(['trusted-authserv-id' => 'mx.example.org']);
+        $d = $this->policy()->decide($list, $this->mail($forged), null);
+        $this->assertFalse($d->send);
+        $this->assertTrue($this->policy()->decide($this->list(), $this->mail($forged), null)->send);
+    }
 }

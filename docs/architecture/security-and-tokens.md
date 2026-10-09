@@ -185,7 +185,12 @@ window) — past 20 failed attempts for a list within 10 minutes, further reques
 
 ## Sender authentication
 
-Only the **topmost** `Authentication-Results` header is believed ([ADR-0018](../adr/0018-sender-notices-only-to-authenticated-senders.md)): the own MTA prepends its header to every mail it accepts, so the topmost one is its verdict, while a header forged by the sender can only sit below it. This is a requirement on the operator: the MTA (opendkim, rspamd, ...) must add `Authentication-Results` to **every** mail, including locally submitted ones. If it ever does not, a sender-supplied header becomes the topmost one and is believed. A mail without the header counts as unauthenticated (the worker logs a warning, at most once per hour and list, only to the log — it is a server problem, not the list owners'): no sender notice in the default mode, no SPF/DKIM reject, no DKIM-authenticated bounce action.
+Which `Authentication-Results` header is believed is decided by `HeaderFilter::parseAuthResults()` ([ADR-0018](../adr/0018-sender-notices-only-to-authenticated-senders.md), [ADR-0019](../adr/0019-optional-trusted-authserv-id.md)):
+
+- **Default (no `trusted-authserv-id`): the topmost header.** The own MTA prepends its header to every mail it accepts, so the topmost one is its verdict while a header forged by the sender can only sit below it. This is a requirement on the operator: the MTA (opendkim, rspamd, ...) must add `Authentication-Results` to **every** mail, including locally submitted ones. If it ever does not, a sender-supplied header becomes the topmost one and is believed. Not guaranteed for a mailbox at a third-party provider — set the key there.
+- **`trusted-authserv-id` set:** only headers with that authserv-id are believed, at any position; no match means unauthenticated. The MTA should still remove incoming headers carrying its own id (RFC 8601 §5), otherwise a sender can copy the id.
+
+A mail without a (matching) header counts as unauthenticated: no sender notice in the default mode, no SPF/DKIM reject, no DKIM-authenticated bounce action. The worker logs a warning for it, at most once per hour and list, only to the log (it is a server problem, not the list owners'); with the key set it names the authserv-ids actually found. Lists without the key get a one-time `info` hint at worker start.
 
 ---
 

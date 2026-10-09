@@ -220,7 +220,7 @@ class BounceHandler
         //   message.
         if (
             $cause === BounceCause::Spam
-            && !$this->isDkimAuthenticated($rawMime, $recipient['envelopeTo'])
+            && !$this->isDkimAuthenticated($list, $rawMime, $recipient['envelopeTo'])
             && !$this->isFromTrustedRelay($rawMime)
         ) {
             return $this->noAutomaticAction($list);
@@ -416,7 +416,7 @@ class BounceHandler
      * relationship to.
      *
      * The verdict is read from the topmost Authentication-Results header only
-     * (the own MTA's, see HeaderFilter::parseAuthResults()) — a further header
+     * (the own MTA's, selected by HeaderFilter::parseAuthResults(), honoring the list's `trusted-authserv-id`) — a further header
      * supplied by the bounce's sender proves nothing.
      *
      * Only ever checked for BounceCause::Spam (see applyAutomaticAction()) —
@@ -438,9 +438,9 @@ class BounceHandler
      * claimed domain" and "do we trust that domain's opinion instance-wide"
      * are two independent questions.
      */
-    private function isDkimAuthenticated(string $rawMime, string $envelopeTo): bool
+    private function isDkimAuthenticated(ListConfig $list, string $rawMime, string $envelopeTo): bool
     {
-        $authResults = $this->headerFilter->readAuthResults($rawMime);
+        $authResults = $this->headerFilter->readAuthResults($rawMime, $list->trustedAuthservIds);
         if (($authResults['dkim'] ?? null) !== 'pass') {
             return false;
         }

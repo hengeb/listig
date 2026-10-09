@@ -11,10 +11,10 @@ use PHPUnit\Framework\TestCase;
 
 class SenderAuthenticatorTest extends TestCase
 {
-    private function auth(string $headers, string $from = 'alice@example.com'): bool
+    private function auth(string $headers, string $from = 'alice@example.com', array $trusted = []): bool
     {
         return (new SenderAuthenticator(new HeaderFilter(), new OrganizationalDomain()))
-            ->isAuthenticated($headers, $from);
+            ->isAuthenticated($headers, $from, $trusted);
     }
 
     public function testAlignedDkimPassAuthenticates(): void
@@ -91,5 +91,35 @@ class SenderAuthenticatorTest extends TestCase
     public function testHeaderInBodyIsIgnored(): void
     {
         $this->assertFalse($this->auth("Subject: x\r\n\r\nAuthentication-Results: mx.example.org; dkim=pass header.d=example.com\r\n"));
+    }
+
+    public function testForgedTopmostHeaderIsIgnoredWhenAuthservIdIsConfigured(): void
+    {
+        $h = "Authentication-Results: attacker.example; dkim=pass header.d=example.com; dmarc=pass\r\n"
+            . "Authentication-Results: mx.example.org; dkim=none; spf=none\r\n";
+        $this->assertTrue($this->auth($h), 'without the key the topmost header is believed');
+        $this->assertFalse($this->auth($h, trusted: ['mx.example.org']));
+    }
+
+    public function testRealHeaderBelowForgedOneAuthenticatesWhenAuthservIdIsConfigured(): void
+    {
+        $h = "Authentication-Results: attacker.example; dkim=fail\r\n"
+            . "Authentication-Results: mx.example.org; dkim=pass header.d=example.com\r\n";
+        $this->assertFalse($this->auth($h));
+        $this->assertTrue($this->auth($h, trusted: ['MX.example.org']));
+    }
+
+    public function testNoMatchingHeaderMeansUnauthenticatedWhenAuthservIdIsConfigured(): void
+    {
+        $h = "Authentication-Results: other.example; dkim=pass header.d=example.com\r\n";
+        $this->assertFalse($this->auth($h, trusted: ['mx.example.org']));
+    }
+
+    public function testDkimAndSpfFromSeparateHeadersOfTheSameServerAreBothUsed(): void
+    {
+        $h = "Authentication-Results: mx.example.org; dkim=pass header.d=other.org\r\n"
+            . "Authentication-Results: mx.example.org; spf=pass smtp.mailfrom=a@example.com\r\n";
+        $this->assertTrue($this->auth($h, trusted: ['mx.example.org']));
+        $this->assertFalse($this->auth($h), 'topmost header alone has no aligned pass');
     }
 }

@@ -6,7 +6,7 @@ namespace Hengeb\Listig\Mail;
 
 /**
  * Decides whether the From address of an incoming mail is authenticated in the
- * DMARC sense, from the topmost Authentication-Results header, written by the own MTA (see
+ * DMARC sense, from the own MTA's Authentication-Results header (selected by
  * HeaderFilter::parseAuthResults()): `dmarc=pass`,
  * or a DKIM pass whose `header.d` is aligned with the From domain, or an SPF
  * pass whose `smtp.mailfrom` domain is aligned with it (relaxed alignment, see
@@ -20,13 +20,14 @@ class SenderAuthenticator
     ) {
     }
 
-    public function isAuthenticated(string $headersRaw, string $fromAddress): bool
+    /** @param string[] $trustedAuthservIds the list's `trusted-authserv-id`; empty = topmost header */
+    public function isAuthenticated(string $headersRaw, string $fromAddress, array $trustedAuthservIds = []): bool
     {
         $fromDomain = self::domainOf($fromAddress);
         if ($fromDomain === '') {
             return false;
         }
-        $header = $this->headerFilter->parseAuthResults($headersRaw);
+        $header = $this->headerFilter->parseAuthResults($headersRaw, $trustedAuthservIds);
         if ($header === null) {
             return false;
         }

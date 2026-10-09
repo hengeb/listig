@@ -439,6 +439,27 @@ class ListConfig
         }
     }
 
+    /**
+     * `trusted-authserv-id`: authserv-id(s) of the receiving MTA — a string, comma/space
+     * separated, or a YAML list; lowercase. Empty/unset/"" = the topmost Authentication-Results
+     * header is believed. Set = only headers with one of these ids count
+     * (HeaderFilter::parseAuthResults(), ADR-0019). Normal override chain, not additive.
+     *
+     * @var string[]
+     */
+    public array $trustedAuthservIds {
+        get {
+            $raw = $this->raw['trusted-authserv-id'] ?? [];
+            $ids = [];
+            foreach (is_array($raw) ? $raw : [$raw] as $item) {
+                foreach (preg_split('/[\s,]+/', $this->resolve((string) $item), -1, PREG_SPLIT_NO_EMPTY) as $id) {
+                    $ids[] = strtolower($id);
+                }
+            }
+            return array_values(array_unique($ids));
+        }
+    }
+
     public SenderNotices $senderNotices {
         get => SenderNotices::from($this->resolve((string) ($this->raw['sender-notices'] ?? 'authenticated')));
     }

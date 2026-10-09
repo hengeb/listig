@@ -10,6 +10,14 @@ language: de
 # left unset. See docs/architecture/deployment.md "Docker Setup".
 hostname: $APP_HOST
 
+# Optional hardening: authserv-id of the mail server that checks incoming mail — the first
+# word after "Authentication-Results:" in the raw source of a received mail. When set, only
+# Authentication-Results headers with this id are believed (the others may come from the
+# sender). Set it if the mailbox is at a third-party provider or you are not sure that the
+# MTA adds the header to every mail. Can also be set per list-provider or list.
+# See docs/reference/list-config-keys.md.
+# trusted-authserv-id: mx.example.org
+
 # Optional: shown everywhere the app names itself — page titles, header, login mail
 # subject, delivery-failure notices. Defaults to "Listig". See docs/architecture/web-ui.md "App name
 # (app-name)".
