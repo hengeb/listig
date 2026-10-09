@@ -78,9 +78,13 @@ tr.clickable-row:hover { background: #f5f8fd; }
     .list-actions .btn { flex: 1 1 calc(50% - .5rem); text-align: center; white-space: normal; box-sizing: border-box; }
 }
 
-/* archive/show.latte — reply buttons under the mail header */
-.archive-reply { margin: .75rem 0 0; }
-.archive-reply-hint { color: #777; font-size: .8rem; margin: .4rem 0 0; }
+/* archive/show.latte — this mail's own actions (reply, reply privately, delete) in its header card */
+.message-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+.message-actions .btn-danger { margin-left: auto; }
+@media (max-width: 600px) {
+    .message-actions .btn { flex: 1 1 100%; text-align: center; box-sizing: border-box; }
+    .message-actions .btn-danger { margin-left: 0; }
+}
 
 /* list/manage.latte */
 .list-mail-subtitle { font-size: .6em; color: #777; }
@@ -129,7 +133,7 @@ tr.reply-row.expanded { display: table-row; }
 }
 
 /* Archive show (templates/archive/show.latte) */
-.archive-show-header { display: flex; justify-content: space-between; align-items: center; }
+.archive-show-header { margin: 0 0 .75rem; }
 .notice { display: flex; align-items: center; gap: .75rem; background: #fff3cd; color: #856404; border: 1px solid #ffe69c; border-radius: 6px; padding: .6rem .9rem; margin-bottom: .75rem; font-size: .9rem; }
 .notice .notice-icon { font-size: 1.1rem; flex-shrink: 0; }
 .notice .btn { margin-left: auto; flex-shrink: 0; }

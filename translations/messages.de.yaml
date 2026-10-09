@@ -141,6 +141,7 @@ list:
     new_topic_title: "Öffnet dein Mailprogramm mit einer neuen Mail an die Liste und beginnt damit einen neuen Thread"
     compose_external: "Mail an externe Adresse"
     unsubscribe: "Abmelden"
+    unsubscribe_confirm: "Möchtest du dich wirklich von der Liste %list% abmelden?"
   manage:
     title_prefix: "Verwalten"
     overview: "Übersicht"
@@ -200,7 +201,7 @@ archive:
     view_text: "Nur Text"
     reply: "Auf diese Mail antworten"
     reply_hint: "Deine Antwort geht an die ganze Liste, als Antwort in diesem Thread."
-    reply_author: "Nur dem Verfasser antworten"
+    reply_author: "Dem Verfasser privat antworten"
     reply_author_hint: "Privat: nur der Verfasser erhält deine Antwort, nicht die Liste."
     delete: "Löschen"
     confirm_delete: "Diese Mail unwiderruflich aus dem Archiv löschen? Das kann nicht rückgängig gemacht werden."

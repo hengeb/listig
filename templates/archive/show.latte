@@ -17,15 +17,16 @@
     data-confirm-delete="{$translator->trans('archive.show.confirm_delete')}"
     data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
 ></div>
-<p class="archive-show-header">
-    <a href="{$backUrl}">&larr; {$backLabel}</a>
-    <button n:if="$allowDelete" type="button" class="btn btn-danger" onclick="deleteArchivedMail()">{$translator->trans('archive.show.delete')}</button>
-</p>
-
-{* $nav, $replyHref, $authorHref are only passed by ArchiveController — this template is
-   also the moderation / bounce preview (ModerationController, BounceController), which have
-   no list navigation and nothing to reply to. *}
-{ifset $nav}{include '../list-actions.latte', nav: $nav, translator: $translator}{/ifset}
+{* Two rows at most: the list's buttons (ListActions — "Archive" is the way back to the
+   index), and this mail's own actions inside its card. $nav, $replyHref, $authorHref are only
+   passed by ArchiveController — this template is also the moderation / bounce preview
+   (ModerationController, BounceController), which have no list navigation and nothing to
+   reply to: they get the plain "back" link instead. *}
+{ifset $nav}
+    {include '../list-actions.latte', nav: $nav, translator: $translator}
+{else}
+    <p class="archive-show-header"><a href="{$backUrl}">&larr; {$backLabel}</a></p>
+{/ifset}
 
 <div class="card">
     <h1>{($row['subject'] ?? '')}</h1>
@@ -33,14 +34,13 @@
         <tr><th>{$translator->trans('list.manage.sender')}</th><td>{($row['sender_name'] ?? $row['sender_local_part'] ?? $translator->trans('archive.unknown_sender'))}</td></tr>
         <tr><th>{$translator->trans('list.manage.timestamp')}</th><td data-utc="{str_replace(' ', 'T', $row['mail_date'])}Z">{$row['mail_date']}</td></tr>
     </table>
-    {ifset $replyHref}
-    <p class="archive-reply" n:if="$replyHref !== null || $authorHref !== null">
-        <a n:if="$replyHref !== null" href="{$replyHref}" class="btn btn-primary">&#8617; {$translator->trans('archive.show.reply')}</a>
-        <a n:if="$authorHref !== null" href="{$authorHref}" class="btn btn-secondary">{$translator->trans('archive.show.reply_author')}</a>
-    </p>
-    <p class="archive-reply-hint" n:if="$replyHref !== null">{$translator->trans('archive.show.reply_hint')}</p>
-    <p class="archive-reply-hint" n:if="$authorHref !== null">{$translator->trans('archive.show.reply_author_hint')}</p>
-    {/ifset}
+    <div class="message-actions" n:if="($replyHref ?? null) !== null || ($authorHref ?? null) !== null || $allowDelete">
+        <a n:if="($replyHref ?? null) !== null" href="{$replyHref}" class="btn btn-primary"
+            title="{$translator->trans('archive.show.reply_hint')}">&#8617; {$translator->trans('archive.show.reply')}</a>
+        <a n:if="($authorHref ?? null) !== null" href="{$authorHref}" class="btn btn-secondary"
+            title="{$translator->trans('archive.show.reply_author_hint')}">{$translator->trans('archive.show.reply_author')}</a>
+        <button n:if="$allowDelete" type="button" class="btn btn-danger" onclick="deleteArchivedMail()">{$translator->trans('archive.show.delete')}</button>
+    </div>
 </div>
 
 <div class="card" n:if="count($attachments) > 0">

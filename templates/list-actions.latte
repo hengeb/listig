@@ -5,6 +5,6 @@
     <a n:foreach="$nav->items as $item"
         href="{$item['href']}"
         class="btn {$item['active'] ? 'btn-primary' : 'btn-secondary'}"
-        n:attr="title: $item['title'] !== null ? $translator->trans($item['title']) : null, aria-current: $item['active'] ? 'page' : null"
+        n:attr="title: $item['title'] !== null ? $translator->trans($item['title']) : null, aria-current: $item['active'] ? 'page' : null, data-confirm: $item['confirm'] !== null ? $translator->trans($item['confirm']['key'], $item['confirm']['params']) : null, onclick: $item['confirm'] !== null ? 'return confirm(this.dataset.confirm)' : null"
     >{$translator->trans($item['label'])}</a>
 </nav>

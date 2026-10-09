@@ -77,4 +77,28 @@ class ListActionsTest extends TestCase
         $list = new ListConfig('news', 'news@example.org', ['post-access-public' => 'allow'], new InlineMemberResolver(['m@example.org'], []), ['{subaddress}@example.org']);
         $this->assertNotContains('write', $this->keys($this->actions()->forViewer($list, ['email' => 'm@example.org'])));
     }
+
+    /** A member store that can persist a removal, so the Unsubscribe button is possible at all. */
+    private function removableList(): ListConfig
+    {
+        $inline = new InlineMemberResolver(['m@example.org', 'o@example.org'], ['o@example.org']);
+        $resolver = $this->createStub(\Hengeb\Listig\Member\MemberResolver::class);
+        $resolver->method('getMembers')->willReturn($inline->getMembers('news'));
+        $resolver->method('getOwners')->willReturn($inline->getOwners('news'));
+        $resolver->method('supportsRemoval')->willReturn(true);
+        return new ListConfig('news', 'news@example.org', ['archive' => 'members'], $resolver);
+    }
+
+    public function testUnsubscribeIsOnlyOfferedOnTheInfoAndManagePages(): void
+    {
+        $list = $this->removableList();
+        $member = ['email' => 'm@example.org'];
+        $this->assertContains('unsubscribe', $this->keys($this->actions()->forViewer($list, $member, 'info')));
+        $this->assertContains('unsubscribe', $this->keys($this->actions()->forViewer($list, ['email' => 'o@example.org'], 'manage')));
+        $item = array_values(array_filter($this->actions()->forViewer($list, $member, 'info')->items, fn($i) => $i['key'] === 'unsubscribe'))[0];
+        $this->assertSame('list.actions.unsubscribe_confirm', $item['confirm']['key'], 'unsubscribing asks first');
+        $this->assertSame(['%list%' => 'news'], $item['confirm']['params']);
+        $this->assertNotContains('unsubscribe', $this->keys($this->actions()->forViewer($list, $member)), 'dashboard');
+        $this->assertNotContains('unsubscribe', $this->keys($this->actions()->forViewer($list, $member, 'archive', true)), 'archive');
+    }
 }

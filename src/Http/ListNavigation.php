@@ -12,8 +12,8 @@ namespace Hengeb\Listig\Http;
 final class ListNavigation
 {
     /**
-     * @param list<array{key: string, href: string, label: string, title: ?string, active: bool}> $items
-     *     `label`/`title` are translation keys
+     * @param list<array{key: string, href: string, label: string, title: ?string, confirm: ?array{key: string, params: array<string, string>}, active: bool}> $items
+     *     `label`/`title`/`confirm.key` are translation keys; `confirm` makes the link ask before it is followed
      */
     public function __construct(
         public readonly array $items,

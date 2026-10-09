@@ -24,7 +24,8 @@ final class ListActions
 
     /**
      * @param array{email: string}|null $user the session user, null for an anonymous viewer of a public archive
-     * @param string $current key of the page being shown, highlighted: 'info', 'manage', 'archive' or '' (none)
+     * @param string $current key of the page being shown, highlighted: 'info', 'manage', 'archive' or '' (none);
+     *     the Unsubscribe button appears only for 'info'/'manage'
      * @param bool $archiveContext label the write button "Start a new topic" — on the archive pages it is
      *     the counterpart of the per-mail "Reply" button
      */
@@ -32,8 +33,8 @@ final class ListActions
     {
         $identity = $user['email'] ?? null;
         $items = [];
-        $add = function (string $key, string $href, string $label, ?string $title = null) use (&$items, $current): void {
-            $items[] = ['key' => $key, 'href' => $href, 'label' => $label, 'title' => $title, 'active' => $key === $current];
+        $add = function (string $key, string $href, string $label, ?string $title = null, ?array $confirm = null) use (&$items, $current): void {
+            $items[] = ['key' => $key, 'href' => $href, 'label' => $label, 'title' => $title, 'confirm' => $confirm, 'active' => $key === $current];
         };
 
         $isOwner = $identity !== null && $list->isOwnedBy($identity);
@@ -55,11 +56,21 @@ final class ListActions
         if ($identity !== null && $list->canComposeExternal($identity)) {
             $add('compose', "/{$list->name}/compose", 'list.actions.compose_external');
         }
-        if ($identity !== null && $list->isMember($identity) && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
+        // Unsubscribing is a deliberate act, offered only where the list itself is shown (manage / info
+        // page) — not on the dashboard, not next to the archive.
+        if (in_array($current, ['manage', 'info'], true) && $identity !== null && $list->isMember($identity) && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
             $member = $list->findMemberInList($identity);
             // 'u' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
             $token = $this->tokenService->sign('u', $list->name, $member?->attributes['username'] ?? $identity);
-            $add('unsubscribe', "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}", 'list.actions.unsubscribe');
+            // The link acts on a plain GET (it is also the List-Unsubscribe link of every mail), so the
+            // button asks first — see templates/list-actions.latte.
+            $add(
+                'unsubscribe',
+                "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}",
+                'list.actions.unsubscribe',
+                null,
+                ['key' => 'list.actions.unsubscribe_confirm', 'params' => ['%list%' => $list->displayName]],
+            );
         }
 
         return new ListNavigation($items, $canPost);

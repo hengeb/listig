@@ -111,11 +111,11 @@ Which buttons a viewer sees for a list is decided in **one** place, `Http\ListAc
 | Archive | `ListConfig::canViewArchive($identity)` — the same rule as `ArchiveController::checkAccess()` | `/{listname}/archive` |
 | Write to the list (on archive pages: "Start a new topic") | `ListConfig::canPost($identity)` | `mailto:{list address}` |
 | Mail to an external address | `canComposeExternal()` | `/{listname}/compose` |
-| Unsubscribe | member **and** `AllowLeave::Direct` **and** `ListConfig::$supportsUnsubscribe` (hides the button for a member store that can't persist a removal) | signed `/{listname}/unsubscribe?token=` |
+| Unsubscribe | **only on the manage / info page** (`$current` = `manage`/`info`; not on the dashboard, not next to the archive), and only for a member with `AllowLeave::Direct` **and** `ListConfig::$supportsUnsubscribe` (hides the button for a member store that can't persist a removal) | signed `/{listname}/unsubscribe?token=`; asks first (`confirm()` via `data-confirm` — the link acts on a plain GET, being the `List-Unsubscribe` link of every mail too) |
 
 `canPost()` mirrors `IncomingMailFilter::checkPostAccess()` (a `restricted-members:` hit never; owners and `senders:` always; members per `post-access-members`, everyone else per `post-access-public`; `moderate` counts as allowed; never for `type: subaddress` lists, where a plain mail to the list address is invalid); `IncomingMailFilterTest` checks that both agree. An anonymous viewer of a public archive is judged as an outsider. When the viewer may post, the list address shown on the page is also a `mailto:` link (`ListNavigation::$canPost`). The "Write" button's label differs on the archive pages ("Start a new topic") because there it is the counterpart of the per-mail "Reply" button, see [Archive viewer](archive.md#archive-viewer).
 
-Layout: the row sits below the list's name/text (never beside it) and wraps (`.list-actions`, `style.css`); under 600 px it becomes two buttons per row, labels may wrap. The moderation and bounce previews reuse `archive/show.latte` without `$nav` (guarded by `{ifset}`), so they show no list buttons.
+Layout: the row sits below the list's name/text (never beside it) and wraps (`.list-actions`, `style.css`); under 600 px it becomes two buttons per row, labels may wrap. The moderation and bounce previews reuse `archive/show.latte` without `$nav` (guarded by `{ifset}`): they show their plain "back" link instead of the list buttons.
 
 ## Member dashboard (`/`)
 

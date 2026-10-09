@@ -141,6 +141,7 @@ list:
     new_topic_title: "Opens your mail program with a new mail to the list, starting a new thread"
     compose_external: "Mail to an external address"
     unsubscribe: "Unsubscribe"
+    unsubscribe_confirm: "Do you really want to unsubscribe from the list %list%?"
   manage:
     title_prefix: "Manage"
     overview: "Overview"
@@ -200,7 +201,7 @@ archive:
     view_text: "Plain text"
     reply: "Reply to this mail"
     reply_hint: "Your answer goes to the whole list, as a reply in this thread."
-    reply_author: "Reply to the author only"
+    reply_author: "Reply privately to the author"
     reply_author_hint: "Private: only the author receives your answer, not the list."
     delete: "Delete"
     confirm_delete: "Permanently delete this mail from the archive? This cannot be undone."
