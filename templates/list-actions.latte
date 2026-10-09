@@ -1,7 +1,8 @@
 {* The action buttons of one list, built by ListActions::forViewer() ($nav). Included on
    every page about a list, so the same options are available everywhere; the current page's
    button is highlighted. Wraps on narrow screens (see .list-actions in style.css).
-   A `post` item (Join) is a button that POSTs via listigJoin() in script.js; the others are links. *}
+   A `post` item (Join) is a button that POSTs via listigJoin() in script.js; the others are links.
+   Each carries a Tabler Icons glyph (`ti ti-…`), visible only if the page loads that icon font. *}
 <nav n:if="count($nav->items) > 0" class="list-actions" aria-label="{$translator->trans('list.actions.label')}">
     {foreach $nav->items as $item}
         {if $item['post']}
@@ -9,13 +10,13 @@
                 data-url="{$item['href']}"
                 data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
                 onclick="listigJoin(this)"
-            >{$translator->trans($item['label'])}</button>
+            ><i class="ti ti-{$item['icon']}" aria-hidden="true"></i> {$translator->trans($item['label'])}</button>
         {else}
             <a
                 href="{$item['href']}"
                 class="btn {$item['active'] ? 'btn-primary' : 'btn-secondary'}"
                 n:attr="title: $item['title'] !== null ? $translator->trans($item['title']) : null, aria-current: $item['active'] ? 'page' : null, data-confirm: $item['confirm'] !== null ? $translator->trans($item['confirm']['key'], $item['confirm']['params']) : null, onclick: $item['confirm'] !== null ? 'return confirm(this.dataset.confirm)' : null"
-            >{$translator->trans($item['label'])}</a>
+            ><i class="ti ti-{$item['icon']}" aria-hidden="true"></i> {$translator->trans($item['label'])}</a>
         {/if}
     {/foreach}
 </nav>

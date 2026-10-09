@@ -12,8 +12,8 @@ namespace Hengeb\Listig\Http;
 final class ListNavigation
 {
     /**
-     * @param list<array{key: string, href: string, label: string, title: ?string, confirm: ?array{key: string, params: array<string, string>}, post: bool, active: bool}> $items
-     *     `label`/`title`/`confirm.key` are translation keys; `confirm` makes the link ask before it is followed; `post` renders a button that POSTs to `href` (Join)
+     * @param list<array{key: string, href: string, label: string, icon: string, title: ?string, confirm: ?array{key: string, params: array<string, string>}, post: bool, active: bool}> $items
+     *     `label`/`title`/`confirm.key` are translation keys, `icon` a Tabler Icons name; `confirm` makes the link ask before it is followed; `post` renders a button that POSTs to `href` (Join)
      */
     public function __construct(
         public readonly array $items,

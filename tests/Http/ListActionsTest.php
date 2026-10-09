@@ -140,4 +140,16 @@ class ListActionsTest extends TestCase
         $this->assertNotContains('join', $this->keys($this->actions()->forViewer($list, ['email' => 'm@example.org'])), 'members have nothing to join');
         $this->assertNotContains('join', $this->keys($this->actions()->forViewer($list, null)), 'guests cannot join');
     }
+
+    public function testEveryButtonHasATablerIcon(): void
+    {
+        $list = $this->removableList(['join-policy' => 'open', 'visibility' => 'public', 'reply-to' => 'masked-both', 'post-access-public' => 'allow'], true);
+        $nav = $this->actions()->forViewer($list, ['email' => 'o@example.org'], 'manage');
+        $this->assertNotEmpty($nav->items);
+        foreach ($nav->items as $item) {
+            $this->assertMatchesRegularExpression('/^[a-z0-9-]+$/', $item['icon'], $item['key']);
+        }
+        $nonMember = $this->actions()->forViewer($list, ['email' => 'x@example.com']);
+        $this->assertContains('join', $this->keys($nonMember));
+    }
 }

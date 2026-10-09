@@ -37,10 +37,10 @@
     </table>
     <div class="message-actions" n:if="($replyHref ?? null) !== null || ($authorHref ?? null) !== null || $allowDelete">
         <a n:if="($replyHref ?? null) !== null" href="{$replyHref}" class="btn btn-primary"
-            title="{$translator->trans('archive.show.reply_hint')}">&#8617; {$translator->trans('archive.show.reply')}</a>
+            title="{$translator->trans('archive.show.reply_hint')}"><i class="ti ti-corner-up-left" aria-hidden="true"></i> {$translator->trans('archive.show.reply')}</a>
         <a n:if="($authorHref ?? null) !== null" href="{$authorHref}" class="btn btn-secondary"
-            title="{$translator->trans('archive.show.reply_author_hint')}">{$translator->trans('archive.show.reply_author')}</a>
-        <button n:if="$allowDelete" type="button" class="btn btn-danger" onclick="deleteArchivedMail()">{$translator->trans('archive.show.delete')}</button>
+            title="{$translator->trans('archive.show.reply_author_hint')}"><i class="ti ti-user" aria-hidden="true"></i> {$translator->trans('archive.show.reply_author')}</a>
+        <button n:if="$allowDelete" type="button" class="btn btn-danger" onclick="deleteArchivedMail()"><i class="ti ti-trash" aria-hidden="true"></i> {$translator->trans('archive.show.delete')}</button>
     </div>
 </div>
 

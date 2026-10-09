@@ -16,6 +16,21 @@ use Hengeb\Listig\Token\TokenService;
  */
 final class ListActions
 {
+    /**
+     * Tabler Icons name per button (`ti ti-{name}`). Listig ships no icon font: the icons show up when
+     * the page loads the Tabler Icons webfont (e.g. via custom.latte's custom_head); without it the
+     * empty <i> costs nothing.
+     */
+    private const array ICONS = [
+        'manage' => 'settings',
+        'info' => 'info-circle',
+        'archive' => 'archive',
+        'write' => 'pencil',
+        'compose' => 'send',
+        'join' => 'user-plus',
+        'unsubscribe' => 'user-minus',
+    ];
+
     public function __construct(
         private readonly TokenService $tokenService,
         private readonly string $hostname,
@@ -33,7 +48,7 @@ final class ListActions
         $identity = $user['email'] ?? null;
         $items = [];
         $add = function (string $key, string $href, string $label, ?string $title = null, ?array $confirm = null, bool $post = false) use (&$items, $current): void {
-            $items[] = ['key' => $key, 'href' => $href, 'label' => $label, 'title' => $title, 'confirm' => $confirm, 'post' => $post, 'active' => $key === $current];
+            $items[] = ['key' => $key, 'href' => $href, 'label' => $label, 'icon' => self::ICONS[$key], 'title' => $title, 'confirm' => $confirm, 'post' => $post, 'active' => $key === $current];
         };
 
         $isOwner = $identity !== null && $list->isOwnedBy($identity);
