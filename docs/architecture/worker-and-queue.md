@@ -47,7 +47,7 @@ loop forever:
            - For each unseen UID: fetch raw MIME (getRawMail) + parsed IncomingMail (getMail)
            - Return array of {uid, uidvalidity, mime, mail: IncomingMail}
         c. foreach mail:
-            - authResults = HeaderFilter::readAuthResults($mail->headersRaw)
+            - authResults = HeaderFilter::readAuthResults($mail->headersRaw, $list->trustedAuthservIds)
             - result = IncomingMailFilter::filter($mail, $list, $rawMime, $authResults) -> FilterResult
             - FilterResult::Discard: skip silently, mark seen (a `filters:` discard and an auto-reply additionally delete the mail outright)
             - FilterResult::Bounce: log bounce_log, forward to owner, mark seen, ImapArchiver::archiveOrDelete()
