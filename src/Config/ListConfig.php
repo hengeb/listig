@@ -695,6 +695,18 @@ class ListConfig
     }
 
     /**
+     * Whether someone who leaves can put themselves straight back: an `open` list that stays
+     * visible to non-members (`visibility: public`) and whose store can add members. Leaving such a
+     * list needs no confirmation — it is undone with one click; any other list asks first.
+     */
+    public function canRejoinAfterLeaving(): bool
+    {
+        return $this->joinPolicy === JoinPolicy::Open
+            && $this->visibility === Visibility::Public
+            && $this->supportsJoin;
+    }
+
+    /**
      * Whether the "Join" button is offered to $identity: an authenticated user who can see the list
      * and is not yet a member, on an `open` list whose member store can take new members.
      */

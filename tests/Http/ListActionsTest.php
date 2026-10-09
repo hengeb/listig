@@ -79,14 +79,15 @@ class ListActionsTest extends TestCase
     }
 
     /** A member store that can persist a removal, so the Unsubscribe button is possible at all. */
-    private function removableList(): ListConfig
+    private function removableList(array $raw = [], bool $supportsAddition = false): ListConfig
     {
         $inline = new InlineMemberResolver(['m@example.org', 'o@example.org'], ['o@example.org']);
         $resolver = $this->createStub(\Hengeb\Listig\Member\MemberResolver::class);
         $resolver->method('getMembers')->willReturn($inline->getMembers('news'));
         $resolver->method('getOwners')->willReturn($inline->getOwners('news'));
         $resolver->method('supportsRemoval')->willReturn(true);
-        return new ListConfig('news', 'news@example.org', ['archive' => 'members'], $resolver);
+        $resolver->method('supportsAddition')->willReturn($supportsAddition);
+        return new ListConfig('news', 'news@example.org', $raw + ['archive' => 'members'], $resolver);
     }
 
     public function testUnsubscribeIsOfferedOnEveryPageToAMemberAndAsksFirst(): void
@@ -102,6 +103,22 @@ class ListActionsTest extends TestCase
         }
         $this->assertContains('unsubscribe', $this->keys($this->actions()->forViewer($list, ['email' => 'o@example.org'], 'manage')), 'an owner who is also a member');
         $this->assertNotContains('unsubscribe', $this->keys($this->actions()->forViewer($list, null)), 'guests have nothing to leave');
+    }
+
+    public function testLeavingNeedsNoConfirmationWhenOneCanJoinAgainRightAway(): void
+    {
+        $member = ['email' => 'm@example.org'];
+        $confirm = function (array $raw, bool $canAdd) use ($member) {
+            $nav = $this->actions()->forViewer($this->removableList($raw, $canAdd), $member, 'info');
+            return array_values(array_filter($nav->items, fn($i) => $i['key'] === 'unsubscribe'))[0]['confirm'];
+        };
+
+        $this->assertNull($confirm(['join-policy' => 'open', 'visibility' => 'public'], true), 'open + public: undone with one click');
+        $this->assertNotNull($confirm(['join-policy' => 'open', 'visibility' => 'public'], false), 'store cannot add members again');
+        $this->assertNotNull($confirm(['join-policy' => 'open', 'visibility' => 'members'], true), 'a non-member would no longer see the list');
+        $this->assertNotNull($confirm(['join-policy' => 'invite', 'visibility' => 'public'], true), 'only by invitation');
+        $this->assertNotNull($confirm(['join-policy' => 'request', 'visibility' => 'public'], true), 'on request');
+        $this->assertNotNull($confirm([], true), 'defaults: invite + members');
     }
 
     public function testJoinIsOfferedOnEveryPageToANonMemberOfAnOpenVisibleList(): void

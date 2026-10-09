@@ -60,19 +60,22 @@ final class ListActions
         if ($list->canJoin($identity)) {
             $add('join', "/_/api/join/{$list->name}", 'list.actions.join', null, null, true);
         }
-        // Unsubscribe: on every page like the other buttons (it asks for confirmation, see below).
+        // Unsubscribe: on every page like the other buttons. It asks for confirmation unless the
+        // member could join again right away (open + public list), see ListConfig::canRejoinAfterLeaving().
         if ($identity !== null && $list->isMember($identity) && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
             $member = $list->findMemberInList($identity);
             // 'u' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
             $token = $this->tokenService->sign('u', $list->name, $member?->attributes['username'] ?? $identity);
             // The link acts on a plain GET (it is also the List-Unsubscribe link of every mail), so the
-            // button asks first — see templates/list-actions.latte.
+            // button asks first — see templates/list-actions.latte — unless leaving is trivially undone.
             $add(
                 'unsubscribe',
                 "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}",
                 'list.actions.unsubscribe',
                 null,
-                ['key' => 'list.actions.unsubscribe_confirm', 'params' => ['%list%' => $list->displayName]],
+                $list->canRejoinAfterLeaving()
+                    ? null
+                    : ['key' => 'list.actions.unsubscribe_confirm', 'params' => ['%list%' => $list->displayName]],
             );
         }
 
