@@ -43,6 +43,7 @@ YAML key).
 | GET | `/{listname}/bounce/{id}` | owner | Preview a bounce mail — see [Bounce preview](../architecture/bounces.md#bounce-preview) |
 | GET | `/{listname}/bounce/{id}/frame` | owner | Preview: sandboxed HTML body |
 | GET | `/{listname}/bounce/{id}/attachment/{index}` | owner (or signed token) | Preview: attachment download/inline |
+| GET | `/_/api/live/{listname}` | owner | HTML fragment (`list/manage-live.latte`): delivery queue + bounces, polled by the manage page — see [Manage page live refresh](../architecture/web-ui.md#manage-page-live-refresh) |
 | GET | `/_/api/queue/{listname}` | owner | Queue status |
 | DELETE | `/_/api/queue/{id}` | owner | Delete failed entry |
 | POST | `/_/api/queue/{id}/retry` | owner | Retry failed entry |

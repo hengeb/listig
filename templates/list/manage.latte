@@ -5,6 +5,7 @@
 {block head}
 {* list-manage.js needs script.js's getCsrfToken() to already be defined — see
    the ordering comment on templates/layout.latte's own <script src> tag. *}
+<script src="/assets/dom-morph.js" defer></script>
 <script src="/assets/list-manage.js" defer></script>
 {/block}
 
@@ -75,36 +76,10 @@
     </table>
 </div>
 
-<!-- Queue status -->
-<div class="card">
-    <h2>{$translator->trans('list.manage.queue_status')}</h2>
-    <p>
-        {$translator->trans('list.manage.sent')}: <strong>{$queueStatus['sent']}</strong> /
-        {$translator->trans('list.manage.failed')}: <strong class="text-danger">{$queueStatus['failed']}</strong> /
-        {$translator->trans('list.manage.total')}: <strong>{$queueStatus['total']}</strong>
-    </p>
-</div>
-
-<!-- Bounce stats -->
-<div class="card">
-    <h2>{$translator->trans('list.manage.bounces')}</h2>
-    <p>
-        {$translator->trans('list.manage.last_7_days')}: <strong>{$bounceStats['last7']}</strong> &nbsp;|&nbsp;
-        {$translator->trans('list.manage.last_30_days')}: <strong>{$bounceStats['last30']}</strong>
-    </p>
-    <table n:if="count($bounceStats['recent']) > 0">
-        <thead><tr><th>{$translator->trans('list.manage.sender')}</th><th>{$translator->trans('list.manage.subject')}</th><th>{$translator->trans('list.manage.timestamp')}</th></tr></thead>
-        <tbody>
-        {* Only clickable when message_id is set — null for a bounce logged before
-           migrations/003_bounce_log_message_id.sql, or whose bounce mail had no
-           Message-ID at all; BounceController has nothing to locate it by then. *}
-        <tr n:foreach="$bounceStats['recent'] as $bounce" n:class="$bounce['message_id'] !== null ? 'clickable-row'" n:attr="onclick: $bounce['message_id'] !== null ? sprintf('location.href=%s', json_encode(sprintf('/%s/bounce/%s', $list->name, $bounce['id']), \JSON_UNESCAPED_SLASHES)) : null">
-            <td>{$bounce['sender']}</td>
-            <td>{$bounce['subject']}</td>
-            <td>{$bounce['bounced_at']}</td>
-        </tr>
-        </tbody>
-    </table>
+{* Delivery queue + bounces refresh themselves (list-manage.js): fast while mails are pending,
+   slowly otherwise. The same fragment is what GET /_/api/live/{listname} returns. *}
+<div id="manage-live-container" data-url="/_/api/live/{$list->name}">
+    {include 'manage-live.latte', queueStatus: $queueStatus, bounceStats: $bounceStats, list: $list, translator: $translator}
 </div>
 
 {* Only ever populated by the `restrict` automatic bounce action — see

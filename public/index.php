@@ -246,6 +246,7 @@ $app->group('', function (RouteCollectorProxy $group): void {
         $api->post('/logout', [AuthController::class, 'logout']);
         $api->post('/compose/{listname}', [ComposeController::class, 'createAddress']);
         $api->post('/join/{listname}', [JoinController::class, 'join']);
+        $api->get('/live/{listname}', [ListController::class, 'live']);
         $api->post('/moderation/{id}/accept', [ModerationController::class, 'accept']);
         $api->post('/moderation/{id}/reject', [ModerationController::class, 'reject']);
         $api->get('/queue/{listname}', [QueueController::class, 'status']);

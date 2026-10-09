@@ -20,6 +20,7 @@ Annotated directory tree.
 │       ├── script.js                 # shared JS loaded on every page (getCsrfToken(), listigLogout()) — see "Static assets" (docs/architecture/web-ui.md)
 │       ├── archive-index.js          # templates/archive/index.latte's client-side thread toggle/quick filter — see "Threading"
 │       ├── archive-show.js           # templates/archive/show.latte's image-toggle/HTML-text-toggle/delete button — see "Archive viewer" (docs/architecture/archive.md)
+│       ├── dom-morph.js              # listigMorph(): patches a container to new HTML node by node (keeps unchanged nodes) — used by list-manage.js's live refresh, see "Manage page live refresh" (docs/architecture/web-ui.md)
 │       ├── list-manage.js            # templates/list/manage.latte's moderation accept/reject — see "Moderation via UI" (docs/architecture/moderation.md)
 │       ├── compose.js                # templates/compose.latte's address request + mailto redirect
 │       ├── logo.svg                  # full wordmark

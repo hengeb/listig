@@ -13,6 +13,7 @@ use PDO;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Exception\HttpNotFoundException;
+use Symfony\Contracts\Translation\LocaleAwareInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 class ListController
@@ -103,6 +104,35 @@ class ListController
     }
 
     /**
+     * `GET /_/api/live/{listname}` (owner only, behind AuthMiddleware): the self-refreshing part of
+     * the manage page — delivery queue and bounces — rendered by the same fragment template the
+     * page includes (templates/list/manage-live.latte), so there is one markup, escaped by Latte.
+     * list-manage.js swaps it in only when it changed. Cheap on purpose (three small queries):
+     * while mails are pending the page polls every second or two.
+     */
+    public function live(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $user = $request->getAttribute('user');
+        $list = $this->listProvider->getList($args['listname']);
+        if ($list === null || !$list->isOwnedBy($user['email'])) {
+            return $response->withStatus(404);
+        }
+
+        // The container's translator is a Symfony Translator (locale-aware); the interface type hides that.
+        if ($this->translator instanceof LocaleAwareInterface) {
+            $this->translator->setLocale($list->language);
+        }
+        $html = $this->latte->renderToString(__DIR__ . '/../../../templates/list/manage-live.latte', [
+            'list' => $list,
+            'queueStatus' => $this->getQueueStatus($list->name),
+            'bounceStats' => $this->getBounceStats($list->name),
+            'translator' => $this->translator,
+        ]);
+        $response->getBody()->write($html);
+        return $response->withHeader('Content-Type', 'text/html; charset=utf-8')->withHeader('Cache-Control', 'no-store');
+    }
+
+    /**
      * Reduced view for anyone who reaches {list-url} without being an owner —
      * see the comment at its one call site in manage() above. Same building
      * blocks DashboardController::index() already shows for this exact list
@@ -154,10 +184,26 @@ class ListController
         return $items;
     }
 
+    /**
+     * Delivery queue counts of a list: `queued` (pending and due — being sent or retried in
+     * the next cycles), `deferred` (pending, but held back after a mailbox-full bounce until
+     * its `retry_not_before`; exactly the complement of QueueSender::sendBatch()'s
+     * NOT EXISTS), `sent`, `failed` and `total`. The manage page polls fast only while
+     * `queued` > 0 — a deferred recipient waits days, nothing changes meanwhile.
+     */
     private function getQueueStatus(string $listName): array
     {
+        $deferred = "EXISTS (
+                    SELECT 1 FROM queue_recipients qr2
+                    JOIN mail_queue mq2 ON mq2.id = qr2.mail_queue_id
+                    WHERE mq2.list_cn = mq.list_cn
+                      AND LOWER(qr2.envelope_to) = LOWER(qr.envelope_to)
+                      AND qr2.retry_not_before > NOW()
+                )";
         $stmt = $this->db->prepare(
             "SELECT
+                COUNT(CASE WHEN qr.status = 'pending' AND NOT $deferred THEN 1 END) as queued,
+                COUNT(CASE WHEN qr.status = 'pending' AND $deferred THEN 1 END) as deferred,
                 COUNT(CASE WHEN qr.status = 'sent' THEN 1 END) as sent,
                 COUNT(CASE WHEN qr.status = 'failed' THEN 1 END) as failed,
                 COUNT(*) as total
@@ -166,7 +212,7 @@ class ListController
              WHERE mq.list_cn = :list"
         );
         $stmt->execute(['list' => $listName]);
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['sent' => 0, 'failed' => 0, 'total' => 0];
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['queued' => 0, 'deferred' => 0, 'sent' => 0, 'failed' => 0, 'total' => 0];
     }
 
     private function getBounceStats(string $listName): array

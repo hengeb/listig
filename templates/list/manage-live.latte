@@ -1,0 +1,39 @@
+{* The part of the manage page that refreshes itself (list-manage.js polls
+   GET /_/api/live/{listname}, ListController::live(), which renders just this file): the
+   delivery queue and the bounces. data-pending (= queued, not deferred) decides how often the script polls. Rendered
+   once by manage.latte and again for every refresh, so keep it free of anything page-specific. *}
+<div class="manage-live" data-pending="{$queueStatus['queued']}">
+<!-- Queue status -->
+<div class="card">
+    <h2>{$translator->trans('list.manage.queue_status')}</h2>
+    <p>
+        {$translator->trans('list.manage.queued')}: <strong>{$queueStatus['queued']}</strong> /
+        <span title="{$translator->trans('list.manage.deferred_hint')}">{$translator->trans('list.manage.deferred')}: <strong>{$queueStatus['deferred']}</strong></span> /
+        {$translator->trans('list.manage.sent')}: <strong>{$queueStatus['sent']}</strong> /
+        {$translator->trans('list.manage.failed')}: <strong class="text-danger">{$queueStatus['failed']}</strong> /
+        {$translator->trans('list.manage.total')}: <strong>{$queueStatus['total']}</strong>
+    </p>
+</div>
+
+<!-- Bounce stats -->
+<div class="card">
+    <h2>{$translator->trans('list.manage.bounces')}</h2>
+    <p>
+        {$translator->trans('list.manage.last_7_days')}: <strong>{$bounceStats['last7']}</strong> &nbsp;|&nbsp;
+        {$translator->trans('list.manage.last_30_days')}: <strong>{$bounceStats['last30']}</strong>
+    </p>
+    <table n:if="count($bounceStats['recent']) > 0">
+        <thead><tr><th>{$translator->trans('list.manage.sender')}</th><th>{$translator->trans('list.manage.subject')}</th><th>{$translator->trans('list.manage.timestamp')}</th></tr></thead>
+        <tbody>
+        {* Only clickable when message_id is set — null for a bounce logged before
+           migrations/003_bounce_log_message_id.sql, or whose bounce mail had no
+           Message-ID at all; BounceController has nothing to locate it by then. *}
+        <tr n:foreach="$bounceStats['recent'] as $bounce" data-key="bounce-{$bounce['id']}" n:class="$bounce['message_id'] !== null ? 'clickable-row'" n:attr="onclick: $bounce['message_id'] !== null ? sprintf('location.href=%s', json_encode(sprintf('/%s/bounce/%s', $list->name, $bounce['id']), \JSON_UNESCAPED_SLASHES)) : null">
+            <td>{$bounce['sender']}</td>
+            <td>{$bounce['subject']}</td>
+            <td>{$bounce['bounced_at']}</td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+</div>
