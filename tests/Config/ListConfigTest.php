@@ -379,4 +379,65 @@ class ListConfigTest extends TestCase
         $subaddress = new ListConfig('l', 'l@example.org', ['post-access-public' => 'allow'], subaddressMemberTemplates: ['{subaddress}@example.org']);
         $this->assertFalse($subaddress->canPost(null));
     }
+
+    private function addableResolver(bool $supportsAddition = true): \Hengeb\Listig\Member\MemberResolver
+    {
+        $inline = new \Hengeb\Listig\Member\InlineMemberResolver(['m@example.org'], ['o@example.org']);
+        $resolver = $this->createStub(\Hengeb\Listig\Member\MemberResolver::class);
+        $resolver->method('getMembers')->willReturn($inline->getMembers('l'));
+        $resolver->method('getOwners')->willReturn($inline->getOwners('l'));
+        $resolver->method('supportsAddition')->willReturn($supportsAddition);
+        return $resolver;
+    }
+
+    public function testJoinPolicyAndVisibilityDefaults(): void
+    {
+        $list = new ListConfig('l', 'l@example.org', []);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\JoinPolicy::Invite, $list->joinPolicy);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\Visibility::Members, $list->visibility);
+        $list = new ListConfig('l', 'l@example.org', ['join-policy' => 'open', 'visibility' => 'public']);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\JoinPolicy::Open, $list->joinPolicy);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\Visibility::Public, $list->visibility);
+    }
+
+    public function testInvalidVisibilityFailsFast(): void
+    {
+        $this->expectException(\ValueError::class);
+        (new ListConfig('l', 'l@example.org', ['visibility' => 'secret']))->visibility;
+    }
+
+    public function testIsVisibleToFollowsVisibility(): void
+    {
+        $make = fn(string $v) => new ListConfig('l', 'l@example.org', ['visibility' => $v], $this->addableResolver());
+
+        // guests see nothing, whatever the setting
+        foreach (['public', 'members', 'hidden'] as $v) {
+            $this->assertFalse($make($v)->isVisibleTo(null), $v);
+        }
+        $this->assertTrue($make('public')->isVisibleTo('x@example.com'));
+        $this->assertTrue($make('public')->isVisibleTo('m@example.org'));
+
+        $this->assertFalse($make('members')->isVisibleTo('x@example.com'));
+        $this->assertTrue($make('members')->isVisibleTo('m@example.org'));
+        $this->assertTrue($make('members')->isVisibleTo('o@example.org'));
+
+        $this->assertFalse($make('hidden')->isVisibleTo('x@example.com'));
+        $this->assertFalse($make('hidden')->isVisibleTo('m@example.org'), 'a plain member does not see a hidden list');
+        $this->assertTrue($make('hidden')->isVisibleTo('o@example.org'));
+    }
+
+    public function testCanJoinNeedsOpenPolicyVisibilityNonMemberAndAWritableStore(): void
+    {
+        $make = fn(array $raw, bool $add = true) => new ListConfig('l', 'l@example.org', $raw, $this->addableResolver($add));
+        $open = ['join-policy' => 'open', 'visibility' => 'public'];
+
+        $this->assertTrue($make($open)->canJoin('x@example.com'));
+        $this->assertFalse($make($open)->canJoin(null), 'guests cannot join');
+        $this->assertFalse($make($open)->canJoin('m@example.org'), 'already a member');
+        $this->assertFalse($make($open, false)->canJoin('x@example.com'), 'store cannot add');
+        $this->assertFalse($make(['visibility' => 'public'])->canJoin('x@example.com'), 'invite is the default');
+        $this->assertFalse($make(['join-policy' => 'request', 'visibility' => 'public'])->canJoin('x@example.com'));
+        $this->assertFalse($make(['join-policy' => 'open', 'visibility' => 'members'])->canJoin('x@example.com'), 'cannot see the list');
+        $this->assertTrue($make(['join-policy' => 'open', 'visibility' => 'hidden'])->canJoin('o@example.org'), 'an owner who is not a member may join');
+    }
 }

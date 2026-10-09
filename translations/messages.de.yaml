@@ -110,7 +110,14 @@ compose:
 dashboard:
   title: "Meine Listen – %app_name%"
   heading: "Meine Listen"
+  other_heading: "Weitere Listen"
   empty: "Du bist keiner Mailingliste zugeordnet."
+
+join:
+  error_not_open: "Dieser Liste kann man nicht direkt beitreten."
+  error_unsupported: "Diese Liste kann hier keine neuen Mitglieder aufnehmen."
+  error_failed: "Beitritt fehlgeschlagen. Bitte wende dich an die Inhaber der Liste."
+  error_rate_limited: "Zu viele Anfragen, bitte später erneut versuchen."
 
 unsubscribe_page:
   title: "Abmeldung – %app_name%"
@@ -130,6 +137,12 @@ subscribe_page:
   title: "Anmeldung – %app_name%"
 
 list:
+  info:
+    join_policy: "Beitritt"
+  join_policy:
+    open: "offen – du kannst selbst beitreten"
+    invite: "nur auf Einladung"
+    request: "auf Anfrage"
   actions:
     label: "Aktionen der Liste"
     info: "Info"
@@ -140,9 +153,12 @@ list:
     new_topic: "Neues Thema starten"
     new_topic_title: "Öffnet dein Mailprogramm mit einer neuen Mail an die Liste und beginnt damit einen neuen Thread"
     compose_external: "Mail an externe Adresse"
+    join: "Beitreten"
     unsubscribe: "Abmelden"
     unsubscribe_confirm: "Möchtest du dich wirklich von der Liste %list% abmelden?"
   manage:
+    join_policy: "Beitrittsregel"
+    visibility: "Sichtbarkeit"
     title_prefix: "Verwalten"
     overview: "Übersicht"
     description: "Beschreibung"

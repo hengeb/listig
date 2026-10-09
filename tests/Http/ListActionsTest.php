@@ -101,4 +101,24 @@ class ListActionsTest extends TestCase
         $this->assertNotContains('unsubscribe', $this->keys($this->actions()->forViewer($list, $member)), 'dashboard');
         $this->assertNotContains('unsubscribe', $this->keys($this->actions()->forViewer($list, $member, 'archive', true)), 'archive');
     }
+
+    public function testJoinIsOfferedOnEveryPageToANonMemberOfAnOpenVisibleList(): void
+    {
+        $inline = new InlineMemberResolver(['m@example.org'], ['o@example.org']);
+        $resolver = $this->createStub(\Hengeb\Listig\Member\MemberResolver::class);
+        $resolver->method('getMembers')->willReturn($inline->getMembers('news'));
+        $resolver->method('getOwners')->willReturn($inline->getOwners('news'));
+        $resolver->method('supportsAddition')->willReturn(true);
+        $list = new ListConfig('news', 'news@example.org', ['join-policy' => 'open', 'visibility' => 'public'], $resolver);
+
+        foreach (['', 'info', 'archive'] as $page) {
+            $nav = $this->actions()->forViewer($list, ['email' => 'x@example.com'], $page);
+            $join = array_values(array_filter($nav->items, fn($i) => $i['key'] === 'join'));
+            $this->assertCount(1, $join, "page '$page'");
+            $this->assertTrue($join[0]['post']);
+            $this->assertSame('/_/api/join/news', $join[0]['href']);
+        }
+        $this->assertNotContains('join', $this->keys($this->actions()->forViewer($list, ['email' => 'm@example.org'])), 'members have nothing to join');
+        $this->assertNotContains('join', $this->keys($this->actions()->forViewer($list, null)), 'guests cannot join');
+    }
 }

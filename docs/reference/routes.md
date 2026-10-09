@@ -35,6 +35,7 @@ YAML key).
 | POST | `/_/api/moderation/{id}/accept` | owner | Accept moderation item |
 | POST | `/_/api/moderation/{id}/reject` | owner | Reject moderation item |
 | GET | `/{listname}/compose` | user | Form for a first mail to an external address — see [Masked reply addresses](../architecture/masked-replies.md#masked-reply-addresses) |
+| POST | `/_/api/join/{listname}` | user | Join an `open`, visible list as the logged-in user — see [Join / visibility](../architecture/web-ui.md#visibility-and-join-policy) |
 | POST | `/_/api/compose/{listname}` | user | Issue the masked address for the entered recipient (returns a `mailto:` link) |
 | GET | `/{listname}/moderation/{id}` | owner | Preview a still-pending mail — see [Preview: pending mail](../architecture/moderation.md#preview-pending-mail) |
 | GET | `/{listname}/moderation/{id}/frame` | owner | Preview: sandboxed HTML body |
@@ -53,7 +54,7 @@ YAML key).
 | GET | `/{listname}/archive/{id}/attachment/{index}` | per-list `archive` mode | Archive: attachment download/inline |
 | PUT | `/{listname}/{mail}` | Bearer | List Management API: immediate subscribe — see [List Management API](../architecture/api.md#list-management-api) |
 | DELETE | `/{listname}/{mail}` | Bearer | List Management API: unsubscribe |
-| POST | `/{listname}/subscribe` | Bearer or `public-subscribe: on` | List Management API: request double opt-in |
+| POST | `/{listname}/subscribe` | Bearer | List Management API: request double opt-in |
 | GET | `/{listname}/subscribe/confirm` | token in link | List Management API: confirm double opt-in |
 | POST | `/{listname}/encrypt-password` | Bearer | List Management API: encrypt + persist a password |
 | GET | `/_/health` | — | Health check: DB + LDAP reachability |

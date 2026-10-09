@@ -13,6 +13,10 @@
             {$list->resolveMemberDisplayName($owner)}{sep}, {/sep}
         {/foreach}
     </p>
+    <p>
+        <strong>{$translator->trans('list.info.join_policy')}:</strong>
+        {$translator->trans('list.join_policy.' . $list->joinPolicy->value)}
+    </p>
     {include '../list-actions.latte', nav: $nav, translator: $translator}
 </div>
 {/block}

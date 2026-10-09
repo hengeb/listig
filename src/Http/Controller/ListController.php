@@ -53,6 +53,12 @@ class ListController
             throw new HttpNotFoundException($request);
         }
 
+        // `visibility`: a list this user may not see does not exist for them — the same 404 as a
+        // mistyped name, so it cannot be told apart. Owners always pass.
+        if (!$list->isVisibleTo($user['email'])) {
+            throw new HttpNotFoundException($request);
+        }
+
         // {list-url} (https://{hostname}/{list-name}) is embedded in every
         // distributed mail's footer/subject-label, sent to every recipient — not
         // just owners — so a non-owner following that link must not get a bare

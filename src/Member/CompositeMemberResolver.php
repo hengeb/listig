@@ -99,6 +99,17 @@ class CompositeMemberResolver implements MemberResolver
         return false;
     }
 
+    /** True if any source can add (addMember() tries them in order until one does). */
+    public function supportsAddition(): bool
+    {
+        foreach ($this->memberSources as $source) {
+            if ($source->supportsAddition()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Invalidates on every source that supports it, not just the first —
      * same reasoning as removeMember(): the same address can plausibly be

@@ -99,6 +99,11 @@ class AggregateMemberResolver implements MemberResolver
         return false;
     }
 
+    public function supportsAddition(): bool
+    {
+        return false;
+    }
+
     public function addMember(string $listName, Member $member): void
     {
         throw new \RuntimeException('Not applicable for aggregate resolver — used for lookup only.');

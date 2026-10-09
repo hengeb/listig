@@ -13,6 +13,7 @@ use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Logging\LogLevel;
+use Hengeb\Listig\Http\Controller\JoinController;
 use Hengeb\Listig\Http\ListActions;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Crypto\KeyDerivation;
@@ -685,6 +686,15 @@ $builder->addDefinitions([
             $c->get(Logger::class),
             $c->get('oidc.enabled'),
             $c->get(OpenIdConnectService::class),
+        );
+    },
+
+    JoinController::class => function (ContainerInterface $c): JoinController {
+        return new JoinController(
+            $c->get(ListProvider::class),
+            $c->get(AggregateMemberResolver::class),
+            $c->get(RateLimiter::class),
+            $c->get(TranslatorInterface::class),
         );
     },
 

@@ -1,10 +1,21 @@
 {* The action buttons of one list, built by ListActions::forViewer() ($nav). Included on
    every page about a list, so the same options are available everywhere; the current page's
-   button is highlighted. Wraps on narrow screens (see .list-actions in style.css). *}
+   button is highlighted. Wraps on narrow screens (see .list-actions in style.css).
+   A `post` item (Join) is a button that POSTs via listigJoin() in script.js; the others are links. *}
 <nav n:if="count($nav->items) > 0" class="list-actions" aria-label="{$translator->trans('list.actions.label')}">
-    <a n:foreach="$nav->items as $item"
-        href="{$item['href']}"
-        class="btn {$item['active'] ? 'btn-primary' : 'btn-secondary'}"
-        n:attr="title: $item['title'] !== null ? $translator->trans($item['title']) : null, aria-current: $item['active'] ? 'page' : null, data-confirm: $item['confirm'] !== null ? $translator->trans($item['confirm']['key'], $item['confirm']['params']) : null, onclick: $item['confirm'] !== null ? 'return confirm(this.dataset.confirm)' : null"
-    >{$translator->trans($item['label'])}</a>
+    {foreach $nav->items as $item}
+        {if $item['post']}
+            <button type="button" class="btn btn-secondary"
+                data-url="{$item['href']}"
+                data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
+                onclick="listigJoin(this)"
+            >{$translator->trans($item['label'])}</button>
+        {else}
+            <a
+                href="{$item['href']}"
+                class="btn {$item['active'] ? 'btn-primary' : 'btn-secondary'}"
+                n:attr="title: $item['title'] !== null ? $translator->trans($item['title']) : null, aria-current: $item['active'] ? 'page' : null, data-confirm: $item['confirm'] !== null ? $translator->trans($item['confirm']['key'], $item['confirm']['params']) : null, onclick: $item['confirm'] !== null ? 'return confirm(this.dataset.confirm)' : null"
+            >{$translator->trans($item['label'])}</a>
+        {/if}
+    {/foreach}
 </nav>

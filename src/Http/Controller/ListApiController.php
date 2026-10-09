@@ -21,7 +21,7 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * Bearer-token list-management API (see docs/architecture/api.md "List Management API"):
  *   PUT    /{listname}/{mail}             immediate subscribe
  *   DELETE /{listname}/{mail}              unsubscribe
- *   POST   /{listname}/subscribe           request double opt-in (Bearer or public-subscribe)
+ *   POST   /{listname}/subscribe           request double opt-in (Bearer)
  *   GET    /{listname}/subscribe/confirm    confirm double opt-in (token in link)
  *   POST   /{listname}/encrypt-password    encrypt + persist a password
  *
@@ -86,30 +86,17 @@ class ListApiController
     }
 
     /**
-     * Reachable two ways, deliberately not gated by the strict ApiTokenMiddleware:
-     * with a valid Bearer token (always allowed, e.g. a trusted server-to-server
-     * signup integration), or without one when the list has public-subscribe: on
-     * (e.g. a plain HTML <form> hosted on another website). An Authorization header
-     * that IS present but wrong is rejected outright (401) rather than silently
-     * falling back to the public path.
+     * Double opt-in subscription request for a trusted server-to-server integration (e.g. the
+     * signup form of another website, which calls this from its own server). Behind
+     * ApiTokenMiddleware like the other API routes: there is deliberately no unauthenticated
+     * variant — it would let anyone have this server mail a confirmation link to any address
+     * they like (mail bombing, reputation damage), see docs/adr/0021-join-policy-and-visibility.md.
      */
     public function requestSubscribe(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
-        $listName = $args['listname'];
-        $list = $this->listProvider->getList($listName);
-        if ($list === null) {
-            return $this->json($response, ['error' => 'Not found'], 404);
-        }
-
-        $authHeader = $request->getHeaderLine('Authorization');
-        if ($authHeader !== '') {
-            $providedToken = str_starts_with($authHeader, 'Bearer ') ? substr($authHeader, 7) : '';
-            if ($list->apiToken === '' || $providedToken === '' || !hash_equals($list->apiToken, $providedToken)) {
-                return $this->json($response, ['error' => 'Unauthorized'], 401);
-            }
-        } elseif (!$list->publicSubscribe) {
-            return $this->json($response, ['error' => 'Forbidden'], 403);
-        }
+        /** @var ListConfig $list */
+        $list = $request->getAttribute('list');
+        $listName = $list->name;
 
         $body = $request->getParsedBody() ?? [];
         $mail = strtolower(trim((string) ($body['mail'] ?? '')));

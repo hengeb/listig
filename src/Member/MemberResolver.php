@@ -35,6 +35,13 @@ interface MemberResolver
     public function addMember(string $listName, Member $member): void;
 
     /**
+     * Whether addMember() can actually persist a new member — checked before offering a
+     * "Join" button (see supportsRemoval()'s reasoning). Even then it may throw, e.g. LDAP
+     * without a directory entry for the address.
+     */
+    public function supportsAddition(): bool;
+
+    /**
      * Whether invalidateEmail() can actually persist an invalidation, mirroring
      * supportsRemoval()'s own reasoning — checked before attempting it so a
      * caller (BounceMemberActionExecutor) can fall back or report clearly

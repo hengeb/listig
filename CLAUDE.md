@@ -158,6 +158,7 @@ The annotated, file-level tree is in [Project structure](docs/reference/project-
 
 - **Never write `{$value|escapeHtml}` in Latte** — auto-escaping already applies and the filter double-escapes. Use `|noescape` only for already-sanitized HTML. Other Latte pitfalls: [Library notes](docs/library-notes.md).
 - Templates call the translator directly (`{$translator->trans('key')}`); strings with interpolated values are resolved in PHP and passed in. List-context mails pass `$list->language` as the locale; list-scoped pages call `setLocale($list->language)` once before rendering. See [Internationalization](docs/architecture/i18n.md).
+- **Who sees a list is `ListConfig::isVisibleTo()`** (`visibility`: dashboard and `/{listname}`, 404 otherwise); joining is `join-policy: open` + `JoinController`. There is no unauthenticated subscribe — `POST /{listname}/subscribe` needs the Bearer token ([ADR-0021](docs/adr/0021-join-policy-and-visibility.md)).
 - **List buttons come from `ListActions` only** (rendered by `templates/list-actions.latte`): every page about a list shows the same set, the current one highlighted; never hand-build them in a template or controller ([Web UI](docs/architecture/web-ui.md#list-action-buttons-listactions)). `ListConfig::canPost()`/`canViewArchive()` are the rules behind them and must stay in line with `IncomingMailFilter::checkPostAccess()` and `ArchiveController::checkAccess()`.
 - Every route not scoped to a list lives under `/_/`; list-scoped routes are `/{listname}/…`. Static files are served by nginx from `public/assets/`.
 

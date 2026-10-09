@@ -7,6 +7,7 @@ use Hengeb\Listig\Http\Controller\ArchiveController;
 use Hengeb\Listig\Http\Controller\BounceController;
 use Hengeb\Listig\Http\Controller\AuthController;
 use Hengeb\Listig\Http\Controller\DashboardController;
+use Hengeb\Listig\Http\Controller\JoinController;
 use Hengeb\Listig\Http\Controller\ListApiController;
 use Hengeb\Listig\Http\Controller\ComposeController;
 use Hengeb\Listig\Http\Controller\ListController;
@@ -111,10 +112,10 @@ $app->delete('/{listname}/{mail}', [ListApiController::class, 'unsubscribe'])
 $app->post('/{listname}/encrypt-password', [ListApiController::class, 'encryptPassword'])
     ->add(ApiTokenMiddleware::class);
 
-// Double opt-in subscribe: requestSubscribe does its own Bearer-or-public-subscribe
-// check (see ListApiController), so it is NOT behind ApiTokenMiddleware. confirmSubscribe
-// is public — the token in the link is the only credential.
-$app->post('/{listname}/subscribe', [ListApiController::class, 'requestSubscribe']);
+// Double opt-in subscribe: the request needs the list's Bearer token like the rest of the
+// API; confirmSubscribe is public — the token in the link is the only credential.
+$app->post('/{listname}/subscribe', [ListApiController::class, 'requestSubscribe'])
+    ->add(ApiTokenMiddleware::class);
 $app->get('/{listname}/subscribe/confirm', [ListApiController::class, 'confirmSubscribe']);
 
 // Archive viewer: whether login is required at all depends on the specific list's
@@ -244,6 +245,7 @@ $app->group('', function (RouteCollectorProxy $group): void {
     $group->group('/_/api', function (RouteCollectorProxy $api): void {
         $api->post('/logout', [AuthController::class, 'logout']);
         $api->post('/compose/{listname}', [ComposeController::class, 'createAddress']);
+        $api->post('/join/{listname}', [JoinController::class, 'join']);
         $api->post('/moderation/{id}/accept', [ModerationController::class, 'accept']);
         $api->post('/moderation/{id}/reject', [ModerationController::class, 'reject']);
         $api->get('/queue/{listname}', [QueueController::class, 'status']);

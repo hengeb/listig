@@ -81,6 +81,8 @@ Annotated directory tree.
 │   │   ├── YamlIncludeResolver.php   # Resolves !include tags (see "File includes" (docs/architecture/config.md)) for config.yml and YamlListProvider files
 │   │   └── Enum/
 │   │       ├── ReplyToBehavior.php   # 'list' | 'sender' | 'both' | 'nobody' | 'masked-sender' | 'masked-both' — see "Masked reply addresses" (docs/architecture/masked-replies.md)
+│   │       ├── JoinPolicy.php        # 'open' | 'invite' | 'request' — join-policy, see "Visibility and join policy" (docs/architecture/web-ui.md)
+│   │       ├── Visibility.php        # 'public' | 'members' | 'hidden' — visibility, same section
 │   │       ├── PostAccess.php        # 'allow' | 'deny' | 'moderate' — used for both post-access-members and post-access-public
 │   │       ├── AllowLeave.php        # 'direct' | 'moderated'
 │   │       ├── ArchiveMode.php       # 'members' | 'owners' | 'public' | 'hidden' | 'off'
@@ -143,6 +145,7 @@ Annotated directory tree.
 │       │   ├── DashboardController.php   # Member view: subscribed lists
 │       │   ├── ComposeController.php     # First-mail-to-external form + masked address issuing — see "Masked reply addresses" (docs/architecture/masked-replies.md)
 │       │   ├── ListController.php        # Owner manage page
+│       │   ├── JoinController.php        # POST /_/api/join/{listname}: the "Join" button of join-policy: open lists — see "Visibility and join policy" (docs/architecture/web-ui.md)
 │       │   ├── ListApiController.php     # Bearer-token list management API: subscribe/unsubscribe/encrypt-password
 │       │   ├── ModerationController.php  # Accept/reject moderation items via API; preview a still-pending mail — see "Preview: pending mail" (docs/architecture/moderation.md)
 │       │   ├── BounceController.php      # Preview a bounce mail (show/frame/attachment), located by Message-ID like the archive viewer — see "Bounce preview" (docs/architecture/bounces.md)

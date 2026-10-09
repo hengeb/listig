@@ -33,6 +33,8 @@
                 {$list->resolveMemberDisplayName($owner)}{sep}, {/sep}
             {/foreach}
         </td></tr>
+        <tr><th>{$translator->trans('list.manage.join_policy')}</th><td>{$list->joinPolicy->value}</td></tr>
+        <tr><th>{$translator->trans('list.manage.visibility')}</th><td>{$list->visibility->value}</td></tr>
         <tr><th>{$translator->trans('list.manage.reply_to')}</th><td>{$list->replyTo->value}</td></tr>
         <tr><th>{$translator->trans('list.manage.access_members')}</th><td>{$list->postAccessMembers->value}</td></tr>
         <tr><th>{$translator->trans('list.manage.access_public')}</th><td>{$list->postAccessPublic->value}</td></tr>

@@ -110,7 +110,14 @@ compose:
 dashboard:
   title: "My lists – %app_name%"
   heading: "My lists"
+  other_heading: "Other lists"
   empty: "You are not a member of any mailing list."
+
+join:
+  error_not_open: "This list cannot be joined directly."
+  error_unsupported: "This list cannot take new members here."
+  error_failed: "Joining failed. Please contact the list owners."
+  error_rate_limited: "Too many requests, please try again later."
 
 unsubscribe_page:
   title: "Unsubscribe – %app_name%"
@@ -130,6 +137,12 @@ subscribe_page:
   title: "Subscribe – %app_name%"
 
 list:
+  info:
+    join_policy: "Joining"
+  join_policy:
+    open: "open — you can join yourself"
+    invite: "by invitation only"
+    request: "on request"
   actions:
     label: "List actions"
     info: "Info"
@@ -140,9 +153,12 @@ list:
     new_topic: "Start a new topic"
     new_topic_title: "Opens your mail program with a new mail to the list, starting a new thread"
     compose_external: "Mail to an external address"
+    join: "Join"
     unsubscribe: "Unsubscribe"
     unsubscribe_confirm: "Do you really want to unsubscribe from the list %list%?"
   manage:
+    join_policy: "Join policy"
+    visibility: "Visibility"
     title_prefix: "Manage"
     overview: "Overview"
     description: "Description"

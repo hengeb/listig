@@ -62,6 +62,7 @@ interface MemberResolver {
     public function removeMember(string $listName, string $email): void;
     public function supportsRemoval(): bool;
     public function addMember(string $listName, Member $member): void;
+    public function supportsAddition(): bool;
     public function supportsInvalidation(): bool;
     public function invalidateEmail(string $listName, string $email, string $reason): void;
 }
@@ -81,6 +82,8 @@ interface MemberResolver {
 `addMember()` is used by `ListApiController` (see [List Management API](api.md#list-management-api)) for both immediate (`PUT`) and double-opt-in-confirmed subscriptions. Callers must treat the `\RuntimeException` as a real error (e.g. HTTP `409`), not swallow it — an LDAP-backed list silently "succeeding" without actually adding a non-existent-directory-entry member would be worse than an explicit failure.
 
 `supportsInvalidation()`/`invalidateEmail()`: `true`/implemented for `LdapMemberResolver` (instance-wide — a directory entry's `mail` isn't scoped per list, see [Automatic bounce actions](bounces.md#automatic-bounce-actions)), `DatabaseMemberResolver`/`CsvMemberResolver` (naturally per-list, since `mail` is its own row per list there); `false`/throws for `InlineMemberResolver`/`NullMemberResolver`/`AggregateMemberResolver`, exactly mirroring their own `supportsRemoval()`/`removeMember()`.
+
+`supportsAddition()` mirrors it for `addMember()` (`ListConfig::$supportsJoin`, gating the "Join" button): `true` for LDAP, database and CSV (LDAP may still throw if the address has no directory entry), `false` for inline, null and aggregate; the composite resolver is `true` if any source is.
 
 `supportsRemoval()` — checked via `ListConfig::$supportsUnsubscribe` (a property hook, like every other derived `ListConfig` value — see [ListConfig with property hooks](#listconfig-with-property-hooks) — not a method, since `MemberResolver::supportsRemoval()` itself is; the interface it belongs to is method-based throughout) — lets a caller find out *before* calling `removeMember()` whether it would actually persist anything, rather than either silently no-op'ing (previously the case for `NullMemberResolver` and static-inline `InlineMemberResolver`, both of which "succeeded" without ever removing anyone) or throwing. `DashboardController` only shows the "Unsubscribe" link when `allowLeave === Direct` *and* `$supportsUnsubscribe`; `UnsubscribeController`'s direct-unsubscribe branch and `ListApiController::unsubscribe()` (`DELETE /{listname}/{mail}`) both check it (or catch the `\RuntimeException`) before claiming success — see [Unsubscribe endpoint](web-ui.md#unsubscribe-endpoint).
 

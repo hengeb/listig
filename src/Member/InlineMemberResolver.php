@@ -84,6 +84,11 @@ class InlineMemberResolver implements MemberResolver
         return false;
     }
 
+    public function supportsAddition(): bool
+    {
+        return false;
+    }
+
     public function removeMember(string $listName, string $email): void
     {
         // Static inline config — mutating $this->members here would only affect

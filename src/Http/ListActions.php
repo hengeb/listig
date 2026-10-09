@@ -33,8 +33,8 @@ final class ListActions
     {
         $identity = $user['email'] ?? null;
         $items = [];
-        $add = function (string $key, string $href, string $label, ?string $title = null, ?array $confirm = null) use (&$items, $current): void {
-            $items[] = ['key' => $key, 'href' => $href, 'label' => $label, 'title' => $title, 'confirm' => $confirm, 'active' => $key === $current];
+        $add = function (string $key, string $href, string $label, ?string $title = null, ?array $confirm = null, bool $post = false) use (&$items, $current): void {
+            $items[] = ['key' => $key, 'href' => $href, 'label' => $label, 'title' => $title, 'confirm' => $confirm, 'post' => $post, 'active' => $key === $current];
         };
 
         $isOwner = $identity !== null && $list->isOwnedBy($identity);
@@ -55,6 +55,11 @@ final class ListActions
         }
         if ($identity !== null && $list->canComposeExternal($identity)) {
             $add('compose', "/{$list->name}/compose", 'list.actions.compose_external');
+        }
+        // Joining an `open` list: a POST (button, not link) that adds the logged-in user — their address
+        // is already confirmed by the login. Fine on the dashboard too, unlike Unsubscribe below.
+        if ($list->canJoin($identity)) {
+            $add('join', "/_/api/join/{$list->name}", 'list.actions.join', null, null, true);
         }
         // Unsubscribing is a deliberate act, offered only where the list itself is shown (manage / info
         // page) — not on the dashboard, not next to the archive.

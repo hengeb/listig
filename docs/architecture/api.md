@@ -30,7 +30,7 @@ the `Authorization: Bearer <token>` header, and — on success — attaches the 
 |---|---|---|
 | `PUT` | `/{listname}/{mail}` | Bearer, via `ApiTokenMiddleware` |
 | `DELETE` | `/{listname}/{mail}` | Bearer, via `ApiTokenMiddleware` |
-| `POST` | `/{listname}/subscribe` | Bearer **or** `public-subscribe: on` (own check, not `ApiTokenMiddleware`) |
+| `POST` | `/{listname}/subscribe` | Bearer, via `ApiTokenMiddleware` |
 | `GET` | `/{listname}/subscribe/confirm` | token in link (query param) |
 | `POST` | `/{listname}/encrypt-password` | Bearer, via `ApiTokenMiddleware` |
 
@@ -46,17 +46,7 @@ false — static inline config.yml members, or none configured) — same
 
 ### Double opt-in (`POST .../subscribe` → `GET .../subscribe/confirm`)
 
-`requestSubscribe()` is deliberately **not** behind `ApiTokenMiddleware`, because it
-must accept two different kinds of caller with different auth:
-- a valid `Authorization: Bearer` header — always allowed, any list;
-- no `Authorization` header at all — allowed only if the list has `public-subscribe: on`
-  (e.g. a plain HTML `<form method="post" action="https://…/x/subscribe">` hosted
-  on another website — works with no CORS configuration needed, since it's a normal
-  form submission, not a cross-origin fetch/XHR).
-
-An `Authorization` header that IS present but wrong is rejected with `401` outright —
-it never silently falls back to the public path, so a caller with a broken token
-finds out rather than unknowingly using the weaker, public-gated flow.
+`requestSubscribe()` needs the list's Bearer token like the other routes. There is deliberately **no unauthenticated variant** (an earlier `public-subscribe: on` was removed): it would let anyone have this server mail a confirmation link to any address they choose — mail bombing and reputation damage that the per-(list, address) rate limit cannot prevent — see [ADR-0021](../adr/0021-join-policy-and-visibility.md). A website's signup form calls this endpoint from its own server (with its own captcha/limits). A logged-in user joins an `open` list through the web UI instead ([Join](web-ui.md#visibility-and-join-policy)).
 
 On success it sends a confirmation mail (`TokenService` purpose `subscribe`, payload
 `$listCn, $mail, $firstname, $lastname, $username`, 48h max age — the payload carries

@@ -7,10 +7,12 @@ namespace Hengeb\Listig\Config;
 use Hengeb\Listig\Config\Enum\AllowLeave;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\Enum\BounceAction;
+use Hengeb\Listig\Config\Enum\JoinPolicy;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\Enum\SenderAddressHeader;
 use Hengeb\Listig\Config\Enum\SenderNotices;
+use Hengeb\Listig\Config\Enum\Visibility;
 use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Member\MemberResolver;
@@ -110,6 +112,11 @@ class ListConfig
      */
     public bool $supportsUnsubscribe {
         get => $this->memberResolver->supportsRemoval();
+    }
+
+    /** Mirror of $supportsUnsubscribe for addMember() — whether a "Join" button can work at all. */
+    public bool $supportsJoin {
+        get => $this->memberResolver->supportsAddition();
     }
 
     /**
@@ -551,8 +558,7 @@ class ListConfig
      * (BounceCause::UserUnknown) or an escalated repeated temporary one
      * (BounceCause::MailboxFull) — see docs/architecture/bounces.md "Automatic bounce actions".
      * Default `none`: no automatic mutation of member data until an operator
-     * opts in explicitly, same safe-by-default philosophy as `archive: off`/
-     * `public-subscribe: off`.
+     * opts in explicitly, same safe-by-default philosophy as `archive: off`.
      */
     /**
      * Default 'never'. See MailProcessor::setOutgoingHeaders() / docs/architecture/masked-replies.md "Masked
@@ -659,9 +665,46 @@ class ListConfig
         get => $this->raw['api-token'] ?? '';
     }
 
-    /** Whether POST .../subscribe accepts unauthenticated requests (public self-service double opt-in). */
-    public bool $publicSubscribe {
-        get => $this->resolve((string) ($this->raw['public-subscribe'] ?? 'off')) === 'on';
+    /** How someone becomes a member (`join-policy`, default `invite`) — only `open` is implemented; see JoinPolicy. */
+    public JoinPolicy $joinPolicy {
+        get => JoinPolicy::from($this->resolve((string) ($this->raw['join-policy'] ?? 'invite')));
+    }
+
+    /** Who gets to see this list in the web UI (`visibility`, default `members`) — see isVisibleTo(). */
+    public Visibility $visibility {
+        get => Visibility::from($this->resolve((string) ($this->raw['visibility'] ?? 'members')));
+    }
+
+    /**
+     * Whether $identity (an authenticated session's address; null = a guest, who sees no list at
+     * all) may see this list in the dashboard and on its `/{listname}` page. Owners always do.
+     * `members`: members too; `public`: every authenticated user. This hides the list's *listing*
+     * only — it does not change who may read the archive (`archive`) or who receives mail.
+     */
+    public function isVisibleTo(?string $identity): bool
+    {
+        if ($identity === null) {
+            return false;
+        }
+        ['owner' => $owner, 'member' => $member] = $this->resolveActor($identity);
+        return match ($this->visibility) {
+            Visibility::Public => true,
+            Visibility::Members => $owner !== null || $member !== null,
+            Visibility::Hidden => $owner !== null,
+        };
+    }
+
+    /**
+     * Whether the "Join" button is offered to $identity: an authenticated user who can see the list
+     * and is not yet a member, on an `open` list whose member store can take new members.
+     */
+    public function canJoin(?string $identity): bool
+    {
+        return $identity !== null
+            && $this->joinPolicy === JoinPolicy::Open
+            && $this->supportsJoin
+            && $this->isVisibleTo($identity)
+            && $this->resolveActor($identity)['member'] === null;
     }
 
     /**

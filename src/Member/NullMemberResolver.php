@@ -31,6 +31,11 @@ class NullMemberResolver implements MemberResolver
         return false;
     }
 
+    public function supportsAddition(): bool
+    {
+        return false;
+    }
+
     public function addMember(string $listName, Member $member): void
     {
         throw new \RuntimeException('Cannot add members: this list has no configured member store.');
