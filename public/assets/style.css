@@ -65,20 +65,22 @@ tr.clickable-row:hover { background: #f5f8fd; }
 .form-input { width: 100%; padding: .6rem .75rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; margin-bottom: 1rem; }
 
 /* dashboard.latte */
-.list-summary { display: flex; justify-content: space-between; align-items: flex-start; }
 .list-summary-name { font-size: 1.05rem; }
-.list-summary-mail { color: #888; margin-left: .5rem; font-size: .9rem; }
+.list-summary-mail { color: #888; margin-left: .5rem; font-size: .9rem; overflow-wrap: anywhere; }
 .list-summary-description { color: #555; margin: .4rem 0 0; }
-.list-summary-actions { display: flex; gap: .5rem; flex-shrink: 0; }
 
-/* Narrow screens: .list-summary-actions (up to 3 nowrap buttons, flex-shrink: 0)
-   doesn't fit next to the name/mail text in a single row anymore and overflows
-   past the card's edge instead of wrapping — stack info above actions, and let
-   actions wrap onto a second line if even they alone don't fit one row. */
+/* list-actions.latte — the button row of every list page (ListActions). Wraps instead of
+   overflowing; on phones two buttons per row, each filling its half, labels may wrap. */
+.list-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0 1rem; }
+.list-actions .btn { white-space: nowrap; }
+.card .list-actions { margin-bottom: 0; }
 @media (max-width: 600px) {
-    .list-summary { flex-direction: column; align-items: stretch; gap: .75rem; }
-    .list-summary-actions { flex-wrap: wrap; }
+    .list-actions .btn { flex: 1 1 calc(50% - .5rem); text-align: center; white-space: normal; box-sizing: border-box; }
 }
+
+/* archive/show.latte — reply buttons under the mail header */
+.archive-reply { margin: .75rem 0 0; }
+.archive-reply-hint { color: #777; font-size: .8rem; margin: .4rem 0 0; }
 
 /* list/manage.latte */
 .list-mail-subtitle { font-size: .6em; color: #777; }

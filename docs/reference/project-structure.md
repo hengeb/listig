@@ -54,6 +54,7 @@ Annotated directory tree.
 │   │   ├── FilterResult.php          # final class (not enum — needs per-instance reason string): discard | bounce | reject | moderation | distribute
 │   │   ├── NotificationMailer.php    # Shared helper for every system notification (owner notices, pending-moderation notice to the sender, ...) — see "Moderation" (docs/architecture/moderation.md); sends every notification via NullSenderEnvelope + X-Listig-Auto/Auto-Submitted — see "Bounce loop prevention" (docs/architecture/bounces.md)
 │   │   ├── NullSenderEnvelope.php    # Envelope with MAIL FROM:<> (RFC 5321 null reverse-path), via Reflection — see "Bounce loop prevention" (docs/architecture/bounces.md)
+│   │   ├── ReplyThreadStore.php      # `+re-` tag of the archive's "reply" button: issues/resolves signed tokens over archived_mail.id (ADR-0020)
 │   │   ├── SenderNoticePolicy.php    # Single decision point: notice to the sender yes/no, with/without original (ADR-0018)
 │   │   ├── SenderAuthenticator.php   # DMARC-aligned authentication of the From address from the trusted Authentication-Results
 │   │   ├── OrganizationalDomain.php  # Organizational domain heuristic for relaxed alignment (no PSL)
@@ -135,6 +136,8 @@ Annotated directory tree.
 │   │   ├── Logger.php                # Level-gated debug() wrapper around error_log() — see "Debug logging" (docs/architecture/logging.md)
 │   │   └── LogLevel.php              # Debug < Info < Warning < Error enum, backs Logger's threshold comparison
 │   └── Http/
+│       ├── ListActions.php       # Single decision point for the per-list buttons (Info/Manage, Archive, Write, external mail, Unsubscribe) — see "List action buttons" (docs/architecture/web-ui.md)
+│       ├── ListNavigation.php    # Result of ListActions::forViewer(): the buttons + whether the viewer may post
 │       ├── Controller/
 │       │   ├── AuthController.php        # Magic-link login flow, optional OIDC login, logout
 │       │   ├── DashboardController.php   # Member view: subscribed lists
@@ -157,6 +160,7 @@ Annotated directory tree.
 │   ├── layout.latte           # Optionally imports /app/config/custom.latte (operator-mounted, not part of this tree) — see "Custom layout" (docs/architecture/web-ui.md)
 │   ├── login.latte
 │   ├── compose.latte          # see "Masked reply addresses" (docs/architecture/masked-replies.md)
+│   ├── list-actions.latte     # Button row of one list, included by every list page (dashboard, list/*, archive/*)
 │   ├── dashboard.latte
 │   ├── unsubscribe.latte
 │   ├── subscribe-confirm.latte

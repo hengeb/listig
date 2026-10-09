@@ -9,25 +9,13 @@
     <p class="empty-state">{$translator->trans('dashboard.empty')}</p>
 </div>
 
+{* One card per list; the buttons come from ListActions (the same set as on every other
+   list page), below the text so they wrap instead of overflowing on a narrow screen. *}
 <div class="card" n:foreach="$lists as $list">
-    <div class="list-summary">
-        <div>
-            <strong class="list-summary-name">
-                {if isset($listLinks[$list->name])}
-                    <a href="{$listLinks[$list->name]}">{$list->displayName}</a>
-                {else}
-                    {$list->displayName}
-                {/if}
-            </strong>
-            <span class="list-summary-mail">&lt;{$list->mail}&gt;</span>
-            <p class="list-summary-description" n:if="$list->description">{$list->description}</p>
-        </div>
-        <span class="list-summary-actions">
-            <a n:if="$list->archive->value === 'members' || $list->archive->value === 'public'" href="/{$list->name}/archive" class="btn btn-secondary nowrap">{$translator->trans('archive.index.heading')}</a>
-            <a n:if="$list->canComposeExternal($user['email'])" href="/{$list->name}/compose" class="btn btn-secondary nowrap">{$translator->trans('dashboard.compose_button')}</a>
-            <a n:if="isset($manageLinks[$list->name])" href="{$manageLinks[$list->name]}" class="btn btn-secondary nowrap">{$translator->trans('dashboard.manage_button')}</a>
-            <a n:if="isset($unsubscribeLinks[$list->name])" href="{$unsubscribeLinks[$list->name]}" class="btn btn-secondary nowrap">{$translator->trans('dashboard.unsubscribe_button')}</a>
-        </span>
-    </div>
+    {var $nav = $navigations[$list->name]}
+    <strong class="list-summary-name"><a href="/{$list->name}">{$list->displayName}</a></strong>
+    <span class="list-summary-mail">&lt;<a n:tag-if="$nav->canPost" href="mailto:{$list->mail}">{$list->mail}</a>&gt;</span>
+    <p class="list-summary-description" n:if="$list->description">{$list->description}</p>
+    {include 'list-actions.latte', nav: $nav, translator: $translator}
 </div>
 {/block}

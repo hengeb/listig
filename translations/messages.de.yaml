@@ -38,6 +38,7 @@ reject:
   sender_restricted: "Diese Adresse ist derzeit vom Schreiben auf dieser Liste ausgeschlossen"
   reply_not_enabled: "Diese Antwortadresse ist für diese Liste nicht mehr gültig"
   reply_not_allowed: "Nur Listenmitglieder dürfen diese Antwortadresse verwenden"
+  reply_thread_unknown: "Die Mail, auf die du antwortest, ist nicht mehr im Archiv, oder der Antwort-Link ist abgelaufen. Bitte schreibe stattdessen eine neue Mail an die Listenadresse."
   reply_target_unknown: "Diese Antwortadresse ist abgelaufen oder der Empfänger ist nicht mehr erreichbar"
   rate_limited: "Rate-Limit überschritten"
   no_owners: "Diese Liste erfordert eine Freigabe, hat aber keine Listeninhaber, die diese erteilen könnten"
@@ -110,9 +111,6 @@ dashboard:
   title: "Meine Listen – %app_name%"
   heading: "Meine Listen"
   empty: "Du bist keiner Mailingliste zugeordnet."
-  unsubscribe_button: "Abmelden"
-  compose_button: "Mail an externe Adresse schreiben"
-  manage_button: "Verwalten"
 
 unsubscribe_page:
   title: "Abmeldung – %app_name%"
@@ -132,6 +130,17 @@ subscribe_page:
   title: "Anmeldung – %app_name%"
 
 list:
+  actions:
+    label: "Aktionen der Liste"
+    info: "Info"
+    manage: "Verwalten"
+    archive: "Archiv"
+    write: "Mail an die Liste schreiben"
+    write_title: "Öffnet dein Mailprogramm mit einer neuen Mail an diese Liste"
+    new_topic: "Neues Thema starten"
+    new_topic_title: "Öffnet dein Mailprogramm mit einer neuen Mail an die Liste und beginnt damit einen neuen Thread"
+    compose_external: "Mail an externe Adresse"
+    unsubscribe: "Abmelden"
   manage:
     title_prefix: "Verwalten"
     overview: "Übersicht"
@@ -189,6 +198,10 @@ archive:
     unnamed_attachment: "Anhang"
     view_html: "HTML"
     view_text: "Nur Text"
+    reply: "Auf diese Mail antworten"
+    reply_hint: "Deine Antwort geht an die ganze Liste, als Antwort in diesem Thread."
+    reply_author: "Nur dem Verfasser antworten"
+    reply_author_hint: "Privat: nur der Verfasser erhält deine Antwort, nicht die Liste."
     delete: "Löschen"
     confirm_delete: "Diese Mail unwiderruflich aus dem Archiv löschen? Das kann nicht rückgängig gemacht werden."
   login_required:

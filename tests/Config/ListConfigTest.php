@@ -353,4 +353,30 @@ class ListConfigTest extends TestCase
         $this->assertSame(['a.example', 'b.example'], $make(['trusted-authserv-id' => 'a.example, B.example']));
         $this->assertSame(['a.example', 'b.example'], $make(['trusted-authserv-id' => ['a.example', 'b.example', 'A.example']]));
     }
+
+    public function testCanViewArchiveFollowsTheArchiveMode(): void
+    {
+        $resolver = new \Hengeb\Listig\Member\InlineMemberResolver(['m@example.org'], ['o@example.org']);
+        $make = fn(string $mode) => new ListConfig('l', 'l@example.org', ['archive' => $mode], $resolver);
+
+        $this->assertTrue($make('public')->canViewArchive(null));
+        $this->assertFalse($make('members')->canViewArchive(null));
+        $this->assertTrue($make('members')->canViewArchive('m@example.org'));
+        $this->assertTrue($make('members')->canViewArchive('o@example.org'));
+        $this->assertFalse($make('members')->canViewArchive('x@example.com'));
+        $this->assertTrue($make('owners')->canViewArchive('o@example.org'));
+        $this->assertFalse($make('owners')->canViewArchive('m@example.org'));
+        foreach (['off', 'hidden'] as $mode) {
+            $this->assertFalse($make($mode)->canViewArchive('o@example.org'), $mode);
+            $this->assertFalse($make($mode)->canViewArchive(null), $mode);
+        }
+    }
+
+    public function testCanPostForAnonymousAndSubaddressLists(): void
+    {
+        $this->assertFalse((new ListConfig('l', 'l@example.org', []))->canPost(null), 'post-access-public defaults to deny');
+        $this->assertTrue((new ListConfig('l', 'l@example.org', ['post-access-public' => 'moderate']))->canPost(null));
+        $subaddress = new ListConfig('l', 'l@example.org', ['post-access-public' => 'allow'], subaddressMemberTemplates: ['{subaddress}@example.org']);
+        $this->assertFalse($subaddress->canPost(null));
+    }
 }

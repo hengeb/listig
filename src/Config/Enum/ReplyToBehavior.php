@@ -20,6 +20,22 @@ enum ReplyToBehavior: string
     /** Like Both, but via the masked token address; the copy to the group is made server-side. */
     case MaskedBoth = 'masked-both';
 
+    /**
+     * The mode that governs a mail to a `+r-{TOKEN}` address (the reply relay), or null if
+     * the list doesn't relay replies at all (`list`, `nobody`). `masked-both` also reaches
+     * the group; every other relaying mode — including `sender`/`both`, where the relay is
+     * only used by the archive's "reply to the author" button — is a private message to the
+     * target (`masked-sender` behaviour). See docs/architecture/masked-replies.md.
+     */
+    public function relayMode(): ?self
+    {
+        return match ($this) {
+            self::List, self::Nobody => null,
+            self::Sender, self::Both, self::MaskedSender => self::MaskedSender,
+            self::MaskedBoth => self::MaskedBoth,
+        };
+    }
+
     public function isMasked(): bool
     {
         return $this === self::MaskedSender || $this === self::MaskedBoth;

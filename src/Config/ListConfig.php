@@ -266,9 +266,7 @@ class ListConfig
             return false;
         }
 
-        $owner = $this->findOwnerInList($identity) ?? $this->findByUsername($this->getOwners(), $identity);
-        $sender = $this->findAuthorizedSender($identity);
-        $member = $this->findMemberInList($identity) ?? $this->findMemberInListByUserCn($identity);
+        ['owner' => $owner, 'sender' => $sender, 'member' => $member] = $this->resolveActor($identity);
         $who = $owner ?? $sender ?? $member;
         if ($who === null || $this->isSenderRestricted($who->email)) {
             return false;
@@ -277,6 +275,61 @@ class ListConfig
             return true;
         }
         return $this->replyTo === ReplyToBehavior::MaskedSender || $this->postAccessMembers !== PostAccess::Deny;
+    }
+
+    /**
+     * Who may write to the list by plain mail, for deciding whether to offer a "write to the
+     * list" / "reply" mailto: link — mirrors IncomingMailFilter::checkPostAccess() (a
+     * `restricted-members:` hit never, owners and `senders:` always, a member per
+     * `post-access-members`, everyone else per `post-access-public`; `moderate` counts as
+     * allowed). $identity is the session identity (address or username); null = an anonymous
+     * viewer of a public archive, who can only be judged as an outsider. Always false for
+     * `type: subaddress` lists, where a plain mail to the list address is not valid.
+     * Keep in sync with checkPostAccess() — ListConfigTest checks both agree.
+     */
+    public function canPost(?string $identity): bool
+    {
+        if ($this->subaddressMemberTemplates !== null) {
+            return false;
+        }
+        if ($identity === null) {
+            return $this->postAccessPublic !== PostAccess::Deny;
+        }
+
+        ['owner' => $owner, 'sender' => $sender, 'member' => $member] = $this->resolveActor($identity);
+        $who = $owner ?? $sender ?? $member;
+        if ($this->isSenderRestricted($who->email ?? $identity)) {
+            return false;
+        }
+        if ($owner !== null || $sender !== null) {
+            return true;
+        }
+        return ($member !== null ? $this->postAccessMembers : $this->postAccessPublic) !== PostAccess::Deny;
+    }
+
+    /**
+     * Whether the archive viewer would let $identity (null = anonymous) in — the single rule
+     * behind ArchiveController::checkAccess() and every "Archive" button. `off`/`hidden`
+     * are never viewable, not even by owners.
+     */
+    public function canViewArchive(?string $identity): bool
+    {
+        return match ($this->archive) {
+            ArchiveMode::Public => true,
+            ArchiveMode::Members => $identity !== null && ($this->isMember($identity) || $this->isOwnedBy($identity)),
+            ArchiveMode::Owners => $identity !== null && $this->isOwnedBy($identity),
+            default => false,
+        };
+    }
+
+    /** @return array{owner: ?Member, sender: ?Member, member: ?Member} by address, alias or username */
+    private function resolveActor(string $identity): array
+    {
+        return [
+            'owner' => $this->findOwnerInList($identity) ?? $this->findByUsername($this->getOwners(), $identity),
+            'sender' => $this->findAuthorizedSender($identity),
+            'member' => $this->findMemberInList($identity) ?? $this->findMemberInListByUserCn($identity),
+        ];
     }
 
     /** @param Member[] $members */

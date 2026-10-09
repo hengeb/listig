@@ -116,6 +116,7 @@ Every purpose is signed as a single-character string, not the readable full word
 | moderation-attachment | `m` | `ModerationController` |
 | bounce-attachment | `n` | `BounceController` |
 | reply | `p` | `ReplyTargetStore` — payload `ListFingerprint::of($listCn), $replyTargetId`, max age 180 days |
+| reply-thread | `t` | `ReplyThreadStore` — payload `ListFingerprint::of($listCn), $archivedMailId`, max age 180 days; address tag `+re-` ([ADR-0020](../adr/0020-reply-thread-tag.md)) |
 
 `accept`/`reject` are the one case where the short code and the *visible* address tag genuinely differ: `ModerationMailer::send()` still builds `{list->localPart}+accept-{TOKEN}@...`/`+reject-{TOKEN}@...` (the full word, unabbreviated — an owner-facing `mailto:` address, not itself byte-constrained the way the token portion is) while signing the token itself with `'a'`/`'r'`. `ModerationResponseHandler::detectAction()` still extracts the full word from that address (`'/' . preg_quote($localPart, '/') . '\+(accept|reject)-(.+?)@/i'`, unchanged) since that's also what drives the accept-vs-reject dispatch and error-log messages elsewhere in `handle()` — only the value actually passed to `TokenService::verify()` needs to match what was signed, so `ModerationResponseHandler::TOKEN_PURPOSE_MAP` (`['accept' => 'a', 'reject' => 'r']`) translates just before that one call, nothing else in the method.
 

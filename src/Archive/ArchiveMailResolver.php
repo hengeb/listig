@@ -58,7 +58,7 @@ class ArchiveMailResolver
             );
         }
 
-        $cached = new CachedArchivedMail($mail->textHtml, $mail->textPlain, $attachments);
+        $cached = new CachedArchivedMail($mail->textHtml, $mail->textPlain, $attachments, $mail->fromAddress ?? null);
         $this->mailCache->set($list->name, $messageId, $cached);
 
         return $cached;

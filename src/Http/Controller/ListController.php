@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Http\Controller;
 
-use Hengeb\Listig\Config\Enum\AllowLeave;
-use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\BounceSuppressionList;
+use Hengeb\Listig\Http\ListActions;
 use Hengeb\Listig\Provider\ListProvider;
-use Hengeb\Listig\Token\TokenService;
 use Latte\Engine;
 use PDO;
 use Psr\Http\Message\ResponseInterface;
@@ -24,8 +22,7 @@ class ListController
         private readonly ListProvider $listProvider,
         private readonly PDO $db,
         private readonly TranslatorInterface $translator,
-        private readonly TokenService $tokenService,
-        private readonly string $hostname,
+        private readonly ListActions $listActions,
         private readonly string $appName,
         private readonly BounceSuppressionList $bounceSuppressionList,
     ) {
@@ -84,6 +81,7 @@ class ListController
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/list/manage.latte', [
             'user' => $user,
             'list' => $list,
+            'nav' => $this->listActions->forViewer($list, $user, 'manage'),
             'moderationItems' => $moderationItems,
             'queueStatus' => $queueStatus,
             'bounceStats' => $bounceStats,
@@ -110,31 +108,15 @@ class ListController
     private function renderInfo(ServerRequestInterface $request, ResponseInterface $response, ListConfig $list): ResponseInterface
     {
         $user = $request->getAttribute('user');
-        $userEmail = $user['email'];
-        $isMember = $list->isMember($userEmail);
-
-        $showArchiveLink = $list->archive === ArchiveMode::Public
-            || ($list->archive === ArchiveMode::Members && $isMember);
-
-        $unsubscribeLink = null;
-        if ($isMember && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
-            $member = $list->findMemberInList($userEmail);
-            // 'u' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
-            $token = $this->tokenService->sign(
-                'u',
-                $list->name,
-                $member?->attributes['username'] ?? $userEmail,
-            );
-            $unsubscribeLink = "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}";
-        }
 
         $this->translator->setLocale($list->language);
 
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/list/index.latte', [
             'user' => $user,
             'list' => $list,
-            'showArchiveLink' => $showArchiveLink,
-            'unsubscribeLink' => $unsubscribeLink,
+            // Archive / unsubscribe / write buttons: ListActions decides, as on every list page —
+            // e.g. a non-member never gets an archive link a members-only archive would refuse.
+            'nav' => $this->listActions->forViewer($list, $user, 'info'),
             'language' => $list->language,
             'translator' => $this->translator,
             'appName' => $this->appName,

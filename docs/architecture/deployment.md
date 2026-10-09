@@ -24,14 +24,14 @@ cp config.yml.example config.yml
 docker compose up -d
 ```
 
-No manual migration step: the app container's entrypoint applies the schema itself on first start (see [Database migrations](../reference/database-schema.md#database-migrations)). `compose.yml`/`config.yml` are the operator's real files — gitignored/dockerignored the same as `.env`, never meant to be committed back (see below). Requires the GHCR package to be public (see [CI: build & publish](#ci-build--publish-githubworkflowsdocker-publishyml)); if it's private, `docker login ghcr.io` first.
+No manual migration step: the app container's entrypoint applies the schema itself on first start (see [Database migrations](../reference/database-schema.md#database-migrations)). `compose.yml`/`config.yml` are the operator's real files — gitignored/dockerignored the same as `.env`, never meant to be committed back (see below). Requires the GHCR package to be public (see [CI: build & publish](#ci-test-build--publish-githubworkflowsciyml)); if it's private, `docker login ghcr.io` first.
 
 ### Mailbox requirements
 
 Listig needs no MTA configuration, but each list's mailbox must behave in a few ways:
 
 - **IMAP and SMTP access** for the list (`imap-*`/`smtp-*` keys, usually via `mail-user`/`mail-password`), and the list address (`list-mail`) must be delivered to that mailbox.
-- **`+tag` addresses must reach the same inbox.** Listig generates addresses of the form `{localPart}+tag@{domain}` and finds the tag in the raw `To` header (bounces also in `Delivered-To`/`X-Original-To`, which the mail server may set instead): `+accept-…`/`+reject-…` (moderation replies, [Moderation](moderation.md)), `+bounce+…` (per-recipient VERP envelope, [Bounces](bounces.md#1-which-recipient-a-signed-per-recipient-bounce-address-verp)) and `+r-…` (masked replies, [Masked reply addresses](masked-replies.md)). A mail server without plus-addressing (or a catch-all that delivers them to the list's inbox) loses moderation replies and bounces. For `type: subaddress` lists the tag has its own meaning, see [type: subaddress](providers-and-members.md#type-subaddress--subaddress-forwarding).
+- **`+tag` addresses must reach the same inbox.** Listig generates addresses of the form `{localPart}+tag@{domain}` and finds the tag in the raw `To` header (bounces also in `Delivered-To`/`X-Original-To`, which the mail server may set instead): `+accept-…`/`+reject-…` (moderation replies, [Moderation](moderation.md)), `+bounce+…` (per-recipient VERP envelope, [Bounces](bounces.md#1-which-recipient-a-signed-per-recipient-bounce-address-verp)) and `+r-…` (masked replies, [Masked reply addresses](masked-replies.md)) and `+re-…` (the archive's "reply" button, [ADR-0020](../adr/0020-reply-thread-tag.md)). A mail server without plus-addressing (or a catch-all that delivers them to the list's inbox) loses moderation replies and bounces. For `type: subaddress` lists the tag has its own meaning, see [type: subaddress](providers-and-members.md#type-subaddress--subaddress-forwarding).
 - **`Authentication-Results` on every mail** if senders should receive reject / pending notices — see [Sender authentication](security-and-tokens.md#sender-authentication). At a third-party provider, set `trusted-authserv-id` ([per-list keys](../reference/list-config-keys.md)).
 
 ### Building from source (development)

@@ -34,6 +34,7 @@ class MailProcessor
         private readonly TranslatorInterface $translator,
         private readonly BounceSuppressionList $bounceSuppressionList,
         private readonly ReplyTargetStore $replyTargetStore,
+        private readonly ReplyThreadStore $replyThreadStore,
     ) {
     }
 
@@ -53,7 +54,7 @@ class MailProcessor
         // is a reply relayed to that address's owner — IncomingMailFilter has already
         // verified sender, list and target; a target that vanished since (e.g. between
         // moderation and accept) throws and is handled by the processing-failure limit.
-        $replyToken = $list->replyTo->isMasked() && $list->subaddressMemberTemplates === null
+        $replyToken = $list->replyTo->relayMode() !== null && $list->subaddressMemberTemplates === null
             ? $this->replyTargetStore->extractToken($incomingMail, $list)
             : null;
         $replyTarget = null;
@@ -66,7 +67,25 @@ class MailProcessor
         // Build the outgoing Email from the parsed incoming mail
         $email = $this->buildOutgoingEmail($incomingMail);
         if ($replyTarget !== null) {
-            $this->replaceReplyAddressInRecipients($email, $list);
+            $this->replaceTaggedAddressInRecipients($email, $list, 'r-');
+        }
+
+        // A reply from the archive's "reply" button (`+re-{TOKEN}`, ADR-0020): thread it
+        // under the mail it answers and hide the token address from the recipients. A token
+        // that no longer resolves (accepted from moderation much later, mail pruned) is not
+        // an error here — IncomingMailFilter already rejected it at arrival.
+        if ($this->replyThreadStore->extractToken($incomingMail, $list) !== null) {
+            $this->replaceTaggedAddressInRecipients($email, $list, ReplyThreadStore::TAG);
+            $parent = $this->replyThreadStore->resolveMail($incomingMail, $list);
+            if ($parent !== null && !$email->getHeaders()->has('In-Reply-To')) {
+                $email->getHeaders()->addTextHeader('In-Reply-To', "<{$parent['message_id']}>");
+                $email->getHeaders()->addTextHeader(
+                    'References',
+                    $parent['thread_root'] === $parent['message_id']
+                        ? "<{$parent['message_id']}>"
+                        : "<{$parent['thread_root']}> <{$parent['message_id']}>",
+                );
+            }
         }
 
         $subaddress = SubaddressExtractor::extract($incomingMail, $list);
@@ -75,7 +94,11 @@ class MailProcessor
         $mailContext  = $this->buildMailContext($senderMember, $rawFromHeader, $subaddress);
         $mailContexts = [$listContext, $mailContext];
 
-        $this->setOutgoingHeaders($email, $list, $senderEmail, $mailContexts);
+        // A relayed reply is governed by the relay mode, not by the list's own reply-to:
+        // on a sender/both list it is a private message too, so its Reply-To must be the
+        // replier's token (anonymous back-and-forth), not the list — see ReplyToBehavior::relayMode().
+        $replyMode = $replyTarget !== null ? ($list->replyTo->relayMode() ?? $list->replyTo) : $list->replyTo;
+        $this->setOutgoingHeaders($email, $list, $senderEmail, $mailContexts, $replyMode);
 
         // An external reply target gets a plain mail: no list label, footer or List-*
         // headers (it is not a list member), and replies go to the list address, since
@@ -353,7 +376,7 @@ class MailProcessor
         return $context;
     }
 
-    private function setOutgoingHeaders(Email $email, ListConfig $list, string $senderEmail, array $contexts): void
+    private function setOutgoingHeaders(Email $email, ListConfig $list, string $senderEmail, array $contexts, ReplyToBehavior $replyMode): void
     {
         $headers = $email->getHeaders();
 
@@ -376,7 +399,7 @@ class MailProcessor
         // non-member sender has no such second path, so only then does the
         // extra direct address genuinely add reachability rather than just
         // duplicating it.
-        $exposesSenderAddress = match ($list->replyTo) {
+        $exposesSenderAddress = match ($replyMode) {
             ReplyToBehavior::Sender => true,
             ReplyToBehavior::Both => !$list->isMember($senderEmail),
             // Masked: the address deliberately never reaches Reply-To — see below.
@@ -384,7 +407,7 @@ class MailProcessor
         };
 
         $headers->remove('reply-to');
-        match ($list->replyTo) {
+        match ($replyMode) {
             ReplyToBehavior::List => $email->replyTo(new Address($list->mail)),
             ReplyToBehavior::Sender => $email->replyTo(new Address($senderEmail)),
             ReplyToBehavior::Both => $exposesSenderAddress
@@ -476,13 +499,14 @@ class MailProcessor
     }
 
     /**
-     * Rewrites the visible To/Cc of a relayed reply: the `+r-{TOKEN}` address (which names
-     * the original sender and is meaningless to everyone else) is replaced by the list
-     * address, so no copy shows the token and a reply-all goes to the group.
+     * Rewrites the visible To/Cc: the `+{$tag}{TOKEN}` address (`r-` for a relayed reply,
+     * which names the original sender, `re-` for a reply from the archive — meaningless to
+     * everyone else) is replaced by the list address, so no copy shows the token and a
+     * reply-all goes to the group.
      */
-    private function replaceReplyAddressInRecipients(Email $email, ListConfig $list): void
+    private function replaceTaggedAddressInRecipients(Email $email, ListConfig $list, string $tag): void
     {
-        $isToken = fn(Address $a) => (bool) preg_match('/^' . preg_quote($list->localPart, '/') . '\+r-/i', $a->getAddress());
+        $isToken = fn(Address $a) => (bool) preg_match('/^' . preg_quote($list->localPart, '/') . '\+' . preg_quote($tag, '/') . '/i', $a->getAddress());
         foreach (['to', 'cc'] as $field) {
             $addresses = $field === 'to' ? $email->getTo() : $email->getCc();
             if (!array_filter($addresses, $isToken)) {
@@ -512,7 +536,7 @@ class MailProcessor
         $allowed = fn(Member $m) => !$list->isReceiverRestricted($m->email)
             && !$this->bounceSuppressionList->isSuppressed($list->name, $m->email);
 
-        if ($list->replyTo !== ReplyToBehavior::MaskedBoth) {
+        if ($list->replyTo->relayMode() !== ReplyToBehavior::MaskedBoth) {
             return array_values(array_filter([$target->recipient], $allowed));
         }
 

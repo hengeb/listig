@@ -38,6 +38,7 @@ reject:
   sender_restricted: "This address is currently blocked from posting to this list"
   reply_not_enabled: "This reply address is no longer valid for this list"
   reply_not_allowed: "Only list members may use this reply address"
+  reply_thread_unknown: "The mail you replied to is no longer in the archive, or the reply link has expired. Please write a new mail to the list address instead."
   reply_target_unknown: "This reply address has expired or the recipient is no longer reachable"
   rate_limited: "Rate limit exceeded"
   no_owners: "This list requires moderation but has no owners to approve it"
@@ -110,9 +111,6 @@ dashboard:
   title: "My lists – %app_name%"
   heading: "My lists"
   empty: "You are not a member of any mailing list."
-  unsubscribe_button: "Unsubscribe"
-  compose_button: "Send a mail to an external address"
-  manage_button: "Manage"
 
 unsubscribe_page:
   title: "Unsubscribe – %app_name%"
@@ -132,6 +130,17 @@ subscribe_page:
   title: "Subscribe – %app_name%"
 
 list:
+  actions:
+    label: "List actions"
+    info: "Info"
+    manage: "Manage"
+    archive: "Archive"
+    write: "Write to the list"
+    write_title: "Opens your mail program with a new mail to this list"
+    new_topic: "Start a new topic"
+    new_topic_title: "Opens your mail program with a new mail to the list, starting a new thread"
+    compose_external: "Mail to an external address"
+    unsubscribe: "Unsubscribe"
   manage:
     title_prefix: "Manage"
     overview: "Overview"
@@ -189,6 +198,10 @@ archive:
     unnamed_attachment: "Attachment"
     view_html: "HTML"
     view_text: "Plain text"
+    reply: "Reply to this mail"
+    reply_hint: "Your answer goes to the whole list, as a reply in this thread."
+    reply_author: "Reply to the author only"
+    reply_author_hint: "Private: only the author receives your answer, not the list."
     delete: "Delete"
     confirm_delete: "Permanently delete this mail from the archive? This cannot be undone."
   login_required:

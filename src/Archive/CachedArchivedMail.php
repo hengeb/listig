@@ -19,6 +19,8 @@ final class CachedArchivedMail
         public readonly ?string $textHtml,
         public readonly ?string $textPlain,
         public readonly array $attachments,
+        /** Server-side only (never rendered): the author's address, for the "reply to the author" button's masked token. */
+        public readonly ?string $fromAddress = null,
     ) {
     }
 }

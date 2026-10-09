@@ -137,7 +137,7 @@ class ReplyTargetStore
      */
     public function isPrivateReply(IncomingMail $mail, ListConfig $list): bool
     {
-        return $list->replyTo === \Hengeb\Listig\Config\Enum\ReplyToBehavior::MaskedSender
+        return $list->replyTo->relayMode() === \Hengeb\Listig\Config\Enum\ReplyToBehavior::MaskedSender
             && $this->isReplyMail($mail, $list);
     }
 

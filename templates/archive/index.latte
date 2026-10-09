@@ -9,6 +9,8 @@
 {block content}
 <h1>{$translator->trans('archive.index.heading')}: {$list->displayName}</h1>
 
+{include '../list-actions.latte', nav: $nav, translator: $translator}
+
 <div class="archive-toolbar">
     <label for="archive-filter" class="visually-hidden">{$translator->trans('archive.index.filter_label')}</label>
     <input type="text" id="archive-filter" placeholder="{$translator->trans('archive.index.filter_placeholder')}" oninput="filterArchive(this.value)">

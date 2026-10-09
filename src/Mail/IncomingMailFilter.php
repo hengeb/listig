@@ -17,6 +17,7 @@ class IncomingMailFilter
         private readonly HeaderFilter $headerFilter,
         private readonly SpamFilter $spamFilter,
         private readonly ReplyTargetStore $replyTargetStore,
+        private readonly ReplyThreadStore $replyThreadStore,
     ) {
     }
 
@@ -103,13 +104,21 @@ class IncomingMailFilter
             return $accessResult;
         }
 
+        // 7b. A mail to a `+re-{TOKEN}` address (the archive's "reply to this mail" button)
+        // must still name an archived mail — an expired token or a deleted/pruned mail is
+        // rejected with a hint rather than silently posted as a new thread (ADR-0020).
+        $threadToken = $replyToken === null ? $this->replyThreadStore->extractToken($mail, $list) : null;
+        if ($threadToken !== null && $this->replyThreadStore->resolve($list, $threadToken) === null) {
+            return FilterResult::reject('reject.reply_thread_unknown');
+        }
+
         // 8. Rate limit
         if ($this->rateLimiter->isExceeded($list->name, $senderEmail, $list->maxPerSender)) {
             return FilterResult::reject('reject.rate_limited');
         }
 
         // masked-sender replies never reach the list, so they are never moderated either.
-        $moderable = $replyToken === null || $list->replyTo === ReplyToBehavior::MaskedBoth;
+        $moderable = $replyToken === null || $list->replyTo->relayMode() === ReplyToBehavior::MaskedBoth;
         if ($moderable && $this->requiresModeration($list, $senderEmail)) {
             // A moderation item nobody can ever accept/reject is worse than an
             // outright rejection — without this, the mail would silently vanish
@@ -221,7 +230,7 @@ class IncomingMailFilter
      */
     private function checkMaskedReply(ListConfig $list, string $senderEmail, string $token): ?FilterResult
     {
-        if (!$list->replyTo->isMasked()) {
+        if ($list->replyTo->relayMode() === null) {
             return FilterResult::reject('reject.reply_not_enabled');
         }
         if ($list->isSenderRestricted($senderEmail)) {
@@ -233,7 +242,7 @@ class IncomingMailFilter
         if ($this->replyTargetStore->resolve($list, $token) === null) {
             return FilterResult::reject('reject.reply_target_unknown');
         }
-        return $list->replyTo === ReplyToBehavior::MaskedBoth ? $this->checkPostAccess($list, $senderEmail) : null;
+        return $list->replyTo->relayMode() === ReplyToBehavior::MaskedBoth ? $this->checkPostAccess($list, $senderEmail) : null;
     }
 
     /**

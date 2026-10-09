@@ -47,7 +47,7 @@ class ArchiveMailCache
      */
     private const TTL_SECONDS = 300;
 
-    private const PREFIX = 'listig:archive_mail:';
+    private const PREFIX = 'listig:archive_mail:v2:';
 
     /**
      * True only when the apcu extension is both loaded and actually usable in

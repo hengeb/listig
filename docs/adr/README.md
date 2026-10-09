@@ -25,3 +25,4 @@ To add one: use the next free number, copy the structure of an existing ADR (Sta
 | [0017](0017-masked-reply-addresses.md) | Masked reply addresses via a single signed Reply-To token |
 | [0018](0018-sender-notices-only-to-authenticated-senders.md) | Send sender notices only to authenticated senders |
 | [0019](0019-optional-trusted-authserv-id.md) | Optional `trusted-authserv-id` to pin the trusted Authentication-Results |
+| [0020](0020-reply-thread-tag.md) | Reply from the archive via a signed `+re-` address tag |

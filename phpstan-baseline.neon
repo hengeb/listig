@@ -13,12 +13,6 @@ parameters:
 			path: src/Http/Controller/ArchiveController.php
 
 		-
-			message: '#^Match arm comparison between Hengeb\\Listig\\Config\\Enum\\ArchiveMode\:\:Owners and Hengeb\\Listig\\Config\\Enum\\ArchiveMode\:\:Owners is always true\.$#'
-			identifier: match.alwaysTrue
-			count: 1
-			path: src/Http/Controller/ArchiveController.php
-
-		-
 			message: '#^Parameter \#3 \$attachments of method Hengeb\\Listig\\Archive\\ArchiveHtmlSanitizer\:\:hasExternalResources\(\) expects array\<PhpImap\\IncomingMailAttachment\>, array\<Hengeb\\Listig\\Archive\\CachedAttachment\> given\.$#'
 			identifier: argument.type
 			count: 1

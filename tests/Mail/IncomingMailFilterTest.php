@@ -11,6 +11,7 @@ use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
 use Hengeb\Listig\Mail\ReplyTarget;
 use Hengeb\Listig\Mail\ReplyTargetStore;
+use Hengeb\Listig\Mail\ReplyThreadStore;
 use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Mail\SpamFilter;
@@ -27,6 +28,7 @@ class IncomingMailFilterTest extends TestCase
             new HeaderFilter(),
             new SpamFilter([], new Logger(LogLevel::Error)),
             $this->createStub(ReplyTargetStore::class),
+            $this->createStub(ReplyThreadStore::class),
         );
     }
 
@@ -75,6 +77,7 @@ class IncomingMailFilterTest extends TestCase
             new HeaderFilter(),
             new SpamFilter([], new Logger(LogLevel::Error)),
             $store,
+            $this->createStub(ReplyThreadStore::class),
         );
         $mail = new IncomingMail();
         $mail->headersRaw = "To: mylist+r-tok@example.org\r\n";
@@ -117,5 +120,82 @@ class IncomingMailFilterTest extends TestCase
         $this->assertSame('reject.members_denied', $result->reason);
         $result = $this->runReply(['reply-to' => 'masked-both', 'post-access-members' => 'moderate'], 'm@example.org');
         $this->assertTrue($result->isModeration);
+    }
+
+    public function testReplyRelayAlsoWorksOnSenderAndBothLists(): void
+    {
+        // Used by the archive's "reply to the author" button — a private message, never moderated.
+        foreach (['sender', 'both'] as $mode) {
+            $result = $this->runReply(['reply-to' => $mode, 'post-access-members' => 'moderate'], 'm@example.org');
+            $this->assertTrue($result->isDistribute, $mode);
+        }
+        $this->assertSame('reject.reply_not_enabled', $this->runReply(['reply-to' => 'nobody'], 'm@example.org')->reason);
+    }
+
+    private function runThreadReply(?array $resolved, ?string $token = 'tok'): \Hengeb\Listig\Mail\FilterResult
+    {
+        $threads = $this->createStub(ReplyThreadStore::class);
+        $threads->method('extractToken')->willReturn($token);
+        $threads->method('resolve')->willReturn($resolved);
+        $filter = new IncomingMailFilter(
+            $this->createStub(RateLimiter::class),
+            new HeaderFilter(),
+            new SpamFilter([], new Logger(LogLevel::Error)),
+            $this->createStub(ReplyTargetStore::class),
+            $threads,
+        );
+        $mail = new IncomingMail();
+        $mail->headersRaw = "To: mylist+re-tok@example.org\r\n";
+        $mail->autoSubmitted = '';
+        $mail->subject = 'Re: Hallo';
+        $mail->fromAddress = 'm@example.org';
+        $list = new ListConfig('mylist', 'mylist@example.org', [], new InlineMemberResolver(['m@example.org'], ['o@example.org']));
+        return $filter->filter($mail, $list, 'raw', []);
+    }
+
+    public function testThreadReplyToAnExistingArchivedMailIsDistributed(): void
+    {
+        $this->assertTrue($this->runThreadReply(['message_id' => 'a@x', 'thread_root' => 'a@x'])->isDistribute);
+    }
+
+    public function testThreadReplyWithUnknownTargetIsRejectedWithAHint(): void
+    {
+        $this->assertSame('reject.reply_thread_unknown', $this->runThreadReply(null)->reason);
+    }
+
+    public function testMailWithoutThreadTagIsNotAffected(): void
+    {
+        $this->assertTrue($this->runThreadReply(null, null)->isDistribute);
+    }
+
+    /** ListConfig::canPost() drives the "write to the list" / "reply" buttons — it must agree with the real gate. */
+    public function testCanPostAgreesWithThePostAccessFilter(): void
+    {
+        $restrictions = new \Hengeb\Listig\Config\RestrictionList([['mail' => 'banned@example.org']]);
+        $senders = ['o@example.org', 'm@example.org', 'x@example.com', 's@example.org', 'banned@example.org'];
+        foreach (['allow', 'deny', 'moderate'] as $members) {
+            foreach (['allow', 'deny', 'moderate'] as $public) {
+                $list = new ListConfig(
+                    'mylist',
+                    'mylist@example.org',
+                    ['post-access-members' => $members, 'post-access-public' => $public, 'senders' => ['s@example.org']],
+                    new InlineMemberResolver(['m@example.org', 'banned@example.org'], ['o@example.org']),
+                    restrictions: $restrictions,
+                );
+                foreach ($senders as $sender) {
+                    $mail = new IncomingMail();
+                    $mail->headersRaw = '';
+                    $mail->autoSubmitted = '';
+                    $mail->subject = 'Hi';
+                    $mail->fromAddress = $sender;
+                    $result = $this->filter()->filter($mail, $list, 'raw', []);
+                    $this->assertSame(
+                        $result->isDistribute || $result->isModeration,
+                        $list->canPost($sender),
+                        "members=$members public=$public sender=$sender",
+                    );
+                }
+            }
+        }
     }
 }

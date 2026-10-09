@@ -13,6 +13,7 @@ use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Logging\LogLevel;
+use Hengeb\Listig\Http\ListActions;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Crypto\KeyDerivation;
 use Hengeb\Listig\Crypto\PasswordCrypto;
@@ -36,6 +37,7 @@ use Hengeb\Listig\Mail\BounceHandler;
 use Hengeb\Listig\Mail\BounceMemberActionExecutor;
 use Hengeb\Listig\Mail\BounceSuppressionList;
 use Hengeb\Listig\Mail\ReplyTargetStore;
+use Hengeb\Listig\Mail\ReplyThreadStore;
 use Hengeb\Listig\Mail\FooterAppender;
 use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
@@ -445,6 +447,7 @@ $builder->addDefinitions([
             $c->get(HeaderFilter::class),
             $c->get(SpamFilter::class),
             $c->get(ReplyTargetStore::class),
+            $c->get(ReplyThreadStore::class),
         );
     },
 
@@ -460,6 +463,7 @@ $builder->addDefinitions([
             $c->get(TranslatorInterface::class),
             $c->get(BounceSuppressionList::class),
             $c->get(ReplyTargetStore::class),
+            $c->get(ReplyThreadStore::class),
         );
     },
 
@@ -478,6 +482,10 @@ $builder->addDefinitions([
     // MemberResolver backend.
     ReplyTargetStore::class => function (ContainerInterface $c): ReplyTargetStore {
         return new ReplyTargetStore($c->get(PDO::class), $c->get(TokenService::class), $c->get(HeaderFilter::class));
+    },
+
+    ReplyThreadStore::class => function (ContainerInterface $c): ReplyThreadStore {
+        return new ReplyThreadStore($c->get(PDO::class), $c->get(TokenService::class), $c->get(HeaderFilter::class));
     },
 
     BounceSuppressionList::class => function (ContainerInterface $c): BounceSuppressionList {
@@ -548,7 +556,7 @@ $builder->addDefinitions([
     // ModerationController::accept, ModerationResponseHandler) — bounce/reject
     // outcomes also call archiveOrDelete() but must never be indexed.
     ArchiveIndexer::class => function (ContainerInterface $c): ArchiveIndexer {
-        return new ArchiveIndexer($c->get(PDO::class), $c->get(HeaderFilter::class));
+        return new ArchiveIndexer($c->get(PDO::class), $c->get(HeaderFilter::class), $c->get(ReplyThreadStore::class));
     },
     ArchiveThreader::class => fn() => new ArchiveThreader(),
     ArchiveMailLocator::class => function (ContainerInterface $c): ArchiveMailLocator {
@@ -680,13 +688,16 @@ $builder->addDefinitions([
         );
     },
 
+    ListActions::class => function (ContainerInterface $c): ListActions {
+        return new ListActions($c->get(TokenService::class), $c->get('app.hostname'));
+    },
+
     DashboardController::class => function (ContainerInterface $c): DashboardController {
         return new DashboardController(
             $c->get(Engine::class),
             $c->get(ListProvider::class),
             $c->get(TranslatorInterface::class),
-            $c->get(TokenService::class),
-            $c->get('app.hostname'),
+            $c->get(ListActions::class),
             $c->get('app.name'),
         );
     },
@@ -708,8 +719,7 @@ $builder->addDefinitions([
             $c->get(ListProvider::class),
             $c->get(PDO::class),
             $c->get(TranslatorInterface::class),
-            $c->get(TokenService::class),
-            $c->get('app.hostname'),
+            $c->get(ListActions::class),
             $c->get('app.name'),
             $c->get(BounceSuppressionList::class),
         );
@@ -730,6 +740,9 @@ $builder->addDefinitions([
             $c->get('app.name'),
             $c->get(TokenService::class),
             $c->get(ArchiveSynchronizer::class),
+            $c->get(ListActions::class),
+            $c->get(ReplyThreadStore::class),
+            $c->get(ReplyTargetStore::class),
             $c->get('oidc.enabled'),
         );
     },

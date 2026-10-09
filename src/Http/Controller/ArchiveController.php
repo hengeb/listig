@@ -17,6 +17,11 @@ use Hengeb\Listig\Archive\ByteFormatter;
 use Hengeb\Listig\Archive\CachedArchivedMail;
 use Hengeb\Listig\Archive\CachedAttachment;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
+use Hengeb\Listig\Config\Enum\PostAccess;
+use Hengeb\Listig\Config\Enum\ReplyToBehavior;
+use Hengeb\Listig\Http\ListActions;
+use Hengeb\Listig\Mail\ReplyTargetStore;
+use Hengeb\Listig\Mail\ReplyThreadStore;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Http\RequestPath;
 use Hengeb\Listig\Provider\ListProvider;
@@ -63,6 +68,9 @@ class ArchiveController
         private readonly string $appName,
         private readonly TokenService $tokenService,
         private readonly ArchiveSynchronizer $synchronizer,
+        private readonly ListActions $listActions,
+        private readonly ReplyThreadStore $replyThreadStore,
+        private readonly ReplyTargetStore $replyTargetStore,
         private readonly bool $oidcEnabled = false,
     ) {
     }
@@ -96,6 +104,7 @@ class ArchiveController
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/archive/index.latte', [
             'user'       => $request->getAttribute('user'),
             'list'       => $list,
+            'nav'        => $this->listActions->forViewer($list, $request->getAttribute('user'), 'archive', true),
             'rows'       => $rows,
             'page'       => $page,
             'totalPages' => (int) ceil($total / self::PER_PAGE),
@@ -198,6 +207,12 @@ class ArchiveController
             'backUrl'              => "/{$list->name}/archive",
             'backLabel'            => $this->translator->trans('archive.show.back_to_list'),
             'list'                 => $list,
+            'nav'                  => $this->listActions->forViewer($list, $user, 'archive', true),
+            // "Reply to this mail" (to the list, threaded — ReplyThreadStore) and "reply to the
+            // author only" (private, via the masked-reply relay — ReplyTargetStore); null when
+            // this viewer may not, or the list's settings don't allow it.
+            'replyHref'            => $this->replyHref($list, $user['email'] ?? null, $row),
+            'authorHref'           => $this->authorReplyHref($list, $user['email'] ?? null, $row, $mail),
             'row'                  => $row,
             'mailMissing'          => $mail === null,
             'attachments'          => $attachments,
@@ -213,6 +228,58 @@ class ArchiveController
         ]);
         $response->getBody()->write($html);
         return $response;
+    }
+
+    /** `mailto:` that answers archived mail `$row` on the list, threaded under it; null if the viewer cannot post. */
+    private function replyHref(ListConfig $list, ?string $identity, array $row): ?string
+    {
+        if (!$list->canPost($identity)) {
+            return null;
+        }
+        return 'mailto:' . $this->replyThreadStore->addressFor($list, (int) $row['id']) . self::replySubjectQuery($row['subject'] ?? '');
+    }
+
+    /**
+     * `mailto:` that answers only the author, through a masked `+r-` address (the author's real
+     * address never reaches the page). Only for a subscriber (member or owner) — the relay
+     * itself refuses everyone else — on a list that relays replies (`reply-to` other than
+     * `list`/`nobody`: either the address is sent along anyway or the relay hides it), when
+     * the viewer may use the relay at all, the author is not the viewer, and the author is a
+     * list member or outsiders may be written to (post-access-public != deny, like the compose form).
+     */
+    private function authorReplyHref(ListConfig $list, ?string $identity, array $row, ?CachedArchivedMail $mail): ?string
+    {
+        $author = $mail->fromAddress ?? '';
+        $relayMode = $list->replyTo->relayMode();
+        if ($identity === null || $author === '' || $relayMode === null || $list->subaddressMemberTemplates !== null) {
+            return null;
+        }
+        $viewer = $list->findMemberInList($identity) ?? $list->findOwnerInList($identity);
+        if ($viewer === null || $list->isSenderRestricted($viewer->email) || strcasecmp($viewer->email, $author) === 0) {
+            return null;
+        }
+        // masked-both also reaches the group, so the relay applies post-access to the replier.
+        if ($relayMode === ReplyToBehavior::MaskedBoth && !$list->canPost($identity)) {
+            return null;
+        }
+        $authorIsMember = $list->findMemberInList($author) !== null || $list->findOwnerInList($author) !== null;
+        if (!$authorIsMember && $list->postAccessPublic === PostAccess::Deny) {
+            return null;
+        }
+
+        return 'mailto:' . $list->localPart . '+r-' . $this->replyTargetStore->tokenFor($list, $author) . '@' . $list->domain
+            . self::replySubjectQuery($row['subject'] ?? '');
+    }
+
+    /** `?subject=Re: …` (percent-encoded; "Re:" not doubled), or '' for a mail without a subject. */
+    private static function replySubjectQuery(string $subject): string
+    {
+        $subject = trim($subject);
+        if ($subject === '') {
+            return '';
+        }
+        $reply = preg_match('/^(re|aw)\s*:/i', $subject) ? $subject : "Re: {$subject}";
+        return '?subject=' . rawurlencode($reply);
     }
 
     public function frame(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
@@ -478,13 +545,7 @@ class ArchiveController
             return $this->loginRequiredResponse($list);
         }
 
-        $allowed = match ($list->archive) {
-            ArchiveMode::Members => $list->isMember($email) || $list->isOwnedBy($email),
-            ArchiveMode::Owners  => $list->isOwnedBy($email),
-            default              => false,
-        };
-
-        return $allowed ? null : (new Response())->withStatus(403);
+        return $list->canViewArchive($email) ? null : (new Response())->withStatus(403);
     }
 
     private function loginRequiredResponse(ListConfig $list): ResponseInterface

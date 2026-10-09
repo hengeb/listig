@@ -7,6 +7,7 @@ namespace Hengeb\Listig\Archive;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\HeaderFilter;
+use Hengeb\Listig\Mail\ReplyThreadStore;
 use PDO;
 use PhpImap\IncomingMail;
 
@@ -25,6 +26,7 @@ class ArchiveIndexer
     public function __construct(
         private readonly PDO $db,
         private readonly HeaderFilter $headerFilter,
+        private readonly ReplyThreadStore $replyThreadStore,
     ) {
     }
 
@@ -48,6 +50,15 @@ class ArchiveIndexer
         $threadRoot = self::firstReference($this->headerFilter->readHeader($headersRaw, 'References'))
             ?? $inReplyTo
             ?? $messageId;
+
+        // A reply sent from the archive's "reply" button carries no In-Reply-To of its own
+        // (a mailto: cannot set one) — MailProcessor adds it to the distributed copy, so the
+        // index must follow the same `+re-` tag, or the reply would start a new thread here
+        // while every recipient's mail client shows it in the right one (ADR-0020).
+        if ($inReplyTo === null && ($parent = $this->replyThreadStore->resolveMail($mail, $list)) !== null) {
+            $inReplyTo  = $parent['message_id'];
+            $threadRoot = $parent['thread_root'];
+        }
 
         $timestamp = strtotime($mail->date ?? '') ?: time();
 

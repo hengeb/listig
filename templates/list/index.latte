@@ -5,7 +5,7 @@
 {block content}
 <div class="card">
     <h1>{$list->displayName}</h1>
-    <p class="text-muted">{$list->mail}</p>
+    <p class="text-muted"><a n:tag-if="$nav->canPost" href="mailto:{$list->mail}">{$list->mail}</a></p>
     <p n:if="$list->description">{$list->description}</p>
     <p n:if="count($list->getOwners()) > 0">
         <strong>{$translator->trans('list.manage.owners')}:</strong>
@@ -13,10 +13,6 @@
             {$list->resolveMemberDisplayName($owner)}{sep}, {/sep}
         {/foreach}
     </p>
-    <p n:if="$showArchiveLink || $unsubscribeLink || $list->canComposeExternal($user['email'])">
-        <a n:if="$list->canComposeExternal($user['email'])" href="/{$list->name}/compose" class="btn btn-secondary">{$translator->trans('dashboard.compose_button')}</a>
-        <a n:if="$showArchiveLink" href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a>
-        <a n:if="$unsubscribeLink" href="{$unsubscribeLink}" class="btn btn-secondary">{$translator->trans('dashboard.unsubscribe_button')}</a>
-    </p>
+    {include '../list-actions.latte', nav: $nav, translator: $translator}
 </div>
 {/block}

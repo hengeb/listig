@@ -16,12 +16,9 @@
     data-error-prefix="{$translator->trans('list.manage.js_error_prefix')}"
     data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
 ></div>
-<h1>{$list->displayName} <small class="list-mail-subtitle">{$list->mail}</small></h1>
+<h1>{$list->displayName} <small class="list-mail-subtitle"><a n:tag-if="$nav->canPost" href="mailto:{$list->mail}">{$list->mail}</a></small></h1>
 
-<p n:if="($list->archive->value !== 'off' && $list->archive->value !== 'hidden') || $list->canComposeExternal($user['email'])">
-    <a n:if="$list->archive->value !== 'off' && $list->archive->value !== 'hidden'" href="/{$list->name}/archive" class="btn btn-secondary">{$translator->trans('archive.index.heading')}</a>
-    <a n:if="$list->canComposeExternal($user['email'])" href="/{$list->name}/compose" class="btn btn-secondary">{$translator->trans('dashboard.compose_button')}</a>
-</p>
+{include '../list-actions.latte', nav: $nav, translator: $translator}
 
 <!-- Info -->
 <div class="card">
