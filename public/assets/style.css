@@ -73,6 +73,10 @@ tr.clickable-row:hover { background: #f5f8fd; }
 .page-heading h1 { margin-bottom: .25rem; }
 .page-description { color: #555; margin: .25rem 0 .5rem; }
 
+/* dashboard.latte — several entries per section panel, separated by a line */
+.list-entry + .list-entry { border-top: 1px solid #eee; margin-top: 1rem; padding-top: 1rem; }
+.dashboard-section h2 { margin-top: 0; font-size: 1.1rem; }
+
 /* list-actions.latte — the button row of every list page (ListActions). Wraps instead of
    overflowing; on phones two buttons per row, each filling its half, labels may wrap. */
 .list-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0 1rem; }

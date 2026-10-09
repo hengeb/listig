@@ -28,6 +28,7 @@ class DashboardController
         $userEmail = $user['email'];
 
         $myLists = [];
+        $joinableLists = [];
         $otherLists = [];
         $navigations = [];
 
@@ -42,8 +43,10 @@ class DashboardController
             // "my lists" too, or /{listname} (the owner manage page) would have no entry point.
             if ($list->isMember($userEmail) || $list->isOwnedBy($userEmail)) {
                 $myLists[] = $list;
+            } elseif ($list->canJoin($userEmail)) {
+                $joinableLists[] = $list;   // open to join, shown with a "Join" button
             } else {
-                $otherLists[] = $list;
+                $otherLists[] = $list;      // visible, but only by invitation / on request / not addable
             }
             // Which buttons a card shows is ListActions' decision, the same one every
             // other list page uses.
@@ -53,6 +56,7 @@ class DashboardController
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/dashboard.latte', [
             'user' => $user,
             'lists' => $myLists,
+            'joinableLists' => $joinableLists,
             'otherLists' => $otherLists,
             'navigations' => $navigations,
             'language' => $this->translator->getLocale(),

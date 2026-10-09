@@ -115,6 +115,8 @@ compose:
 dashboard:
   title: "My lists – %app_name%"
   heading: "My lists"
+  subscribed_heading: "Subscribed lists"
+  joinable_heading: "Lists you can join"
   other_heading: "Other lists"
   empty: "You are not a member of any mailing list."
 

@@ -115,6 +115,8 @@ compose:
 dashboard:
   title: "Meine Listen – %app_name%"
   heading: "Meine Listen"
+  subscribed_heading: "Abonnierte Listen"
+  joinable_heading: "Listen zum Beitreten"
   other_heading: "Weitere Listen"
   empty: "Du bist keiner Mailingliste zugeordnet."
 
