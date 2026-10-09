@@ -73,7 +73,6 @@ tr.clickable-row:hover { background: #f5f8fd; }
    overflowing; on phones two buttons per row, each filling its half, labels may wrap. */
 .list-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0 1rem; }
 .list-actions .btn { white-space: nowrap; }
-.card .list-actions { margin-bottom: 0; }
 @media (max-width: 600px) {
     .list-actions .btn { flex: 1 1 calc(50% - .5rem); text-align: center; white-space: normal; box-sizing: border-box; }
 }

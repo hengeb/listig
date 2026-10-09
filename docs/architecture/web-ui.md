@@ -116,7 +116,7 @@ Which buttons a viewer sees for a list is decided in **one** place, `Http\ListAc
 
 `canPost()` mirrors `IncomingMailFilter::checkPostAccess()` (a `restricted-members:` hit never; owners and `senders:` always; members per `post-access-members`, everyone else per `post-access-public`; `moderate` counts as allowed; never for `type: subaddress` lists, where a plain mail to the list address is invalid); `IncomingMailFilterTest` checks that both agree. An anonymous viewer of a public archive is judged as an outsider. When the viewer may post, the list address shown on the page is also a `mailto:` link (`ListNavigation::$canPost`). The "Write" button's label differs on the archive pages ("Start a new topic") because there it is the counterpart of the per-mail "Reply" button, see [Archive viewer](archive.md#archive-viewer).
 
-Layout: the row sits below the list's name/text (never beside it) and wraps (`.list-actions`, `style.css`); under 600 px it becomes two buttons per row, labels may wrap. The moderation and bounce previews reuse `archive/show.latte` without `$nav` (guarded by `{ifset}`): they show their plain "back" link instead of the list buttons.
+Layout: on every list page the row sits directly below the heading (`list/index.latte` has the same heading-then-buttons structure as `list/manage.latte`, so the buttons don't jump when switching pages); on a dashboard card it sits below the card's text. It is never beside the text and wraps (`.list-actions`, `style.css`); under 600 px it becomes two buttons per row, labels may wrap. The moderation and bounce previews reuse `archive/show.latte` without `$nav` (guarded by `{ifset}`): they show their plain "back" link instead of the list buttons.
 
 ## Visibility and join policy
 
