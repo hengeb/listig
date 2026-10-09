@@ -77,12 +77,21 @@ tr.clickable-row:hover { background: #f5f8fd; }
 .list-entry + .list-entry { border-top: 1px solid #eee; margin-top: 1rem; padding-top: 1rem; }
 .dashboard-section h2 { margin-top: 0; font-size: 1.1rem; }
 
-/* list-actions.latte — the button row of every list page (ListActions). Wraps instead of
-   overflowing; on phones two buttons per row, each filling its half, labels may wrap. */
-.list-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0 1rem; }
-.list-actions .btn { white-space: nowrap; }
-@media (max-width: 600px) {
-    .list-actions .btn { flex: 1 1 calc(50% - .5rem); text-align: center; white-space: normal; box-sizing: border-box; }
+/* list-actions.latte — the button row of every list page (ListActions) and of each dashboard entry.
+   Every button keeps its natural width and decides for itself whether it still fits the line
+   (flex-wrap); the vertical gap comes from each button's margin-top. When the surrounding block
+   (.page-heading / .list-entry, size containers) is narrow, or the screen is a phone, they stack:
+   one per row, each as wide as the row. */
+.page-heading, .list-entry { container-type: inline-size; }
+.list-actions { display: flex; flex-wrap: wrap; gap: 0 .75rem; margin: 0 0 1rem; }
+.list-actions .btn { margin-top: .5rem; white-space: nowrap; }
+@container (width < 350px) {
+    .list-actions { flex-direction: column; gap: 0 .5rem; }
+    .list-actions .btn { text-align: center; }
+}
+@media (max-width: 480px) {
+    .list-actions { flex-direction: column; gap: 0; }
+    .list-actions .btn { text-align: center; }
 }
 
 /* archive/show.latte — this mail's own actions (reply, reply privately, delete) in its header card */
