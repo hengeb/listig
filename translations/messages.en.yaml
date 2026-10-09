@@ -166,7 +166,6 @@ list:
     visibility: "Visibility"
     title_prefix: "Manage"
     overview: "Overview"
-    description: "Description"
     members: "Members"
     owners: "Owners"
     reply_to: "Reply-to"

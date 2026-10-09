@@ -14,8 +14,9 @@
 </div>
 {/define}
 
+{block page_title}{$translator->trans('dashboard.heading')}{/block}
+
 {block content}
-<h1>{$translator->trans('dashboard.heading')}</h1>
 
 <div class="card" n:if="count($lists) === 0">
     <p class="empty-state">{$translator->trans('dashboard.empty')}</p>

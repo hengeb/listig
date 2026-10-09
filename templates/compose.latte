@@ -2,6 +2,10 @@
 
 {block title}{$translator->trans('compose.title', ['%list%' => $list->displayName])} – {$appName ?? 'Listig'}{/block}
 
+{block page_title}{$translator->trans('compose.heading')}{/block}
+{block page_description}{$list->displayName} &lt;{$list->mail}&gt;{/block}
+{block page_actions}{include 'list-actions.latte', nav: $nav, translator: $translator}{/block}
+
 {block content}
 <div id="compose-i18n" hidden
     data-list="{$list->name}"
@@ -9,9 +13,6 @@
     data-copy="{$translator->trans('compose.copy')}"
     data-copied="{$translator->trans('compose.copied')}"
 ></div>
-<h1>{$translator->trans('compose.heading')}</h1>
-<p class="text-muted">{$list->displayName} &lt;{$list->mail}&gt;</p>
-
 <div class="card">
     <p>{$translator->trans('compose.intro', ['%list%' => $list->displayName, '%list_mail%' => $list->mail])}</p>
     <form id="compose-form">

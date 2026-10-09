@@ -6,10 +6,10 @@
 <script src="/assets/archive-index.js" defer></script>
 {/block}
 
-{block content}
-<h1>{$translator->trans('archive.index.heading')}: {$list->displayName}</h1>
+{block page_title}{$translator->trans('archive.index.heading')}: {$list->displayName}{/block}
+{block page_actions}{include '../list-actions.latte', nav: $nav, translator: $translator}{/block}
 
-{include '../list-actions.latte', nav: $nav, translator: $translator}
+{block content}
 
 <div class="archive-toolbar">
     <label for="archive-filter" class="visually-hidden">{$translator->trans('archive.index.filter_label')}</label>

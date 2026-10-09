@@ -166,7 +166,6 @@ list:
     visibility: "Sichtbarkeit"
     title_prefix: "Verwalten"
     overview: "Übersicht"
-    description: "Beschreibung"
     members: "Mitglieder"
     owners: "Inhaber"
     reply_to: "Antworten an"

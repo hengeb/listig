@@ -2,15 +2,14 @@
 
 {block title}{$list->displayName} – {$appName ?? 'Listig'}{/block}
 
+{* Heading, description and buttons are the page header (layout.latte), so they sit in the
+   same place on every list page and custom.latte can place them. *}
+{block page_title}{$list->displayName} <small class="list-mail-subtitle"><a n:tag-if="$nav->canPost" href="mailto:{$list->mail}">{$list->mail}</a></small>{/block}
+{block page_description}{$list->description}{/block}
+{block page_actions}{include '../list-actions.latte', nav: $nav, translator: $translator}{/block}
+
 {block content}
-{* Same structure as list/manage.latte — heading, then the action buttons — so the buttons
-   stay in the same place when switching between a list's pages. *}
-<h1>{$list->displayName} <small class="list-mail-subtitle"><a n:tag-if="$nav->canPost" href="mailto:{$list->mail}">{$list->mail}</a></small></h1>
-
-{include '../list-actions.latte', nav: $nav, translator: $translator}
-
 <div class="card">
-    <p n:if="$list->description">{$list->description}</p>
     <p n:if="count($list->getOwners()) > 0">
         <strong>{$translator->trans('list.manage.owners')}:</strong>
         {foreach $list->getOwners() as $owner}

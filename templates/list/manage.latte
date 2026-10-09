@@ -8,6 +8,10 @@
 <script src="/assets/list-manage.js" defer></script>
 {/block}
 
+{block page_title}{$list->displayName} <small class="list-mail-subtitle"><a n:tag-if="$nav->canPost" href="mailto:{$list->mail}">{$list->mail}</a></small>{/block}
+{block page_description}{$list->description}{/block}
+{block page_actions}{include '../list-actions.latte', nav: $nav, translator: $translator}{/block}
+
 {block content}
 {* Translated strings for list-manage.js — a static file can't itself contain
    server-rendered translations, so they're threaded through via data
@@ -16,17 +20,10 @@
     data-error-prefix="{$translator->trans('list.manage.js_error_prefix')}"
     data-error-generic="{$translator->trans('list.manage.js_error_generic')}"
 ></div>
-<h1>{$list->displayName} <small class="list-mail-subtitle"><a n:tag-if="$nav->canPost" href="mailto:{$list->mail}">{$list->mail}</a></small></h1>
-
-{include '../list-actions.latte', nav: $nav, translator: $translator}
-
 <!-- Info -->
 <div class="card">
     <h2>{$translator->trans('list.manage.overview')}</h2>
     <table>
-        <tr n:if="$list->description !== null && $list->description !== ''">
-            <th>{$translator->trans('list.manage.description')}</th><td>{$list->description}</td>
-        </tr>
         <tr><th>{$translator->trans('list.manage.members')}</th><td>{$memberCount}</td></tr>
         <tr><th>{$translator->trans('list.manage.owners')}</th><td>
             {foreach $list->getOwners() as $owner}

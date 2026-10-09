@@ -24,7 +24,7 @@
         with {define blockname}...{/define}. Nothing here fails if the file
         isn't mounted at all, or defines only some of the five.
     *}
-    {var $customLayoutFile = '/app/config/custom.latte'}
+    {var $customLayoutFile = $customLayoutFile ?? '/app/config/custom.latte'}
     {if file_exists($customLayoutFile)}
         {import $customLayoutFile}
     {/if}
@@ -54,12 +54,43 @@
 {ifset #custom_after_header}
     {include #custom_after_header}
 {/ifset}
+{*
+    The page itself. Every page template fills three optional blocks — page_title, page_description,
+    page_actions (the list's action buttons) — and `content`. They are captured here so that
+    custom.latte can place them anywhere without CSS tricks: {define custom_page_header} replaces
+    the heading area, {define custom_main} replaces the whole <main> wrapper and gets the finished
+    pieces as parameters. See docs/architecture/web-ui.md "Custom layout".
+*}
+{capture $pageTitle}{block page_title}{/block}{/capture}
+{capture $pageDescription}{block page_description}{/block}{/capture}
+{capture $pageActions}{block page_actions}{/block}{/capture}
+{capture $pageHeader}
+    {ifset #custom_page_header}
+        {include #custom_page_header, title: $pageTitle, description: $pageDescription, actions: $pageActions}
+    {elseif trim((string) $pageTitle) !== '' || trim((string) $pageActions) !== ''}
+        <div class="page-heading">
+            <h1 n:if="trim((string) $pageTitle) !== ''">{$pageTitle}</h1>
+            <p class="page-description" n:if="trim((string) $pageDescription) !== ''">{$pageDescription}</p>
+            {$pageActions}
+        </div>
+    {/ifset}
+{/capture}
+{capture $pageContent}<div class="page-content">{block content}{/block}</div>{/capture}
+{ifset #custom_main}
+    {include #custom_main, pageHeader: $pageHeader, content: $pageContent, title: $pageTitle, description: $pageDescription, actions: $pageActions}
+{else}
 <main>
     <div class="container">
-        {block content}{/block}
+        {$pageHeader}
+        {$pageContent}
     </div>
 </main>
+{/ifset}
+{ifset #custom_attribution}
+    {include #custom_attribution}
+{else}
 <p class="attribution"><a href="https://github.com/hengeb/listig">powered by Listig</a></p>
+{/ifset}
 {ifset #custom_body_end}
     {include #custom_body_end}
 {/ifset}

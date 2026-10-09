@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Http\Controller;
 
+use Hengeb\Listig\Http\ListActions;
 use Hengeb\Listig\Mail\ReplyTargetStore;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\RateLimit\RateLimiter;
@@ -32,6 +33,7 @@ class ComposeController
         private readonly ListProvider $listProvider,
         private readonly ReplyTargetStore $replyTargetStore,
         private readonly RateLimiter $rateLimiter,
+        private readonly ListActions $listActions,
         private readonly TranslatorInterface $translator,
         private readonly string $appName,
     ) {
@@ -49,6 +51,7 @@ class ComposeController
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/compose.latte', [
             'user' => $user,
             'list' => $list,
+            'nav' => $this->listActions->forViewer($list, $user, 'compose'),
             'language' => $list->language,
             'translator' => $this->translator,
             'appName' => $this->appName,

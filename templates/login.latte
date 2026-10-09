@@ -2,11 +2,11 @@
 
 {block title}{$translator->trans('login.title', ['%app_name%' => $appName])}{/block}
 
+{block page_title}{$translator->trans('login.heading')}{/block}
+
 {block content}
 <div class="narrow-page-sm">
     <div class="card">
-        <h1 class="centered-heading">{$translator->trans('login.heading')}</h1>
-
         <div class="flash" n:if="isset($flash) && $flash">{$flash}</div>
 
         {if $oidcEnabled}

@@ -718,6 +718,7 @@ $builder->addDefinitions([
             $c->get(ListProvider::class),
             $c->get(ReplyTargetStore::class),
             $c->get(RateLimiter::class),
+            $c->get(ListActions::class),
             $c->get(TranslatorInterface::class),
             $c->get('app.name'),
         );

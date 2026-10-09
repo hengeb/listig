@@ -6,6 +6,9 @@
 <script src="/assets/archive-show.js" defer></script>
 {/block}
 
+{block page_title}{$translator->trans('archive.index.heading')}: {$list->displayName}{/block}
+{block page_actions}{ifset $nav}{include '../list-actions.latte', nav: $nav, translator: $translator}{/ifset}{/block}
+
 {block content}
 {* Translated strings + IDs for archive-show.js's deleteMail() — a static file
    can't itself contain server-rendered translations, so they're threaded
@@ -22,14 +25,12 @@
    passed by ArchiveController — this template is also the moderation / bounce preview
    (ModerationController, BounceController), which have no list navigation and nothing to
    reply to: they get the plain "back" link instead. *}
-{ifset $nav}
-    {include '../list-actions.latte', nav: $nav, translator: $translator}
-{else}
+{if !isset($nav)}
     <p class="archive-show-header"><a href="{$backUrl}">&larr; {$backLabel}</a></p>
-{/ifset}
+{/if}
 
 <div class="card">
-    <h1>{($row['subject'] ?? '')}</h1>
+    <h2>{($row['subject'] ?? '')}</h2>
     <table>
         <tr><th>{$translator->trans('list.manage.sender')}</th><td>{($row['sender_name'] ?? $row['sender_local_part'] ?? $translator->trans('archive.unknown_sender'))}</td></tr>
         <tr><th>{$translator->trans('list.manage.timestamp')}</th><td data-utc="{str_replace(' ', 'T', $row['mail_date'])}Z">{$row['mail_date']}</td></tr>
