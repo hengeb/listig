@@ -89,17 +89,19 @@ class ListActionsTest extends TestCase
         return new ListConfig('news', 'news@example.org', ['archive' => 'members'], $resolver);
     }
 
-    public function testUnsubscribeIsOnlyOfferedOnTheInfoAndManagePages(): void
+    public function testUnsubscribeIsOfferedOnEveryPageToAMemberAndAsksFirst(): void
     {
         $list = $this->removableList();
         $member = ['email' => 'm@example.org'];
-        $this->assertContains('unsubscribe', $this->keys($this->actions()->forViewer($list, $member, 'info')));
-        $this->assertContains('unsubscribe', $this->keys($this->actions()->forViewer($list, ['email' => 'o@example.org'], 'manage')));
-        $item = array_values(array_filter($this->actions()->forViewer($list, $member, 'info')->items, fn($i) => $i['key'] === 'unsubscribe'))[0];
-        $this->assertSame('list.actions.unsubscribe_confirm', $item['confirm']['key'], 'unsubscribing asks first');
-        $this->assertSame(['%list%' => 'news'], $item['confirm']['params']);
-        $this->assertNotContains('unsubscribe', $this->keys($this->actions()->forViewer($list, $member)), 'dashboard');
-        $this->assertNotContains('unsubscribe', $this->keys($this->actions()->forViewer($list, $member, 'archive', true)), 'archive');
+        foreach ([['', false], ['info', false], ['archive', true], ['compose', false]] as [$page, $archiveContext]) {
+            $nav = $this->actions()->forViewer($list, $member, $page, $archiveContext);
+            $items = array_values(array_filter($nav->items, fn($i) => $i['key'] === 'unsubscribe'));
+            $this->assertCount(1, $items, "page '$page'");
+            $this->assertSame('list.actions.unsubscribe_confirm', $items[0]['confirm']['key'], 'unsubscribing asks first');
+            $this->assertSame(['%list%' => 'news'], $items[0]['confirm']['params']);
+        }
+        $this->assertContains('unsubscribe', $this->keys($this->actions()->forViewer($list, ['email' => 'o@example.org'], 'manage')), 'an owner who is also a member');
+        $this->assertNotContains('unsubscribe', $this->keys($this->actions()->forViewer($list, null)), 'guests have nothing to leave');
     }
 
     public function testJoinIsOfferedOnEveryPageToANonMemberOfAnOpenVisibleList(): void

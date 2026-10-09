@@ -24,8 +24,7 @@ final class ListActions
 
     /**
      * @param array{email: string}|null $user the session user, null for an anonymous viewer of a public archive
-     * @param string $current key of the page being shown, highlighted: 'info', 'manage', 'archive' or '' (none);
-     *     the Unsubscribe button appears only for 'info'/'manage'
+     * @param string $current key of the page being shown, highlighted: 'info', 'manage', 'archive' or '' (none)
      * @param bool $archiveContext label the write button "Start a new topic" — on the archive pages it is
      *     the counterpart of the per-mail "Reply" button
      */
@@ -61,9 +60,8 @@ final class ListActions
         if ($list->canJoin($identity)) {
             $add('join', "/_/api/join/{$list->name}", 'list.actions.join', null, null, true);
         }
-        // Unsubscribing is a deliberate act, offered only where the list itself is shown (manage / info
-        // page) — not on the dashboard, not next to the archive.
-        if (in_array($current, ['manage', 'info'], true) && $identity !== null && $list->isMember($identity) && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
+        // Unsubscribe: on every page like the other buttons (it asks for confirmation, see below).
+        if ($identity !== null && $list->isMember($identity) && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
             $member = $list->findMemberInList($identity);
             // 'u' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
             $token = $this->tokenService->sign('u', $list->name, $member?->attributes['username'] ?? $identity);
