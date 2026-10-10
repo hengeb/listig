@@ -110,7 +110,7 @@ Falling back to a plain (non-inline) attachment for such a part would "fix" the 
 
 | Header | Value |
 |---|---|
-| `From` | `smtp-from-name <list-mail>` — `smtp-from-name` may contain mail-context variables |
+| `From` | `smtp-from-name <list-mail>` — `smtp-from-name` may contain mail-context variables; with `from-address: masked` the address is the sender's `+r-` address ([Masked From address](masked-replies.md#masked-from-address)) |
 | `Sender` | `{list->localPart}+bounce@{list->domain}` — local part of the list's own mail address, not `{list-cn}` (see [Envelope separation](worker-and-queue.md#envelope-separation)) |
 | `Reply-To` | List address (`List`), original sender (`Sender`), both (`Both`), a translated "please do not reply" display name on `noreply@{list->domain}.invalid` (`Nobody`), or a signed `{list->localPart}+r-{TOKEN}@{list->domain}` address that hides the sender (`MaskedSender`/`MaskedBoth`) — see `ReplyToBehavior` and [Masked reply addresses](masked-replies.md#masked-reply-addresses) |
 | `X-Original-Sender-Address` | The original sender's address — only when `sender-address-header` is `always`, or `external` and the sender is not a member (default `never`); see [Masked reply addresses](masked-replies.md#masked-reply-addresses) |

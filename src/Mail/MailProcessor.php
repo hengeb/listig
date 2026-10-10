@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Mail;
 
 use Hengeb\Listig\Config\Enum\PostAccess;
+use Hengeb\Listig\Config\Enum\FromAddress;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\Enum\SenderAddressHeader;
 use Hengeb\Listig\Config\ListConfig;
@@ -54,7 +55,7 @@ class MailProcessor
         // is a reply relayed to that address's owner — IncomingMailFilter has already
         // verified sender, list and target; a target that vanished since (e.g. between
         // moderation and accept) throws and is handled by the processing-failure limit.
-        $replyToken = $list->replyTo->relayMode() !== null && $list->subaddressMemberTemplates === null
+        $replyToken = $list->subaddressMemberTemplates === null
             ? $this->replyTargetStore->extractToken($incomingMail, $list)
             : null;
         $replyTarget = null;
@@ -91,13 +92,13 @@ class MailProcessor
         $subaddress = SubaddressExtractor::extract($incomingMail, $list);
 
         $listContext  = $list->createContext();
-        $mailContext  = $this->buildMailContext($senderMember, $rawFromHeader, $subaddress);
+        $mailContext  = $this->buildMailContext($senderMember, $rawFromHeader, $subaddress, $list);
         $mailContexts = [$listContext, $mailContext];
 
         // A relayed reply is governed by the relay mode, not by the list's own reply-to:
         // on a sender/both list it is a private message too, so its Reply-To must be the
         // replier's token (anonymous back-and-forth), not the list — see ReplyToBehavior::relayMode().
-        $replyMode = $replyTarget !== null ? ($list->replyTo->relayMode() ?? $list->replyTo) : $list->replyTo;
+        $replyMode = $replyTarget !== null ? $list->replyTo->relayMode() : $list->replyTo;
         $this->setOutgoingHeaders($email, $list, $senderEmail, $mailContexts, $replyMode);
 
         // An external reply target gets a plain mail: no list label, footer or List-*
@@ -111,6 +112,8 @@ class MailProcessor
                 $externalHeaders->remove($name);
             }
             $externalEmail->replyTo(new Address($list->mail));
+            // An outsider can't use a token address: they get the list address as From.
+            $externalEmail->from(new Address($list->mail, $email->getFrom()[0]->getName()));
         }
 
         $this->applySubjectLabel($email, $list, $mailContexts);
@@ -327,7 +330,7 @@ class MailProcessor
      * self-chosen attribute value containing '{' must never be treated as a
      * template to recurse into — see "Untrusted input in {} templates" in docs/architecture/security-and-tokens.md.
      */
-    private function buildMailContext(Member $senderMember, string $rawFromHeader, ?string $subaddress): array
+    private function buildMailContext(Member $senderMember, string $rawFromHeader, ?string $subaddress, ListConfig $list): array
     {
         $context = [];
         foreach ($senderMember->attributes as $key => $value) {
@@ -335,6 +338,17 @@ class MailProcessor
         }
         $context['sender-mail'] = new Literal($senderMember->email);
         $context['subaddress'] = new Literal($subaddress ?? '');
+        // `{sender-reply-address}`: the masked `+r-` address that reaches only the sender
+        // (private relay, see ReplyTargetStore) — for a footer / personalized text, in any
+        // reply-to mode. Issued lazily, so a token row is only created when a template uses it.
+        $senderEmail = $senderMember->email;
+        $replyAddress = null;
+        $context['sender-reply-address'] = function () use ($list, $senderEmail, &$replyAddress): string {
+            if ($senderEmail === '' || $list->subaddressMemberTemplates !== null) {
+                return '';
+            }
+            return $replyAddress ??= "{$list->localPart}+r-" . $this->replyTargetStore->tokenFor($list, $senderEmail) . "@{$list->domain}";
+        };
         $context['sender-name'] = function (array $contexts, ResolutionPurpose $purpose) use ($rawFromHeader): string {
             // Try display name from From header
             if ($rawFromHeader !== '' && preg_match('/^(.+?)\s*</', $rawFromHeader, $m)) {
@@ -383,7 +397,13 @@ class MailProcessor
         $fromName = $list->smtpFromName !== null
             ? VariableResolver::resolve($list->smtpFromName, $contexts, ResolutionPurpose::Disclosed)
             : $list->displayName;
-        $email->from(new Address($list->mail, $fromName));
+        // `from-address: masked`: the sender's own `+r-` address, so "reply to sender" in a mail
+        // client reaches them through the relay. Not on type: subaddress lists (no relay there).
+        $fromAddress = $list->mail;
+        if ($list->fromAddress === FromAddress::Masked && $senderEmail !== '' && $list->subaddressMemberTemplates === null) {
+            $fromAddress = "{$list->localPart}+r-" . $this->replyTargetStore->tokenFor($list, $senderEmail) . "@{$list->domain}";
+        }
+        $email->from(new Address($fromAddress, $fromName));
 
         $senderHeader = "{$list->localPart}+bounce@{$list->domain}";
         $headers->remove('sender');

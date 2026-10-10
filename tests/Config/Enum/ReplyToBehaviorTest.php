@@ -11,9 +11,9 @@ class ReplyToBehaviorTest extends TestCase
 {
     public function testRelayModePerReplyTo(): void
     {
-        $this->assertNull(ReplyToBehavior::List->relayMode());
-        $this->assertNull(ReplyToBehavior::Nobody->relayMode());
-        // sender/both only relay for the archive's "reply to the author" button: private, like masked-sender.
+        // every mode relays; all but masked-both privately (list/nobody/sender/both: archive button, {sender-reply-address}).
+        $this->assertSame(ReplyToBehavior::MaskedSender, ReplyToBehavior::List->relayMode());
+        $this->assertSame(ReplyToBehavior::MaskedSender, ReplyToBehavior::Nobody->relayMode());
         $this->assertSame(ReplyToBehavior::MaskedSender, ReplyToBehavior::Sender->relayMode());
         $this->assertSame(ReplyToBehavior::MaskedSender, ReplyToBehavior::Both->relayMode());
         $this->assertSame(ReplyToBehavior::MaskedSender, ReplyToBehavior::MaskedSender->relayMode());

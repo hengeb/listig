@@ -26,6 +26,7 @@ These are available in `smtp-from-name` and similar fields that describe the out
 |---|---|
 | `{sender-name}` | Display name from `From:` header; falls back to `{sender-firstname} {sender-lastname}`; falls back to localpart of sender address |
 | `{sender-mail}` | Sender email address |
+| `{sender-reply-address}` | Masked `{localPart}+r-{TOKEN}@{domain}` address that reaches only the sender (private relay, any `reply-to` mode; empty on `type: subaddress` lists). Use it e.g. as `mailto:{sender-reply-address}` in the footer or a personalized text; the sender's real address stays hidden. The token row is created when a template first uses it |
 | `{sender-` + any attribute`}` | Every key in the sender `Member`'s `$attributes`, prefixed `sender-` — e.g. `{sender-firstname}`, `{sender-employeeNumber}` for an LDAP sender. See [Member attributes — fully dynamic](providers-and-members.md#member-attributes--fully-dynamic); nothing beyond `sender-mail` is fixed |
 | `{subaddress}` | The `+subaddress` portion of the incoming mail's recipient address relative to `{list-mail}`'s local part and domain, e.g. `alice` for `fwd+alice@example.org`; empty string if the mail had none. Used by `type: subaddress` lists (see [type: subaddress — subaddress forwarding](providers-and-members.md#type-subaddress--subaddress-forwarding)), but computed for every list |
 

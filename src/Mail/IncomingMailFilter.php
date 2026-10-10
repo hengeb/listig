@@ -248,9 +248,6 @@ class IncomingMailFilter
      */
     private function checkMaskedReply(ListConfig $list, string $senderEmail, string $token): ?FilterResult
     {
-        if ($list->replyTo->relayMode() === null) {
-            return FilterResult::reject('reject.reply_not_enabled');
-        }
         if ($list->isSenderRestricted($senderEmail)) {
             return FilterResult::reject('reject.sender_restricted');
         }

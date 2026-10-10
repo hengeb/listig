@@ -8,7 +8,7 @@ Two needs: (1) a group sharing one official address (`kontakt@`) must be able to
 
 ## Decision
 
-Two new `ReplyToBehavior` values, `masked-sender` and `masked-both`. `Reply-To` is a single `{localPart}+r-{TOKEN}@{domain}` address; token = `TokenService::sign('p', ListFingerprint::of($list), $replyTargetId)` (180 days) referencing a `reply_targets` row `(list_cn, kind, target_key)`. A member is stored by `username` (else address) and resolved live, so an address change is followed; an external by address. A reply to a token is filtered like list mail (`checkMaskedReply()`: only member/owner/`senders:`; `post-access-members` only for `masked-both`), then relayed From the list address; `masked-both` additionally distributes to the group server-side. An external target gets a plain copy. `masked-sender` replies are private: deleted from IMAP, never archived. A `mailto:` link issued by a web form (`ComposeController`) covers the first mail to an external address. `sender-address-header` is an opt-in way to show the real sender.
+Two new `ReplyToBehavior` values, `masked-sender` and `masked-both`. `Reply-To` is a single `{localPart}+r-{TOKEN}@{domain}` address; token = `TokenService::sign('p', ListFingerprint::of($list), $replyTargetId)` (no expiry) referencing a `reply_targets` row `(list_cn, kind, target_key)`. A member is stored by `username` (else address) and resolved live, so an address change is followed; an external by address. A reply to a token is filtered like list mail (`checkMaskedReply()`: only member/owner/`senders:`; `post-access-members` only for `masked-both`), then relayed From the list address; `masked-both` additionally distributes to the group server-side. An external target gets a plain copy. `masked-sender` replies are private: deleted from IMAP, never archived. A `mailto:` link issued by a web form (`ComposeController`) covers the first mail to an external address. `sender-address-header` is an opt-in way to show the real sender.
 
 ## Alternatives considered
 
@@ -22,6 +22,7 @@ Two new `ReplyToBehavior` values, `masked-sender` and `masked-both`. `Reply-To` 
 ## Consequences
 
 - A token leaking beyond its recipient is harmless: using it requires being a member, and the lookup is list-bound.
-- Tokens sent in the past stay valid for 180 days; after a mode change they are rejected (`reject.reply_not_enabled`) rather than leaking a private reply to the group.
+- Tokens carry no expiry (the DB row decides; unused `external` rows are purged after 180 days), so they stay valid while the member is on the list; the relay works in every `reply-to` mode, and a private relay (anything but `masked-both`) never reaches the group, so a mode change cannot leak a private reply.
 - The real sender is invisible to members unless `sender-address-header` or the footer variable `{sender-mail}` is used; document that either exposes the address to every member.
 - `ReplyTargetStore` uses a MySQL-specific upsert and is verified live, not in the unit suite.
+- `from-address: masked` ([Masked From address](../architecture/masked-replies.md#masked-from-address)) reuses the same token as the sender's From, which is why the token no longer expires.

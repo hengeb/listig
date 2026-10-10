@@ -100,6 +100,29 @@ class MailProcessorThreadReplyTest extends TestCase
         $this->assertSame(['news@example.org'], array_map(fn($a) => $a->getAddress(), $email->getTo()));
     }
 
+    public function testSenderReplyAddressVariableResolvesToTheMaskedAddressInAnyMode(): void
+    {
+        foreach (['list', 'nobody', 'sender'] as $mode) {
+            $targets = $this->createStub(ReplyTargetStore::class);
+            $targets->method('tokenFor')->willReturn('TOK');
+            $email = $this->process('news@example.org', null, '', ['reply-to' => $mode, 'footer' => 'Privat: {sender-reply-address}'], $targets);
+            $this->assertStringContainsString('Privat: news+r-TOK@example.org', $email->getBody()->bodyToString(), $mode);
+            $this->assertStringNotContainsString('m@example.org', $email->getBody()->bodyToString(), $mode);
+        }
+    }
+
+    public function testMaskedFromAddressUsesTheSendersRelayAddress(): void
+    {
+        $targets = $this->createStub(ReplyTargetStore::class);
+        $targets->method('tokenFor')->willReturn('TOK');
+        $email = $this->process('news@example.org', null, '', ['reply-to' => 'list', 'from-address' => 'masked'], $targets);
+        $this->assertSame('news+r-TOK@example.org', $email->getFrom()[0]->getAddress());
+        $this->assertSame('news@example.org', $email->getReplyTo()[0]->getAddress());
+
+        $plain = $this->process('news@example.org', null, '', ['reply-to' => 'list'], $targets);
+        $this->assertSame('news@example.org', $plain->getFrom()[0]->getAddress());
+    }
+
     public function testPlainMailIsUntouched(): void
     {
         $email = $this->process('news@example.org', null);

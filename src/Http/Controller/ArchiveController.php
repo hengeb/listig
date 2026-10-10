@@ -242,8 +242,7 @@ class ArchiveController
     /**
      * `mailto:` that answers only the author, through a masked `+r-` address (the author's real
      * address never reaches the page). Only for a subscriber (member or owner) — the relay
-     * itself refuses everyone else — on a list that relays replies (`reply-to` other than
-     * `list`/`nobody`: either the address is sent along anyway or the relay hides it), when
+     * itself refuses everyone else — on a list that relays replies (every `reply-to`; not `type: subaddress`), when
      * the viewer may use the relay at all, the author is not the viewer, and the author is a
      * list member or outsiders may be written to (post-access-public != deny, like the compose form).
      */
@@ -251,7 +250,7 @@ class ArchiveController
     {
         $author = $mail->fromAddress ?? '';
         $relayMode = $list->replyTo->relayMode();
-        if ($identity === null || $author === '' || $relayMode === null || $list->subaddressMemberTemplates !== null) {
+        if ($identity === null || $author === '' || $list->subaddressMemberTemplates !== null) {
             return null;
         }
         $viewer = $list->findMemberInList($identity) ?? $list->findOwnerInList($identity);

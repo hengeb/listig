@@ -77,7 +77,7 @@ loop forever:
         - DELETE FROM bounce_log WHERE bounced_at < NOW() - INTERVAL 90 DAY
         - DELETE FROM processing_failures WHERE last_attempt_at < NOW() - INTERVAL 31 DAY (safety net, see below)
         - QueueSender::purgeCompletedEntries() — finished queue entries older than 30 days
-        - ReplyTargetStore::purgeUnused() — reply_targets unused for 180 days
+        - ReplyTargetStore::purgeUnused() — `external` reply_targets unused for 180 days
     5. sleep(sleep-seconds, see 'worker.sleep-seconds' above)
 ```
 

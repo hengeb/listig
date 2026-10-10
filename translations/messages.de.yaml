@@ -36,7 +36,6 @@ reject:
   members_denied: "Listenmitglieder dürfen aktuell nicht an diese Liste posten"
   public_denied: "Nur Listenmitglieder dürfen an diese Liste posten"
   sender_restricted: "Diese Adresse ist derzeit vom Schreiben auf dieser Liste ausgeschlossen"
-  reply_not_enabled: "Diese Antwortadresse ist für diese Liste nicht mehr gültig"
   reply_not_allowed: "Nur Listenmitglieder dürfen diese Antwortadresse verwenden"
   reply_thread_unknown: "Die Mail, auf die du antwortest, ist nicht mehr im Archiv, oder der Antwort-Link ist abgelaufen. Bitte schreibe stattdessen eine neue Mail an die Listenadresse."
   reply_target_unknown: "Diese Antwortadresse ist abgelaufen oder der Empfänger ist nicht mehr erreichbar"

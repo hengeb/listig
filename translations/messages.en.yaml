@@ -36,7 +36,6 @@ reject:
   members_denied: "List members are currently not allowed to post to this list"
   public_denied: "Only list members may post to this list"
   sender_restricted: "This address is currently blocked from posting to this list"
-  reply_not_enabled: "This reply address is no longer valid for this list"
   reply_not_allowed: "Only list members may use this reply address"
   reply_thread_unknown: "The mail you replied to is no longer in the archive, or the reply link has expired. Please write a new mail to the list address instead."
   reply_target_unknown: "This reply address has expired or the recipient is no longer reachable"

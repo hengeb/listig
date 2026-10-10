@@ -26,7 +26,7 @@ class ReplyTargetStore
     /** Token purpose code — see docs/architecture/security-and-tokens.md "Short purpose codes". */
     public const string PURPOSE = 'p';
 
-    /** Also the retention of unused rows, see purgeUnused(). */
+    /** Retention of unused `external` rows, see purgeUnused(). The token itself never expires (the row is the boundary). */
     public const int MAX_AGE_DAYS = 180;
 
     public function __construct(
@@ -70,7 +70,7 @@ class ReplyTargetStore
     public function find(ListConfig $list, string $token): ?array
     {
         try {
-            [$fingerprint, $id] = $this->tokenService->verify($token, self::PURPOSE, self::MAX_AGE_DAYS * 86400);
+            [$fingerprint, $id] = $this->tokenService->verify($token, self::PURPOSE, PHP_INT_MAX);
         } catch (\InvalidArgumentException) {
             return null;
         }
@@ -154,6 +154,6 @@ class ReplyTargetStore
 
     public function purgeUnused(): void
     {
-        $this->db->exec('DELETE FROM reply_targets WHERE last_used_at < NOW() - INTERVAL ' . self::MAX_AGE_DAYS . ' DAY');
+        $this->db->exec('DELETE FROM reply_targets WHERE kind = \'external\' AND last_used_at < NOW() - INTERVAL ' . self::MAX_AGE_DAYS . ' DAY');
     }
 }

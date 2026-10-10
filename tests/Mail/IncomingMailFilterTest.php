@@ -98,10 +98,10 @@ class IncomingMailFilterTest extends TestCase
         $this->assertSame('reject.reply_not_allowed', $result->reason);
     }
 
-    public function testReplyTokenOnNonMaskedListIsRejected(): void
+    public function testReplyTokenOnAListModeListIsRelayedPrivately(): void
     {
-        $result = $this->runReply(['reply-to' => 'list'], 'm@example.org');
-        $this->assertSame('reject.reply_not_enabled', $result->reason);
+        $this->assertTrue($this->runReply(['reply-to' => 'list', 'post-access-members' => 'moderate'], 'm@example.org')->isDistribute);
+        $this->assertSame('reject.reply_not_allowed', $this->runReply(['reply-to' => 'list'], 'x@example.com')->reason);
     }
 
     public function testReplyTokenWithUnresolvableTargetIsRejected(): void
@@ -129,11 +129,10 @@ class IncomingMailFilterTest extends TestCase
     public function testReplyRelayAlsoWorksOnSenderAndBothLists(): void
     {
         // Used by the archive's "reply to the author" button — a private message, never moderated.
-        foreach (['sender', 'both'] as $mode) {
+        foreach (['sender', 'both', 'list', 'nobody'] as $mode) {
             $result = $this->runReply(['reply-to' => $mode, 'post-access-members' => 'moderate'], 'm@example.org');
             $this->assertTrue($result->isDistribute, $mode);
         }
-        $this->assertSame('reject.reply_not_enabled', $this->runReply(['reply-to' => 'nobody'], 'm@example.org')->reason);
     }
 
     private function runThreadReply(?array $resolved, ?string $token = 'tok'): \Hengeb\Listig\Mail\FilterResult

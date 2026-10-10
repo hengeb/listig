@@ -10,6 +10,7 @@ use Hengeb\Listig\Config\Enum\BounceAction;
 use Hengeb\Listig\Config\Enum\JoinPolicy;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
+use Hengeb\Listig\Config\Enum\FromAddress;
 use Hengeb\Listig\Config\Enum\SenderAddressHeader;
 use Hengeb\Listig\Config\Enum\SenderNotices;
 use Hengeb\Listig\Config\Enum\Visibility;
@@ -65,6 +66,7 @@ class ListConfig
         'sender-notice-interval' => '1 hour',
         'max-per-sender' => '5',
         'sender-address-header' => 'never',
+        'from-address' => 'list',
         'bounce-action' => 'none',
         'max-size' => '5M',
         'imap-port' => '993',
@@ -637,6 +639,11 @@ class ListConfig
      * Default `none`: no automatic mutation of member data until an operator
      * opts in explicitly, same safe-by-default philosophy as `archive: off`.
      */
+    /** Default 'list'. `masked`: From is the sender's `+r-` address — see docs/architecture/masked-replies.md "Masked From address". */
+    public FromAddress $fromAddress {
+        get => FromAddress::from($this->resolve($this->setting('from-address')));
+    }
+
     /**
      * Default 'never'. See MailProcessor::setOutgoingHeaders() / docs/architecture/masked-replies.md "Masked
      * reply addresses".
