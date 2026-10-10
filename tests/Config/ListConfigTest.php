@@ -332,6 +332,13 @@ class ListConfigTest extends TestCase
         $this->assertSame(0, (new ListConfig('l', 'l@example.org', ['sender-notice-interval' => '0']))->senderNoticeInterval);
     }
 
+    public function testTrustedAuthservIdMayReferenceTheMailHost(): void
+    {
+        $list = new ListConfig('l', 'l@example.org', ['mail-host' => 'Mail.Example.org', 'trusted-authserv-id' => '{mail-host}']);
+        $this->assertSame(['mail.example.org'], $list->trustedAuthservIds);
+        $this->assertNotContains('*classified*', $list->trustedAuthservIds);
+    }
+
     public function testInvalidSenderNoticeIntervalFailsFast(): void
     {
         $this->expectException(\RuntimeException::class);

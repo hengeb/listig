@@ -576,7 +576,9 @@ class ListConfig
             $raw = $this->raw['trusted-authserv-id'] ?? [];
             $ids = [];
             foreach (is_array($raw) ? $raw : [$raw] as $item) {
-                foreach (preg_split('/[\s,]+/', $this->resolve((string) $item), -1, PREG_SPLIT_NO_EMPTY) as $id) {
+                // Trusted: the ids are only compared with a header, never shown to anybody, so they may
+                // reference a blocked key such as `{mail-host}` (the usual case: the MTA is the mail host).
+                foreach (preg_split('/[\s,]+/', $this->resolve((string) $item, ResolutionPurpose::Trusted), -1, PREG_SPLIT_NO_EMPTY) as $id) {
                     $ids[] = strtolower($id);
                 }
             }
