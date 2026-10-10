@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Member;
 
+use Hengeb\Listig\Config\ConnectionConfig;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
 
 /**
@@ -27,6 +28,9 @@ class MemberResolverFactory
         if ($resolverConfig === null) {
             return new NullMemberResolver();
         }
+        // A member-resolver's own connection keys may be composed too (`ldap-bind-dn: cn=admin,{ldap-base-dn}`),
+        // looking up what they don't define themselves in the provider's config.
+        $resolverConfig = ConnectionConfig::resolve($resolverConfig, $resolvedProviderConfig);
 
         return match ($resolverConfig['type'] ?? '') {
             'database' => new DatabaseMemberResolver(

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Provider;
 
 use Hengeb\Listig\Config\ConfigResolver;
+use Hengeb\Listig\Config\ConnectionConfig;
 use Hengeb\Listig\Config\ListConfig;
 
 /**
@@ -87,7 +88,7 @@ abstract class AbstractListProvider implements ListProvider
      */
     protected function resolvedProviderConfig(): array
     {
-        return $this->resolvedProviderConfigCache ??= $this->configResolver->resolveListConfig($this->providerConfig);
+        return $this->resolvedProviderConfigCache ??= ConnectionConfig::resolve($this->configResolver->resolveListConfig($this->providerConfig));
     }
 
     /**

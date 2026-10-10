@@ -118,6 +118,10 @@ The resolver:
 
 Blocking happens at the single point of `{}` resolution, not by pre-filtering the context array, so it also protects code that resolves before any `ListConfig` exists (`list-mail`) — see [ADR-0014](../adr/0014-block-credentials-at-resolution-time.md).
 
+## Connection settings
+
+The connection values of a provider and of the database — `ldap-host`, `ldap-base-dn`, `ldap-bind-dn`, `ldap-list-dn`, `ldap-filter`, `ldap-empty-group-member`, `db-host`, `db-port`, `db-name`, `db-user` — may contain `{key}` placeholders, resolved by `Config\ConnectionConfig::resolve()` against the same merged config (`ldap-bind-dn: "cn=admin,{ldap-base-dn}"`; for a `member-resolver:` sub-config also against the provider's config). They are resolved **`Trusted`**, because they are only ever used to connect and never shown to anybody, so they may reference blocked keys (`{mail-user}`) which a user-visible template (`footer`, `list-label`, ...) may not — that is what the blocked-key list guards against ([ADR-0014](../adr/0014-block-credentials-at-resolution-time.md)). Applied where the config is first read: `AbstractListProvider::resolvedProviderConfig()`, the `PDO` entry in `config/container.php`, `MemberResolverFactory::create()` and the health check. The passwords (`ldap-bind-password`, `db-password`) are never resolved: a password may contain `{...}`, which must not be read as a placeholder; reference a secret through `$VAR` instead.
+
 ## Which `ListConfig` properties are template-resolved, and against which context
 
 Every property backed by a raw config value is resolved via `ListConfig`'s private `resolve()` before being cast/validated to its final type (`(int)`, `Enum::from()`, `'on'`/`'off'` comparison, ...) — not just plain string properties. This matters: without it, e.g. `smtp-port: "{port-tls}"` would silently produce `0` (an unresolved `"{port-tls}"` string cast to `int`), and `reply-to: "{my-alias}"` would throw an uncaught `ValueError` from `ReplyToBehavior::from()`.

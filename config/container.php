@@ -11,6 +11,7 @@ use Hengeb\Listig\Archive\ArchiveMailResolver;
 use Hengeb\Listig\Archive\ArchiveSynchronizer;
 use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
+use Hengeb\Listig\Config\ConnectionConfig;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Logging\LogLevel;
 use Hengeb\Listig\Http\Controller\MembershipController;
@@ -82,7 +83,7 @@ $builder->addDefinitions([
 
     // Global PDO — resolved from the 'database' block in config.yml via the factory
     PDO::class => function (ContainerInterface $c): PDO {
-        $cfg = $c->get(ConfigResolver::class)->getResolvedDefault();
+        $cfg = ConnectionConfig::resolve($c->get(ConfigResolver::class)->getResolvedDefault());
         return $c->get(DatabaseConnectionFactory::class)->getConnection($cfg);
     },
 

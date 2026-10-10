@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Hengeb\Listig\Config\ConfigResolver;
+use Hengeb\Listig\Config\ConnectionConfig;
 use Hengeb\Listig\Http\Controller\ArchiveController;
 use Hengeb\Listig\Http\Controller\BounceController;
 use Hengeb\Listig\Http\Controller\AuthController;
@@ -165,7 +166,7 @@ function checkLdapReachability(ConfigResolver $configResolver): bool
         // silently skipped it — the loop below never ran and this function returned
         // true without ever actually attempting a connection, regardless of whether
         // LDAP was reachable at all.
-        $resolved = $configResolver->resolveListConfig($config);
+        $resolved = ConnectionConfig::resolve($configResolver->resolveListConfig($config));
         $type = $resolved['type'] ?? '';
         $type = $type !== '' ? $type : $name;
 
@@ -180,6 +181,7 @@ function checkLdapReachability(ConfigResolver $configResolver): bool
         // needs no resolveListConfig() pass of its own.
         $memberResolverConfig = $config['member-resolver'] ?? [];
         if (($memberResolverConfig['type'] ?? null) === 'ldap') {
+            $memberResolverConfig = ConnectionConfig::resolve($memberResolverConfig, $resolved);
             $key = $memberResolverConfig['ldap-host'] . '|' . $memberResolverConfig['ldap-bind-dn'];
             $servers[$key] = $memberResolverConfig;
         }
