@@ -354,8 +354,10 @@ class LdapMemberResolver implements MemberResolver
     private function connect(): Ldap
     {
         if ($this->ldap === null) {
-            $this->ldap = Ldap::create('ext_ldap', ['connection_string' => $this->ldapHost]);
-            $this->ldap->bind($this->bindDn, $this->bindPassword);
+            $ldap = Ldap::create('ext_ldap', ['connection_string' => $this->ldapHost]);
+            // Cached only after a successful bind — see LdapListProvider::connect().
+            $ldap->bind($this->bindDn, $this->bindPassword);
+            $this->ldap = $ldap;
         }
         return $this->ldap;
     }

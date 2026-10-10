@@ -201,13 +201,17 @@ class LdapListProvider extends AbstractListProvider
     {
         if ($this->ldap === null) {
             $config = $this->resolvedProviderConfig();
-            $this->ldap = Ldap::create('ext_ldap', [
+            $ldap = Ldap::create('ext_ldap', [
                 'connection_string' => $config['ldap-host'],
             ]);
-            $this->ldap->bind(
+            // Kept only once the bind succeeded: a failed bind used to leave the unbound connection
+            // cached, so every later call failed with the misleading "Query execution is not possible
+            // without binding the connection first" instead of the real reason (e.g. an invalid DN).
+            $ldap->bind(
                 $config['ldap-bind-dn'],
                 $config['ldap-bind-password'],
             );
+            $this->ldap = $ldap;
         }
         return $this->ldap;
     }
