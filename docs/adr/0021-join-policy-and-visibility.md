@@ -9,7 +9,7 @@ Status: Accepted
 ## Decision
 
 - **`public-subscribe` and the unauthenticated path are removed.** `POST /{listname}/subscribe` (double opt-in mail) needs the Bearer token, via `ApiTokenMiddleware`. No migration message for old configs: an unknown key is simply ignored.
-- **`join-policy: open | invite | request`** (default `invite`). Only `open` is implemented: an authenticated user who can see the list gets a "Join" button; the click adds them immediately (`JoinController`, CSRF-protected). The address is confirmed by the login, so no confirmation mail. `invite` and `request` are displayed in the list info only. Guests never get a join option.
+- **`join-policy: open | invite | request`** (default `invite`). Only `open` is implemented: an authenticated user who can see the list gets a "Join" button; the click adds them immediately (`MembershipController`, CSRF-protected). The address is confirmed by the login, so no confirmation mail. `invite` and `request` are displayed in the list info only. Guests never get a join option.
 - **`visibility: public | members | hidden`** (default `members`) decides who sees the list in the dashboard and on `/{listname}` (404 otherwise): every authenticated user / members and owners / owners only. Owners always see their lists.
 - `MemberResolver::supportsAddition()` (like `supportsRemoval()`) lets the UI offer "Join" only where the store can take members.
 

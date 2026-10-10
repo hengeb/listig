@@ -35,6 +35,7 @@ YAML key).
 | POST | `/_/api/moderation/{id}/accept` | owner | Accept moderation item |
 | POST | `/_/api/moderation/{id}/reject` | owner | Reject moderation item |
 | GET | `/{listname}/compose` | user | Form for a first mail to an external address — see [Masked reply addresses](../architecture/masked-replies.md#masked-reply-addresses) |
+| POST | `/_/api/leave/{listname}` | member | Leave a list the logged-in user is a member of (the "Unsubscribe" button) |
 | POST | `/_/api/join/{listname}` | user | Join an `open`, visible list as the logged-in user — see [Join / visibility](../architecture/web-ui.md#visibility-and-join-policy) |
 | POST | `/_/api/compose/{listname}` | user | Issue the masked address for the entered recipient (returns a `mailto:` link) |
 | GET | `/{listname}/moderation/{id}` | owner | Preview a still-pending mail — see [Preview: pending mail](../architecture/moderation.md#preview-pending-mail) |
@@ -48,7 +49,8 @@ YAML key).
 | DELETE | `/_/api/queue/{id}` | owner | Delete failed entry |
 | POST | `/_/api/queue/{id}/retry` | owner | Retry failed entry |
 | DELETE | `/_/api/archive/{listname}/{id}` | owner | Permanently delete a single archived mail (IMAP + index) — see [Deleting an archived mail](../architecture/archive.md#archive-viewer) |
-| GET | `/{listname}/unsubscribe` | — | Token-based unsubscribe |
+| GET | `/{listname}/unsubscribe` | token | Confirmation page for the unsubscribe link of a mail — changes nothing, see [Unsubscribe endpoint](../architecture/web-ui.md#unsubscribe-endpoint) |
+| POST | `/{listname}/unsubscribe` | token | Unsubscribe (the confirmation form and RFC 8058 one-click) |
 | GET | `/{listname}/archive` | per-list `archive` mode | Archive: threaded table view — see [Archive viewer](../architecture/archive.md#archive-viewer) |
 | GET | `/{listname}/archive/{id}` | per-list `archive` mode | Archive: single message |
 | GET | `/{listname}/archive/{id}/frame` | per-list `archive` mode | Archive: sandboxed HTML body |

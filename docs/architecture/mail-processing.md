@@ -166,21 +166,9 @@ Body parts: rebuilt immutably via `new TextPart(…)` + `Email::setBody()`.
 - Append HTML to HTML part, plaintext to text part
 - Footer is appended after personalization; footer content may itself contain list-context variables (resolved at append time)
 
-## MIME deduplication
+## Shared mail bodies (MIME deduplication)
 
-```php
-$mimeString = $email->toString();
-$hash = hash('sha256', $listCn . ':' . $mimeString);
-$db->execute(
-    'INSERT INTO mail_queue (id, list_cn, mime, created_at) VALUES (?, ?, ?, NOW())
-     ON DUPLICATE KEY UPDATE id=id',
-    [$hash, $listCn, $mimeString]
-);
-$db->execute(
-    'INSERT INTO queue_recipients (mail_queue_id, envelope_to) VALUES (?, ?)',
-    [$hash, $envelopeTo]
-);
-```
+`QueueWriter::enqueue()` stores a mail as **headers per recipient + one shared body** ([ADR-0023](../adr/0023-shared-mail-bodies-in-the-queue.md)). `Queue\QueueMime::split($email)` returns the message headers (`Email::getPreparedHeaders()`, which differ per recipient — the `List-Unsubscribe` token is one of them) and the body (`Email::getBody()->toString()`: the top-level part's own headers plus all the content); together they are exactly `Email::toString()`. The body goes into `mail_bodies` under `QueueMime::bodyKey()` — a SHA-256 over the body with the random multipart boundaries replaced by numbered placeholders, since every part picks new boundaries when serialized — and is stored once however many recipients get it. `mail_queue` keeps the recipient's `headers` and the `body_id`; `mail_queue.id` is `sha256(list_cn : headers : body_id)`, so recipients with identical headers still share a row. A body is only shared among recipients who get the same content: with `personalize` keys or recipient variables in the footer it is one per recipient. `QueueSender` assembles `headers . body` when sending; rows from before migration 008 carry their whole `mime` and are sent unchanged.
 
 ## Recipient filtering
 

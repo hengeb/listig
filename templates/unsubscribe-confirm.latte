@@ -1,0 +1,17 @@
+{layout '../templates/layout.latte'}
+
+{block title}{$translator->trans('unsubscribe_page.title', ['%app_name%' => $appName])}{/block}
+
+{* GET of a footer / List-Unsubscribe link: nothing has happened yet. The button POSTs to the same
+   URL (token in the query string), see UnsubscribeController. *}
+{block content}
+<div class="narrow-page">
+    <div class="card text-center">
+        <p>{$translator->trans($moderated ? 'unsubscribe_page.confirm_request' : 'unsubscribe_page.confirm', ['%list%' => $list->displayName])}</p>
+        <form method="post" action="{$action}">
+            <button type="submit" class="btn btn-primary">{$translator->trans($moderated ? 'unsubscribe_page.request_button' : 'unsubscribe_page.confirm_button')}</button>
+            <a href="/" class="btn btn-secondary">{$translator->trans('unsubscribe_page.cancel')}</a>
+        </form>
+    </div>
+</div>
+{/block}

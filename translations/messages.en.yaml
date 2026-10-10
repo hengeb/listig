@@ -129,6 +129,11 @@ join:
 unsubscribe_page:
   title: "Unsubscribe – %app_name%"
   back_home: "Back to homepage"
+  confirm: "Do you really want to unsubscribe from the list %list%?"
+  confirm_request: "Do you want to ask the owners of the list %list% to remove you?"
+  confirm_button: "Unsubscribe"
+  request_button: "Send request"
+  cancel: "Cancel"
 
 subscribe:
   token_invalid: "Invalid token"

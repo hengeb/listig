@@ -190,6 +190,10 @@ class LdapListProvider extends AbstractListProvider
             $config['ldap-base-dn'],
             $config['ldap-bind-dn'],
             $config['ldap-bind-password'],
+            // The list's group is found where lists are listed: under ldap-list-dn, matching ldap-filter.
+            $config['ldap-list-dn'] ?? $config['ldap-base-dn'],
+            $config['ldap-filter'] ?? '(objectClass=mailGroup)',
+            $config['ldap-empty-group-member'] ?? null,
         );
     }
 

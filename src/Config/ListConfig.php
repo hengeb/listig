@@ -105,16 +105,36 @@ class ListConfig
         }
     }
 
+    /**
+     * Members and owners as the store reported them when first asked. A resolver such as LDAP's
+     * re-queries the directory on every call (one lookup per member), and the permission helpers
+     * below (isMember(), isOwnedBy(), canPost(), isVisibleTo(), ...) each ask again — a dashboard
+     * showing many lists would repeat that dozens of times. A ListConfig lives for one request, or
+     * for one worker cycle (ListProvider::reset() builds new ones), which is exactly how fresh the
+     * data has to be; the writers below drop the memo.
+     *
+     * @var Member[]|null
+     */
+    private ?array $membersMemo = null;
+    /** @var Member[]|null */
+    private ?array $ownersMemo = null;
+
     /** @return Member[] */
     public function getMembers(): array
     {
-        return $this->memberResolver->getMembers($this->name);
+        return $this->membersMemo ??= $this->memberResolver->getMembers($this->name);
     }
 
     /** @return Member[] */
     public function getOwners(): array
     {
-        return $this->memberResolver->getOwners($this->name);
+        return $this->ownersMemo ??= $this->memberResolver->getOwners($this->name);
+    }
+
+    private function forgetMembers(): void
+    {
+        $this->membersMemo = null;
+        $this->ownersMemo = null;
     }
 
     /**
@@ -131,7 +151,11 @@ class ListConfig
     /** @throws \RuntimeException if the underlying member store cannot actually persist a removal */
     public function removeMember(string $email): void
     {
-        $this->memberResolver->removeMember($this->name, $email);
+        try {
+            $this->memberResolver->removeMember($this->name, $email);
+        } finally {
+            $this->forgetMembers();
+        }
     }
 
     /**
@@ -159,7 +183,11 @@ class ListConfig
      */
     public function invalidateEmail(string $email, string $reason): void
     {
-        $this->memberResolver->invalidateEmail($this->name, $email, $reason);
+        try {
+            $this->memberResolver->invalidateEmail($this->name, $email, $reason);
+        } finally {
+            $this->forgetMembers();
+        }
     }
 
     /** Mirrors $supportsUnsubscribe for invalidateEmail() — see MemberResolver::supportsInvalidation(). */
@@ -185,7 +213,11 @@ class ListConfig
     /** @throws \RuntimeException if the underlying member store cannot accept new members */
     public function addMember(Member $member): void
     {
-        $this->memberResolver->addMember($this->name, $member);
+        try {
+            $this->memberResolver->addMember($this->name, $member);
+        } finally {
+            $this->forgetMembers();
+        }
     }
 
     /** Returns the matching entry from getMembers(), scoped to this list, or null. */

@@ -57,7 +57,7 @@ class QueueSender
         // (purgeCompletedEntries()) specifically so this history is still
         // there to query.
         $stmt = $this->db->prepare(
-            'SELECT qr.id, qr.mail_queue_id, qr.envelope_to, mq.list_cn, mq.batch_id, mq.mime
+            'SELECT qr.id, qr.mail_queue_id, qr.envelope_to, mq.list_cn, mq.batch_id, mq.mime, mq.headers, mq.body_id
              FROM queue_recipients qr
              JOIN mail_queue mq ON mq.id = qr.mail_queue_id
              WHERE qr.status = \'pending\'
@@ -80,13 +80,40 @@ class QueueSender
         }
     }
 
+    /** Last body read, so a batch of recipients with the same body fetches it once. */
+    private ?string $bodyCacheId = null;
+    private ?string $bodyCache = null;
+
+    /**
+     * The complete message of a queue row: its own `headers` plus the shared body in `mail_bodies`
+     * (ADR-0023), or the whole `mime` for a row queued before that existed. The body is read here,
+     * one row at a time, not joined into sendBatch()'s result — a batch of 50 would otherwise hold 50
+     * copies of a large body in memory.
+     */
+    private function loadMime(array $row): string
+    {
+        if ($row['mime'] !== null) {
+            return $row['mime'];
+        }
+        if ($this->bodyCacheId !== $row['body_id']) {
+            $stmt = $this->db->prepare('SELECT body FROM mail_bodies WHERE id = :id');
+            $stmt->execute(['id' => $row['body_id']]);
+            $body = $stmt->fetchColumn();
+            if ($body === false) {
+                throw new \RuntimeException("Mail body {$row['body_id']} is missing for queue row {$row['mail_queue_id']}");
+            }
+            $this->bodyCacheId = $row['body_id'];
+            $this->bodyCache = (string) $body;
+        }
+        return $row['headers'] . $this->bodyCache;
+    }
+
     private function sendOne(array $row): void
     {
         $recipientId = (int) $row['id'];
         $listCn = $row['list_cn'];
         $batchId = $row['batch_id'];
         $envelopeTo = $row['envelope_to'];
-        $mime = $row['mime'];
 
         // Empty recipient — e.g. a member row/resolver template that produced no
         // address at all. Never a deliverable target; skip outright rather than
@@ -118,6 +145,7 @@ class QueueSender
                 throw new \RuntimeException("List not found: $listCn");
             }
 
+            $mime = $this->loadMime($row);
             $transport = $this->smtpFactory->getTransport($list);
             $mailer = new Mailer($transport);
 
@@ -370,6 +398,13 @@ class QueueSender
             'DELETE FROM mail_queue WHERE NOT EXISTS (
                 SELECT 1 FROM queue_recipients WHERE queue_recipients.mail_queue_id = mail_queue.id
             )'
+        );
+        // Shared bodies nobody uses any more. The age condition is the safety margin against a
+        // body that an enqueue() is reusing right now (it refreshes created_at in its transaction).
+        $this->db->exec(
+            'DELETE FROM mail_bodies
+             WHERE created_at < NOW() - INTERVAL 1 HOUR
+               AND NOT EXISTS (SELECT 1 FROM mail_queue WHERE mail_queue.body_id = mail_bodies.id)'
         );
     }
 

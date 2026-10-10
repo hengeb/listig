@@ -6,7 +6,6 @@ namespace Hengeb\Listig\Http;
 
 use Hengeb\Listig\Config\Enum\AllowLeave;
 use Hengeb\Listig\Config\ListConfig;
-use Hengeb\Listig\Token\TokenService;
 
 /**
  * The single place that decides which buttons a viewer sees for a list — Info/Manage,
@@ -30,12 +29,6 @@ final class ListActions
         'join' => 'user-plus',
         'unsubscribe' => 'user-minus',
     ];
-
-    public function __construct(
-        private readonly TokenService $tokenService,
-        private readonly string $hostname,
-    ) {
-    }
 
     /**
      * @param array{email: string}|null $user the session user, null for an anonymous viewer of a public archive
@@ -75,22 +68,19 @@ final class ListActions
         if ($list->canJoin($identity)) {
             $add('join', "/_/api/join/{$list->name}", 'list.actions.join', null, null, true);
         }
-        // Unsubscribe: on every page like the other buttons. It asks for confirmation unless the
-        // member could join again right away (open + public list), see ListConfig::canRejoinAfterLeaving().
+        // Unsubscribe: on every page like the other buttons. A session POST (like Join), so there is no
+        // token link to be fetched by a scanner; it asks for confirmation unless the member could join
+        // again right away (open + public list), see ListConfig::canRejoinAfterLeaving().
         if ($identity !== null && $list->isMember($identity) && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
-            $member = $list->findMemberInList($identity);
-            // 'u' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
-            $token = $this->tokenService->sign('u', $list->name, $member?->attributes['username'] ?? $identity);
-            // The link acts on a plain GET (it is also the List-Unsubscribe link of every mail), so the
-            // button asks first — see templates/list-actions.latte — unless leaving is trivially undone.
             $add(
                 'unsubscribe',
-                "https://{$this->hostname}/{$list->name}/unsubscribe?token={$token}",
+                "/_/api/leave/{$list->name}",
                 'list.actions.unsubscribe',
                 null,
                 $list->canRejoinAfterLeaving()
                     ? null
                     : ['key' => 'list.actions.unsubscribe_confirm', 'params' => ['%list%' => $list->displayName]],
+                true,
             );
         }
 

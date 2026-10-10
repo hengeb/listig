@@ -15,14 +15,27 @@ async function listigLogout(event) {
     location.href = data.redirectUrl || '/_/login';
 }
 
-// "Join" button of an open list (templates/list-actions.latte): POSTs to /_/api/join/{list}
-// (JoinController) and reloads on success, so the page shows the new membership.
-async function listigJoin(button) {
+// A list action that changes something (templates/list-actions.latte: "Join", "Unsubscribe") is a
+// button that POSTs to its data-url (MembershipController) with the session's CSRF token. A
+// data-confirm text asks first. On success the page follows the answer's `redirect` if it has one
+// (leaving a list), otherwise it reloads so it shows the new state.
+async function listigPost(button) {
+    if (button.dataset.confirm && !confirm(button.dataset.confirm)) {
+        return;
+    }
     button.disabled = true;
     try {
         const r = await fetch(button.dataset.url, { method: 'POST', headers: { 'X-CSRF-Token': getCsrfToken() } });
         if (r.ok) {
-            location.reload();
+            const data = await r.json().catch(() => ({}));
+            if (data.message) {
+                alert(data.message);
+            }
+            if (data.redirect) {
+                location.href = data.redirect;
+            } else {
+                location.reload();
+            }
             return;
         }
         const data = await r.json().catch(() => ({}));

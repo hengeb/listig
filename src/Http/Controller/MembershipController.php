@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Config\Enum\JoinPolicy;
+use Hengeb\Listig\Config\Enum\AllowLeave;
 use Hengeb\Listig\Member\AggregateMemberResolver;
+use Hengeb\Listig\Member\LeaveOutcome;
+use Hengeb\Listig\Member\ListLeaver;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Provider\ListProvider;
 use Hengeb\Listig\RateLimit\RateLimiter;
@@ -14,11 +17,14 @@ use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
- * The "Join" button of `join-policy: open` lists: `POST /_/api/join/{listname}` (behind
- * AuthMiddleware + CSRF) adds the logged-in user — whose address the login already confirmed,
- * so there is no confirmation mail — as a member. See docs/adr/0021-join-policy-and-visibility.md.
+ * The logged-in membership buttons, both behind AuthMiddleware + CSRF:
+ * - "Join" of `join-policy: open` lists, `POST /_/api/join/{listname}`: adds the logged-in user —
+ *   whose address the login already confirmed, so there is no confirmation mail — as a member.
+ *   See docs/adr/0021-join-policy-and-visibility.md.
+ * - "Unsubscribe", `POST /_/api/leave/{listname}`: takes the logged-in member off the list. It is a
+ *   session POST, so unlike the token link of a mail footer it needs no confirmation page.
  */
-class JoinController
+class MembershipController
 {
     private const int MAX_PER_10_MIN = 10;
 
@@ -28,6 +34,7 @@ class JoinController
     public function __construct(
         private readonly ListProvider $listProvider,
         private readonly AggregateMemberResolver $memberResolver,
+        private readonly ListLeaver $listLeaver,
         private readonly RateLimiter $rateLimiter,
         private readonly TranslatorInterface $translator,
     ) {
@@ -66,6 +73,33 @@ class JoinController
         }
 
         return $this->json($response, ['status' => 'ok']);
+    }
+
+    /** `POST /_/api/leave/{listname}` → `{"status": "ok"|"requested", "redirect": "/"}`. */
+    public function leave(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $email = $request->getAttribute('user')['email'];
+        $list = $this->listProvider->getList($args['listname']);
+        $member = $list?->findMemberInList($email);
+        // Only an actual member can leave; anything else looks like a list that is not there.
+        if ($list === null || $member === null) {
+            return $this->json($response, ['error' => 'not found'], 404);
+        }
+        if ($list->allowLeave === AllowLeave::Direct && !$list->supportsUnsubscribe) {
+            return $this->json($response, ['error' => $this->translator->trans('unsubscribe.not_supported', [], null, $list->language)], 409);
+        }
+
+        $outcome = $this->listLeaver->leave($list, $member, $member->email);
+        if ($outcome === LeaveOutcome::NotSupported) {
+            return $this->json($response, ['error' => $this->translator->trans('unsubscribe.not_supported', [], null, $list->language)], 409);
+        }
+
+        // Back to the dashboard: the list page itself may no longer be visible to a non-member.
+        return $this->json($response, [
+            'status' => $outcome === LeaveOutcome::Requested ? 'requested' : 'ok',
+            'message' => $outcome === LeaveOutcome::Requested ? $this->translator->trans('unsubscribe.moderated_notice', [], null, $list->language) : null,
+            'redirect' => '/',
+        ]);
     }
 
     private function json(ResponseInterface $response, array $data, int $status = 200): ResponseInterface

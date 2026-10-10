@@ -485,4 +485,28 @@ class ListConfigTest extends TestCase
         $this->assertSame('en', $context['language'], 'an explicit null counts as absent');
         $this->assertSame('en', $list->language);
     }
+
+    public function testMembersAndOwnersAreReadFromTheStoreOnlyOnceAndForgottenOnChange(): void
+    {
+        $member = new \Hengeb\Listig\Member\Member('m@example.org');
+        $owner = new \Hengeb\Listig\Member\Member('o@example.org');
+        $resolver = $this->createMock(\Hengeb\Listig\Member\MemberResolver::class);
+        $resolver->expects($this->exactly(2))->method('getMembers')->willReturn([$member]);
+        $resolver->expects($this->exactly(2))->method('getOwners')->willReturn([$owner]);
+        $list = new ListConfig('l', 'l@example.org', ['visibility' => 'public', 'archive' => 'members'], $resolver);
+
+        // Many permission checks, one read of each role (an LDAP-backed store queries per member).
+        for ($i = 0; $i < 5; $i++) {
+            $list->isMember('m@example.org');
+            $list->isOwnedBy('o@example.org');
+            $list->isVisibleTo('x@example.com');
+            $list->canPost('m@example.org');
+            $list->canViewArchive('m@example.org');
+        }
+
+        // A change drops the memo: the next check reads again (the second of the two expected reads).
+        $list->addMember(new \Hengeb\Listig\Member\Member('n@example.org'));
+        $list->isMember('m@example.org');
+        $list->isOwnedBy('o@example.org');
+    }
 }

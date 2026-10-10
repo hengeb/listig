@@ -13,7 +13,7 @@ use Hengeb\Listig\Archive\ArchiveThreader;
 use Hengeb\Listig\Config\ConfigResolver;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Logging\LogLevel;
-use Hengeb\Listig\Http\Controller\JoinController;
+use Hengeb\Listig\Http\Controller\MembershipController;
 use Hengeb\Listig\Http\ListActions;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Crypto\KeyDerivation;
@@ -54,6 +54,7 @@ use Hengeb\Listig\Mail\SpamFilter;
 use Hengeb\Listig\Database\DatabaseConnectionFactory;
 use Hengeb\Listig\Database\MigrationRunner;
 use Hengeb\Listig\Member\AggregateMemberResolver;
+use Hengeb\Listig\Member\ListLeaver;
 use Hengeb\Listig\Moderation\ModerationChecker;
 use Hengeb\Listig\Moderation\ModerationMailer;
 use Hengeb\Listig\Moderation\ModerationResponseHandler;
@@ -689,17 +690,22 @@ $builder->addDefinitions([
         );
     },
 
-    JoinController::class => function (ContainerInterface $c): JoinController {
-        return new JoinController(
+    ListLeaver::class => function (ContainerInterface $c): ListLeaver {
+        return new ListLeaver($c->get(NotificationMailer::class), $c->get(TranslatorInterface::class));
+    },
+
+    MembershipController::class => function (ContainerInterface $c): MembershipController {
+        return new MembershipController(
             $c->get(ListProvider::class),
             $c->get(AggregateMemberResolver::class),
+            $c->get(ListLeaver::class),
             $c->get(RateLimiter::class),
             $c->get(TranslatorInterface::class),
         );
     },
 
     ListActions::class => function (ContainerInterface $c): ListActions {
-        return new ListActions($c->get(TokenService::class), $c->get('app.hostname'));
+        return new ListActions();
     },
 
     DashboardController::class => function (ContainerInterface $c): DashboardController {
@@ -797,7 +803,7 @@ $builder->addDefinitions([
             $c->get(Engine::class),
             $c->get(TokenService::class),
             $c->get(ListProvider::class),
-            $c->get(NotificationMailer::class),
+            $c->get(ListLeaver::class),
             $c->get(TranslatorInterface::class),
             $c->get('app.name'),
         );

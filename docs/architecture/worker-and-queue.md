@@ -108,6 +108,7 @@ A `processing_failures` row is normally short-lived — cleared within the same 
 ### Sending batch (`QueueSender`)
 
 - Fetch up to `batch-size` (see [Worker loop](#worker-loop-binworkerphp) above) `queue_recipients` with `status=pending`, ordered by `last_attempt_at ASC`
+- The message to send is the row's `headers` plus its shared body from `mail_bodies` (`QueueSender::loadMime()`, one body read per row, cached for consecutive rows; rows queued before migration 008 carry the whole `mime`) — see [Shared mail bodies](mail-processing.md#shared-mail-bodies-mime-deduplication)
 - Per recipient: call `SmtpConnectionFactory::getTransport($listConfig)` — reuses open connection if SMTP fingerprint unchanged, otherwise closes and opens a new one
 - Send via `symfony/mailer` with explicit `Envelope`
 - On success: mark `sent`. The row (and its `mail_queue` MIME) is **kept** until `QueueSender::purgeCompletedEntries()` removes it after 30 days — see [Queue retention: keeping completed entries around](bounces.md#queue-retention-keeping-completed-entries-around)

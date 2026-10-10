@@ -41,6 +41,11 @@ class MemberResolverFactory
                 $resolverConfig['ldap-base-dn'],
                 $resolverConfig['ldap-bind-dn'],
                 $resolverConfig['ldap-bind-password'],
+                // Optional here (a sub-config of a non-LDAP provider): without them the group is
+                // found by `cn` alone under the base DN, as before.
+                $resolverConfig['ldap-list-dn'] ?? null,
+                $resolverConfig['ldap-filter'] ?? null,
+                $resolverConfig['ldap-empty-group-member'] ?? null,
             ),
             'csv' => new CsvMemberResolver(
                 $resolverConfig['file'] ?? throw new \RuntimeException('CsvMemberResolver requires a "file" config key'),

@@ -17,17 +17,25 @@ Invoked by `bin/migrate.php` (loads `.env`/the container exactly like `bin/worke
 
 ### `mail_queue`
 
-Primary key: `sha256(list_cn . ':' . mimeString)`. Identical MIME for the same list deduplicates automatically.
+Primary key: `sha256(list_cn . ':' . headers . ':' . body_id)` — recipients whose message headers are identical share a row. Since the `List-Unsubscribe` token is per recipient, that is usually one row per recipient; the large part, the body, is shared through `mail_bodies` ([ADR-0023](../adr/0023-shared-mail-bodies-in-the-queue.md)).
 
-`batch_id`: `sha256(list_cn . ':' . rawIncomingMime)`, computed once per incoming mail in `MailProcessor::process()`. Identifies every recipient's queued copy of the *same original incoming mail*, even though personalization (`BodyPersonalizer`) gives each recipient different outgoing MIME — and therefore a different `id` above, which is a hash of that outgoing MIME. Used by `QueueSender`/`SpamRejectionDetector` to discard sibling copies together (see [Sending batch](../architecture/worker-and-queue.md#sending-batch-queuesender)). `NULL` means "no known siblings" — `QueueSender` never groups by `NULL`/empty, so rows without one are never (mis)matched with each other.
+`batch_id`: `sha256(list_cn . ':' . rawIncomingMime)`, computed once per incoming mail in `MailProcessor::process()`. Identifies every recipient's queued copy of the *same original incoming mail*, which have different `mail_queue.id`s because their headers differ.
 
 ```sql
 CREATE TABLE mail_queue (
     id          VARCHAR(64) NOT NULL PRIMARY KEY,
     list_cn     VARCHAR(255) NOT NULL,
     batch_id    VARCHAR(64) NULL,
-    mime        LONGTEXT NOT NULL,
+    mime        LONGTEXT NULL,          -- complete message of rows queued before migration 008; NULL for new rows
+    headers     MEDIUMTEXT NULL,        -- the recipient's message headers (new rows)
+    body_id     CHAR(64) NULL,          -- mail_bodies.id (new rows)
     created_at  DATETIME NOT NULL
+);
+
+CREATE TABLE mail_bodies (
+    id          CHAR(64) NOT NULL PRIMARY KEY,   -- Queue\QueueMime::bodyKey()
+    body        LONGBLOB NOT NULL,               -- top-level part incl. its own headers, boundaries as first serialized
+    created_at  DATETIME NOT NULL                -- refreshed on reuse; unreferenced bodies older than an hour are purged
 );
 ```
 

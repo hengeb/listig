@@ -7,7 +7,7 @@ use Hengeb\Listig\Http\Controller\ArchiveController;
 use Hengeb\Listig\Http\Controller\BounceController;
 use Hengeb\Listig\Http\Controller\AuthController;
 use Hengeb\Listig\Http\Controller\DashboardController;
-use Hengeb\Listig\Http\Controller\JoinController;
+use Hengeb\Listig\Http\Controller\MembershipController;
 use Hengeb\Listig\Http\Controller\ListApiController;
 use Hengeb\Listig\Http\Controller\ComposeController;
 use Hengeb\Listig\Http\Controller\ListController;
@@ -100,7 +100,10 @@ try {
     exit;
 }
 
-$app->get('/{listname}/unsubscribe', [UnsubscribeController::class, 'unsubscribe']);
+// Footer / List-Unsubscribe link: GET only shows a confirmation page (link scanners fetch with GET),
+// POST acts — and is what RFC 8058 one-click clients send. See ADR-0022.
+$app->get('/{listname}/unsubscribe', [UnsubscribeController::class, 'show']);
+$app->post('/{listname}/unsubscribe', [UnsubscribeController::class, 'execute']);
 
 // List-management API: Bearer-token auth, scoped per list via ApiTokenMiddleware
 // (see docs/architecture/api.md "List Management API"). Not part of the session/CSRF-protected
@@ -245,7 +248,8 @@ $app->group('', function (RouteCollectorProxy $group): void {
     $group->group('/_/api', function (RouteCollectorProxy $api): void {
         $api->post('/logout', [AuthController::class, 'logout']);
         $api->post('/compose/{listname}', [ComposeController::class, 'createAddress']);
-        $api->post('/join/{listname}', [JoinController::class, 'join']);
+        $api->post('/join/{listname}', [MembershipController::class, 'join']);
+        $api->post('/leave/{listname}', [MembershipController::class, 'leave']);
         $api->get('/live/{listname}', [ListController::class, 'live']);
         $api->post('/moderation/{id}/accept', [ModerationController::class, 'accept']);
         $api->post('/moderation/{id}/reject', [ModerationController::class, 'reject']);

@@ -7,14 +7,13 @@ namespace Hengeb\Listig\Tests\Http;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Http\ListActions;
 use Hengeb\Listig\Member\InlineMemberResolver;
-use Hengeb\Listig\Token\TokenService;
 use PHPUnit\Framework\TestCase;
 
 class ListActionsTest extends TestCase
 {
     private function actions(): ListActions
     {
-        return new ListActions(new TokenService(str_repeat('k', 32)), 'lists.example.org');
+        return new ListActions();
     }
 
     private function list(array $raw = []): ListConfig
@@ -98,6 +97,8 @@ class ListActionsTest extends TestCase
             $nav = $this->actions()->forViewer($list, $member, $page, $archiveContext);
             $items = array_values(array_filter($nav->items, fn($i) => $i['key'] === 'unsubscribe'));
             $this->assertCount(1, $items, "page '$page'");
+            $this->assertTrue($items[0]['post'], 'a session POST, not a token link a scanner could fetch');
+            $this->assertSame('/_/api/leave/news', $items[0]['href']);
             $this->assertSame('list.actions.unsubscribe_confirm', $items[0]['confirm']['key'], 'unsubscribing asks first');
             $this->assertSame(['%list%' => 'news'], $items[0]['confirm']['params']);
         }

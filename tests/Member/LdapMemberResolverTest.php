@@ -103,4 +103,28 @@ class LdapMemberResolverTest extends TestCase
         $member = $this->member(['cn' => ['alice']]);
         $this->assertSame('', $member->email);
     }
+
+    public function testGroupFilterCombinesTheConfiguredFilterWithTheCn(): void
+    {
+        $this->assertSame('(&(objectClass=mailGroup)(cn=team))', LdapMemberResolver::buildGroupFilter('(objectClass=mailGroup)', 'team'));
+        $this->assertSame('(&(objectClass=mailGroup)(cn=team))', LdapMemberResolver::buildGroupFilter('objectClass=mailGroup', 'team'));
+        $this->assertSame('(cn=team)', LdapMemberResolver::buildGroupFilter(null, 'team'), 'no filter configured: by cn alone, as before');
+        $this->assertSame('(cn=team)', LdapMemberResolver::buildGroupFilter('  ', 'team'));
+    }
+
+    public function testDnComparisonIgnoresCaseAndSpacing(): void
+    {
+        $this->assertTrue(LdapMemberResolver::sameDn('uid=Alice, ou=Users,dc=Example,dc=org', 'UID=alice,ou=users,dc=example,dc=org'));
+        $this->assertFalse(LdapMemberResolver::sameDn('uid=alice,ou=users,dc=example,dc=org', 'uid=bob,ou=users,dc=example,dc=org'));
+        $this->assertTrue(LdapMemberResolver::containsDn(['uid=a,dc=x', 'uid=B,dc=x'], 'uid=b, dc=x'));
+        $this->assertFalse(LdapMemberResolver::containsDn([], 'uid=b,dc=x'));
+    }
+
+    public function testThePlaceholderEntryIsNeverReportedAsAMember(): void
+    {
+        $dns = ['uid=alice,dc=x', 'uid=nobody, dc=x', 'uid=bob,dc=x'];
+        $this->assertSame(['uid=alice,dc=x', 'uid=bob,dc=x'], LdapMemberResolver::withoutPlaceholder($dns, 'UID=nobody,dc=x'));
+        $this->assertSame($dns, LdapMemberResolver::withoutPlaceholder($dns, null));
+        $this->assertSame($dns, LdapMemberResolver::withoutPlaceholder($dns, ''));
+    }
 }

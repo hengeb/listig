@@ -11,12 +11,73 @@ class LdapMemberResolver implements MemberResolver
 {
     private ?Ldap $ldap = null;
 
+    /**
+     * @param string|null $groupDn base DN to search the list's group under (`ldap-list-dn`); the
+     *        directory's base DN when null
+     * @param string|null $groupFilter extra filter every list group must match (`ldap-filter`,
+     *        e.g. "(objectClass=mailGroup)"); with null a group is found by its `cn` alone, as before
+     * @param string|null $emptyGroupMember DN of a placeholder entry (a user without a mail
+     *        address) kept in `member` while a group would otherwise be empty, for schemas that
+     *        require at least one member (`groupOfNames`); never reported as a member. With null the
+     *        last member is simply removed.
+     */
     public function __construct(
         private readonly string $ldapHost,
         private readonly string $baseDn,
         private readonly string $bindDn,
         private readonly string $bindPassword,
+        private readonly ?string $groupDn = null,
+        private readonly ?string $groupFilter = null,
+        private readonly ?string $emptyGroupMember = null,
     ) {
+    }
+
+    /**
+     * The search filter for the group of list `$name`: its `cn` (escaped by the caller), and-ed with
+     * the configured group filter so that an entry that merely shares the name — a person, another
+     * kind of group — is never taken for the list's group.
+     */
+    public static function buildGroupFilter(?string $groupFilter, string $escapedName): string
+    {
+        $cn = "(cn={$escapedName})";
+        $groupFilter = trim((string) $groupFilter);
+        if ($groupFilter === '') {
+            return $cn;
+        }
+        if ($groupFilter[0] !== '(') {
+            $groupFilter = "({$groupFilter})";
+        }
+        return "(&{$groupFilter}{$cn})";
+    }
+
+    /** DNs compared as LDAP does for our purposes: case-insensitive, whitespace around `,` and `=` ignored. */
+    public static function sameDn(string $a, string $b): bool
+    {
+        $normalize = fn(string $dn) => strtolower(preg_replace('/\s*([,=])\s*/', '$1', trim($dn)));
+        return $normalize($a) === $normalize($b);
+    }
+
+    /** @param string[] $dns */
+    public static function containsDn(array $dns, string $dn): bool
+    {
+        foreach ($dns as $candidate) {
+            if (self::sameDn($candidate, $dn)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param string[] $dns
+     * @return string[] without the placeholder entry
+     */
+    public static function withoutPlaceholder(array $dns, ?string $placeholder): array
+    {
+        if ($placeholder === null || $placeholder === '') {
+            return $dns;
+        }
+        return array_values(array_filter($dns, fn(string $dn) => !self::sameDn($dn, $placeholder)));
     }
 
     public function getMembers(string $name): array
@@ -67,15 +128,23 @@ class LdapMemberResolver implements MemberResolver
             return; // User not found — already removed or never existed
         }
 
-        // Find the group entry by name
-        $groupResults = $ldap->query($this->baseDn, "(cn={$this->escape($listName)})")->execute();
-        foreach ($groupResults as $groupEntry) {
-            $currentMembers = $groupEntry->getAttribute('member') ?? [];
-            if (in_array($userDn, $currentMembers, true)) {
-                $ldap->getEntryManager()->removeAttributeValues($groupEntry, 'member', [$userDn]);
-            }
-            break;
+        $groupEntry = $this->findGroupEntry($listName);
+        if ($groupEntry === null) {
+            return;
         }
+        $currentMembers = $groupEntry->getAttribute('member') ?? [];
+        if (!self::containsDn($currentMembers, $userDn)) {
+            return;
+        }
+
+        // A schema that demands at least one `member` would reject removing the last one: put the
+        // placeholder in first, so the group never becomes empty.
+        $lastRealMember = count(self::withoutPlaceholder($currentMembers, $this->emptyGroupMember)) === 1;
+        if ($lastRealMember && $this->emptyGroupMember !== null && $this->emptyGroupMember !== ''
+            && !self::containsDn($currentMembers, $this->emptyGroupMember)) {
+            $this->addAttributeValue($groupEntry, 'member', $this->emptyGroupMember);
+        }
+        $this->removeAttributeValue($groupEntry, 'member', $userDn);
     }
 
     /**
@@ -103,16 +172,22 @@ class LdapMemberResolver implements MemberResolver
             );
         }
 
-        $groupResults = $ldap->query($this->baseDn, "(cn={$this->escape($listName)})")->execute();
-        foreach ($groupResults as $groupEntry) {
-            $currentMembers = $groupEntry->getAttribute('member') ?? [];
-            if (!in_array($userDn, $currentMembers, true)) {
-                $ldap->getEntryManager()->addAttributeValues($groupEntry, 'member', [$userDn]);
-            }
-            return;
+        $groupEntry = $this->findGroupEntry($listName);
+        if ($groupEntry === null) {
+            throw new \RuntimeException("List '$listName' not found in LDAP");
         }
 
-        throw new \RuntimeException("List '$listName' not found in LDAP");
+        $currentMembers = $groupEntry->getAttribute('member') ?? [];
+        if (!self::containsDn($currentMembers, $userDn)) {
+            $this->addAttributeValue($groupEntry, 'member', $userDn);
+        }
+        // The placeholder only exists to keep an empty group valid; drop it once a real member is in.
+        foreach ($currentMembers as $dn) {
+            if ($this->emptyGroupMember !== null && self::sameDn($dn, $this->emptyGroupMember)) {
+                $this->removeAttributeValue($groupEntry, 'member', $dn);
+                break;
+            }
+        }
     }
 
     public function supportsInvalidation(): bool
@@ -156,22 +231,28 @@ class LdapMemberResolver implements MemberResolver
             }
 
             $invalidated = InvalidatedEmail::build($email, $reason);
-            $ldap->getEntryManager()->removeAttributeValues($entry, 'mail', [$matchedValue]);
-            $ldap->getEntryManager()->addAttributeValues($entry, 'mail', [$invalidated]);
+            $this->removeAttributeValue($entry, 'mail', $matchedValue);
+            $this->addAttributeValue($entry, 'mail', $invalidated);
             return;
         }
     }
 
     private function getMemberDns(string $name, string $attribute): array
     {
+        $entry = $this->findGroupEntry($name);
+        $dns = $entry?->getAttribute($attribute) ?? [];
+
+        return self::withoutPlaceholder($dns, $this->emptyGroupMember);
+    }
+
+    private function findGroupEntry(string $name): ?Entry
+    {
         $ldap = $this->connect();
-        $results = $ldap->query($this->baseDn, "(cn={$this->escape($name)})")->execute();
-
-        foreach ($results as $entry) {
-            return $entry->getAttribute($attribute) ?? [];
+        $filter = self::buildGroupFilter($this->groupFilter, $this->escape($name));
+        foreach ($ldap->query($this->groupDn ?? $this->baseDn, $filter)->execute() as $entry) {
+            return $entry;
         }
-
-        return [];
+        return null;
     }
 
     private function resolveDns(array $dns): array
@@ -258,6 +339,16 @@ class LdapMemberResolver implements MemberResolver
         }
 
         return new Member($mail, $attributes);
+    }
+
+    private function addAttributeValue(Entry $entry, string $attribute, string $value): void
+    {
+        $this->connect()->getEntryManager()->addAttributeValues($entry, $attribute, [$value]);
+    }
+
+    private function removeAttributeValue(Entry $entry, string $attribute, string $value): void
+    {
+        $this->connect()->getEntryManager()->removeAttributeValues($entry, $attribute, [$value]);
     }
 
     private function connect(): Ldap

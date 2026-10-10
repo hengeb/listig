@@ -95,6 +95,8 @@ Annotated directory tree.
 │   │   ├── MemberResolver.php        # Interface: getMembers(), getOwners(), findByEmail(), removeMember()
 │   │   ├── MemberResolverFactory.php # Builds member-resolver source(s) (type: database/ldap/csv, single or composable list) and composes all three levels into one resolver — see "Global / provider / list levels" (docs/architecture/config.md)
 │   │   ├── CompositeMemberResolver.php # Combines multiple independent MemberResolver sources (any level) for one list — see "Global / provider / list levels" (docs/architecture/config.md)
+│   │   ├── ListLeaver.php            # Takes a member off a list honouring allow-leave; shared by the footer-link POST and the logged-in button — see ADR-0022
+│   │   ├── LeaveOutcome.php          # Left | Requested | NotSupported
 │   │   ├── NullMemberResolver.php    # No-op implementation
 │   │   ├── InlineMemberResolver.php  # Resolves from inline config.yml member lists (plain "mail@x" string or firstname/lastname/mail/username map); removeMember is no-op
 │   │   ├── LdapMemberResolver.php    # Resolves via LDAP DNs; removeMember removes DN from member attribute
@@ -130,7 +132,8 @@ Annotated directory tree.
 │   │   ├── KeyDerivation.php          # Static helper: HKDF-SHA256 subkeys from APP_SECRET, one per purpose
 │   │   └── PasswordCrypto.php         # AES-256-CBC encrypt/decrypt for IMAP/SMTP passwords
 │   ├── Queue/
-│   │   ├── QueueWriter.php           # Stores mail + recipients in DB; takes a batch_id (see mail_queue schema)
+│   │   ├── QueueWriter.php           # Stores mail + recipients in DB (headers per recipient, body shared); takes a batch_id (see mail_queue schema)
+│   │   ├── QueueMime.php             # Splits an Email into per-recipient headers + shareable body, content key of a body — see ADR-0023
 │   │   ├── QueueSender.php           # Reads queue; uses SmtpConnectionFactory + TokenService (per-recipient signed bounce address); handles retries; discards spam-rejected batches — see "Sending batch" (docs/architecture/worker-and-queue.md) / "Automatic bounce actions"
 │   │   └── SpamRejectionDetector.php # Trusted-provider SMTP "rejected as spam" detection — see "Sending batch" (docs/architecture/worker-and-queue.md); isReliableDomain()/containsSpamIndicator() also reused by BounceHandler's own origin-authentication gate
 │   ├── RateLimit/
@@ -146,7 +149,7 @@ Annotated directory tree.
 │       │   ├── DashboardController.php   # Member view: subscribed lists
 │       │   ├── ComposeController.php     # First-mail-to-external form + masked address issuing — see "Masked reply addresses" (docs/architecture/masked-replies.md)
 │       │   ├── ListController.php        # Owner manage page
-│       │   ├── JoinController.php        # POST /_/api/join/{listname}: the "Join" button of join-policy: open lists — see "Visibility and join policy" (docs/architecture/web-ui.md)
+│       │   ├── MembershipController.php  # POST /_/api/join/{listname} ("Join" of join-policy: open lists) and /_/api/leave/{listname} ("Unsubscribe") — see "Visibility and join policy" (docs/architecture/web-ui.md)
 │       │   ├── ListApiController.php     # Bearer-token list management API: subscribe/unsubscribe/encrypt-password
 │       │   ├── ModerationController.php  # Accept/reject moderation items via API; preview a still-pending mail — see "Preview: pending mail" (docs/architecture/moderation.md)
 │       │   ├── BounceController.php      # Preview a bounce mail (show/frame/attachment), located by Message-ID like the archive viewer — see "Bounce preview" (docs/architecture/bounces.md)
@@ -186,7 +189,8 @@ Annotated directory tree.
 │   ├── 004_processing_failures.sql   # new processing_failures table — see "Processing-failure retry limit" (docs/architecture/worker-and-queue.md)
 │   ├── 005_archived_mail_sender_local_part.sql # adds sender_local_part to archived_mail, not backfilled — see "Archive viewer" (docs/architecture/archive.md) Privacy
 │   ├── 006_bounce_auto_actions.sql # adds queue_recipients.retry_not_before + bounce_suppressed_members table — see "Automatic bounce actions" (docs/architecture/bounces.md)
-│   └── 007_reply_targets.sql      # reply_targets table — see "Masked reply addresses" (docs/architecture/masked-replies.md)
+│   ├── 007_reply_targets.sql      # reply_targets table — see "Masked reply addresses" (docs/architecture/masked-replies.md)
+│   └── 008_shared_mail_bodies.sql # mail_bodies table + mail_queue.headers/body_id (mime now nullable) — see "Shared mail bodies" (docs/architecture/mail-processing.md)
 ├── docker/
 │   ├── Dockerfile             # php-fpm + nginx + worker, all in one image
 │   ├── entrypoint.sh          # ENTRYPOINT: runs bin/migrate.php, then execs CMD (supervisord)

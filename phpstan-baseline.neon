@@ -79,12 +79,6 @@ parameters:
 			path: src/Http/Controller/ModerationController.php
 
 		-
-			message: '#^Call to an undefined method Symfony\\Contracts\\Translation\\TranslatorInterface\:\:setLocale\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: src/Http/Controller/UnsubscribeController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -147,13 +141,13 @@ parameters:
 		-
 			message: '#^Call to an undefined method Symfony\\Component\\Ldap\\Adapter\\EntryManagerInterface\:\:addAttributeValues\(\)\.$#'
 			identifier: method.notFound
-			count: 2
+			count: 1
 			path: src/Member/LdapMemberResolver.php
 
 		-
 			message: '#^Call to an undefined method Symfony\\Component\\Ldap\\Adapter\\EntryManagerInterface\:\:removeAttributeValues\(\)\.$#'
 			identifier: method.notFound
-			count: 2
+			count: 1
 			path: src/Member/LdapMemberResolver.php
 
 		-

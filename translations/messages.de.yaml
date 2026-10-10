@@ -129,6 +129,11 @@ join:
 unsubscribe_page:
   title: "Abmeldung – %app_name%"
   back_home: "Zur Startseite"
+  confirm: "Möchtest du dich wirklich von der Liste %list% abmelden?"
+  confirm_request: "Möchtest du die Inhaber der Liste %list% bitten, dich zu entfernen?"
+  confirm_button: "Abmelden"
+  request_button: "Anfrage senden"
+  cancel: "Abbrechen"
 
 subscribe:
   token_invalid: "Token ungültig"

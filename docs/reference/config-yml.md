@@ -77,6 +77,9 @@ list-providers:
     ldap-bind-password: $LDAP_BIND_PASSWORD
     ldap-list-dn: ou=lists,dc=example,dc=org
     ldap-filter: "(objectClass=mailGroup)"    # default: (objectClass=mailGroup)
+    # Optional: DN of a placeholder entry (a user without a mail address) kept in `member` while a list
+    # would otherwise have none — for schemas that demand at least one member. See docs/reference/ldap.md.
+    # ldap-empty-group-member: uid=nobody,ou=users,dc=example,dc=org
     use:
       - my-mail-config
     reply-to: list
