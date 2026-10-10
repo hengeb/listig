@@ -57,6 +57,7 @@ class ListConfig
         'reply-to' => 'list',
         'post-access-members' => 'allow',
         'post-access-public' => 'deny',
+        'post-access-unauthenticated' => 'allow',
         'allow-leave' => 'direct',
         'archive' => 'off',
         'archive-folder' => 'Archive',
@@ -490,6 +491,16 @@ class ListConfig
     /** Default 'deny' matches the old default (`post-access: members` — public/non-members excluded unless explicitly opened up). */
     public PostAccess $postAccessPublic {
         get => PostAccess::from($this->resolve($this->setting('post-access-public')));
+    }
+
+    /**
+     * What happens to a post whose From address the receiving server could not verify (no aligned
+     * SPF / DKIM / DMARC / SMTP-AUTH evidence, see SenderAuthenticator) — applied on top of
+     * post-access-members/-public, to every sender class alike, owners included. Default `allow`:
+     * unchanged behaviour. `moderate` holds such a mail for the owners, `deny` rejects it. See ADR-0024.
+     */
+    public PostAccess $postAccessUnauthenticated {
+        get => PostAccess::from($this->resolve($this->setting('post-access-unauthenticated')));
     }
 
     public AllowLeave $allowLeave {

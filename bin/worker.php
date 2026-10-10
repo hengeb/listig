@@ -160,9 +160,15 @@ $processIncomingMail = function (
                 ? "Listig: WARNING mail for list {$list->name} has no Authentication-Results header — "
                     . 'the receiving MTA must add one to every mail; until then senders count as unauthenticated '
                     . '(no sender notices, no SPF/DKIM reject).'
+                    . ($list->postAccessUnauthenticated->value !== 'allow'
+                        ? " With post-access-unauthenticated: {$list->postAccessUnauthenticated->value} this holds back / rejects ALL mail of this list."
+                        : '')
                 : "Listig: WARNING mail for list {$list->name} has no Authentication-Results header with authserv-id "
                     . implode(' / ', $trustedIds) . ' (found: ' . ($found === [] ? 'none' : implode(', ', $found)) . ') — '
                     . 'senders count as unauthenticated (no sender notices, no SPF/DKIM reject). Check trusted-authserv-id.'
+                . ($list->postAccessUnauthenticated->value !== 'allow'
+                    ? " With post-access-unauthenticated: {$list->postAccessUnauthenticated->value} this holds back / rejects ALL mail of this list."
+                    : '')
         );
     }
 

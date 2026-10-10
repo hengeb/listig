@@ -29,3 +29,4 @@ To add one: use the next free number, copy the structure of an existing ADR (Sta
 | [0021](0021-join-policy-and-visibility.md) | Remove unauthenticated subscribe; `join-policy` and `visibility` |
 | [0022](0022-unsubscribe-links-act-on-post.md) | Unsubscribe links change nothing on GET |
 | [0023](0023-shared-mail-bodies-in-the-queue.md) | Store a queued mail's body once, its headers per recipient |
+| [0024](0024-post-access-unauthenticated.md) | `post-access-unauthenticated`: hold or reject posts whose From could not be verified |

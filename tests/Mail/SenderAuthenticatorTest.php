@@ -122,4 +122,43 @@ class SenderAuthenticatorTest extends TestCase
         $this->assertTrue($this->auth($h, trusted: ['mx.example.org']));
         $this->assertFalse($this->auth($h), 'topmost header alone has no aligned pass');
     }
+
+    public function testSmtpAuthAtTheOwnServerAuthenticatesALocalSender(): void
+    {
+        // What the MTA writes for a mail submitted through it: only auth=, no spf/dkim/dmarc.
+        $h = "Authentication-Results: mx.example.org;\r\n\tauth=pass smtp.mailfrom=alice@example.com\r\n";
+        $this->assertTrue($this->auth($h));
+        $this->assertTrue($this->auth("Authentication-Results: mx.example.org; auth=pass smtp.mailfrom=bounce@mail.example.com\r\n"), 'aligned subdomain');
+    }
+
+    public function testAssessmentListsTheEvidence(): void
+    {
+        $a = new SenderAuthenticator(new HeaderFilter(), new OrganizationalDomain());
+        $h = "Authentication-Results: mx.example.org; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=alice@example.com\r\n";
+        $assessment = $a->assess($h, 'alice@example.com', []);
+        $this->assertTrue($assessment->isAuthenticated());
+        $methods = array_map(static fn($e) => $e->method, $assessment->evidence);
+        $this->assertContains('dkim', $methods);
+        $this->assertContains('spf', $methods);
+
+        $none = $a->assess('', 'alice@example.com', []);
+        $this->assertFalse($none->isAuthenticated());
+        $this->assertSame([], $none->evidence);
+    }
+
+    public function testSmtpAuthDoesNotVouchForAnotherFromDomain(): void
+    {
+        $h = "Authentication-Results: mx.example.org; auth=pass smtp.mailfrom=alice@example.com\r\n";
+        $this->assertFalse($this->auth($h, 'ceo@bank.de'), 'logged in as example.com, claims to be bank.de');
+        $this->assertFalse($this->auth("Authentication-Results: mx.example.org; auth=pass\r\n"), 'no envelope sender to align');
+    }
+
+    public function testFailedOrForgedSmtpAuthDoesNotAuthenticate(): void
+    {
+        $this->assertFalse($this->auth("Authentication-Results: mx.example.org; auth=fail smtp.mailfrom=alice@example.com\r\n"));
+        // A header from somebody else's server is not the own MTA's word.
+        $forged = "Authentication-Results: mx.example.org; auth=none\r\nAuthentication-Results: evil.example; auth=pass smtp.mailfrom=alice@example.com\r\n";
+        $this->assertFalse($this->auth($forged));
+        $this->assertFalse($this->auth("Authentication-Results: evil.example; auth=pass smtp.mailfrom=alice@example.com\r\n", 'alice@example.com', ['mx.example.org']));
+    }
 }

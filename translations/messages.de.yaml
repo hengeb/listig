@@ -40,6 +40,7 @@ reject:
   reply_not_allowed: "Nur Listenmitglieder dürfen diese Antwortadresse verwenden"
   reply_thread_unknown: "Die Mail, auf die du antwortest, ist nicht mehr im Archiv, oder der Antwort-Link ist abgelaufen. Bitte schreibe stattdessen eine neue Mail an die Listenadresse."
   reply_target_unknown: "Diese Antwortadresse ist abgelaufen oder der Empfänger ist nicht mehr erreichbar"
+  unauthenticated: "Die Absenderadresse dieser Mail konnte nicht überprüft werden"
   rate_limited: "Rate-Limit überschritten"
   no_owners: "Diese Liste erfordert eine Freigabe, hat aber keine Listeninhaber, die diese erteilen könnten"
   moderation_declined: "Von einem Listeninhaber abgelehnt."
@@ -51,6 +52,7 @@ moderation:
   mail:
     subject: "[Moderation] Neue Mail wartet für %list%"
     body: "Eine Mail an die Liste %list% (%mail%) erfordert deine Freigabe.\n\nBetreff: %subject%\nAbsender: %sender%\nZeitpunkt: %date%\n\nAnnehmen: mailto:%accept%\nAblehnen: mailto:%reject%\n"
+    unverified_note: "Achtung: Die Absenderadresse dieser Mail konnte nicht überprüft werden (kein passendes SPF-/DKIM-/DMARC-Ergebnis des empfangenden Servers). Sie könnte gefälscht sein."
   pending_notice:
     subject: "Deine Mail an %list% wartet auf Freigabe"
     body: "Deine Mail an die Liste %list% (%mail%) wurde nicht sofort verteilt, sondern wartet auf die Freigabe durch die Listeninhaber.\n\nBetreff: %subject%\nZeitpunkt: %date%"

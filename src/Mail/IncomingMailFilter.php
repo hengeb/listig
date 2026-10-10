@@ -18,6 +18,7 @@ class IncomingMailFilter
         private readonly SpamFilter $spamFilter,
         private readonly ReplyTargetStore $replyTargetStore,
         private readonly ReplyThreadStore $replyThreadStore,
+        private readonly SenderAuthenticator $senderAuthenticator,
     ) {
     }
 
@@ -112,6 +113,23 @@ class IncomingMailFilter
             return FilterResult::reject('reject.reply_thread_unknown');
         }
 
+        // 7c. A From address the receiving server could not verify (post-access-unauthenticated,
+        // ADR-0024). After the access checks, so a sender who may not post at all is told that
+        // first; before the rate limit, so a mail that is held or refused does not count. Applies to
+        // every sender class equally — a forged owner address is the worst case. A mail that cannot
+        // be moderated (a private `+r-` relay never reaches the list) is refused instead of held.
+        $unverifiedMode = $list->postAccessUnauthenticated;
+        $heldAsUnverified = false;
+        if ($unverifiedMode !== PostAccess::Allow
+            && !$this->senderAuthenticator->isAuthenticated($mail->headersRaw ?? '', $senderEmail, $list->trustedAuthservIds)
+        ) {
+            $moderable = $replyToken === null || $list->replyTo->relayMode() === ReplyToBehavior::MaskedBoth;
+            if ($unverifiedMode === PostAccess::Deny || !$moderable) {
+                return FilterResult::reject('reject.unauthenticated');
+            }
+            $heldAsUnverified = true;
+        }
+
         // 8. Rate limit
         if ($this->rateLimiter->isExceeded($list->name, $senderEmail, $list->maxPerSender)) {
             return FilterResult::reject('reject.rate_limited');
@@ -119,7 +137,7 @@ class IncomingMailFilter
 
         // masked-sender replies never reach the list, so they are never moderated either.
         $moderable = $replyToken === null || $list->replyTo->relayMode() === ReplyToBehavior::MaskedBoth;
-        if ($moderable && $this->requiresModeration($list, $senderEmail)) {
+        if ($moderable && ($heldAsUnverified || $this->requiresModeration($list, $senderEmail))) {
             // A moderation item nobody can ever accept/reject is worse than an
             // outright rejection — without this, the mail would silently vanish
             // (ModerationMailer::send() logs and no-ops on empty owners) with no

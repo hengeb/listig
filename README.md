@@ -15,6 +15,7 @@ It is meant for Docker setups and has been tested with Mailu (mail server), Trae
 - **Archive** with a threaded view and access levels from `owners` to `public`. HTML mail is sanitized and shown in a sandboxed frame; attachments are available, external images only on request.
 - **Bounces.** Every recipient gets a signed VERP envelope address, so a bounce is matched to exactly one recipient. Automatic actions (`bounce-action`: `mark-invalid`, `restrict`, `remove`) are off by default and only act on bounces from an authenticated origin.
 - **No backscatter.** Reject and "awaiting approval" notices go only to senders whose mail the receiving server reports as DMARC-aligned authenticated (`Authentication-Results`), by default at most one per address and hour, and never for spam or SPF/DKIM failures.
+- **Forged senders.** `post-access-unauthenticated: moderate` (or `deny`) holds back posts whose From address the receiving server could not verify, so a forged member address on a domain without DMARC enforcement is not distributed to everybody.
 - **Your layout.** A `custom.latte` can add markup or replace the header on every page. The interface is available in German and English.
 - **Also:** masked reply addresses (`reply-to: masked-*`) that relay replies without exposing the address, a global spam filter (`filters:`) and per-sender rate limiting.
 

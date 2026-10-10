@@ -58,6 +58,8 @@ Annotated directory tree.
 │   │   ├── ReplyThreadStore.php      # `+re-` tag of the archive's "reply" button: issues/resolves signed tokens over archived_mail.id (ADR-0020)
 │   │   ├── SenderNoticePolicy.php    # Single decision point: notice to the sender yes/no, with/without original (ADR-0018)
 │   │   ├── SenderAuthenticator.php   # DMARC-aligned authentication of the From address from the trusted Authentication-Results
+│   │   ├── AuthAssessment.php        # Result of SenderAuthenticator::assess(): list of AuthEvidence (ADR-0024)
+│   │   ├── AuthEvidence.php          # One positive authentication result (method, domain)
 │   │   ├── OrganizationalDomain.php  # Organizational domain heuristic for relaxed alignment (no PSL)
 │   │   ├── AuthResultsHeader.php     # Parsed Authentication-Results header (RFC 8601)
 │   │   ├── NoticeDecision.php        # Result of SenderNoticePolicy::decide()

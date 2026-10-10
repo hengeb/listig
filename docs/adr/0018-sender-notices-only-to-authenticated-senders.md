@@ -14,7 +14,7 @@ Separately, `HeaderFilter::readAuthResults()` used to read the first `Authentica
 
 All decisions about notifying a sender are made in `SenderNoticePolicy::decide()` (used by `RejectionNotifier` and `ModerationMailer`'s pending notice); no caller decides on its own:
 
-- **Authenticated** means DMARC-aligned (`SenderAuthenticator`): `dmarc=pass`, or `dkim=pass` with `header.d` aligned to the From domain, or `spf=pass` with `smtp.mailfrom` aligned to it. Alignment is relaxed (same organizational domain, `OrganizationalDomain`).
+- **Authenticated** means DMARC-aligned (`SenderAuthenticator`): `dmarc=pass`, or `dkim=pass` with `header.d` aligned to the From domain, or `spf=pass` with `smtp.mailfrom` aligned to it. Alignment is relaxed (same organizational domain, `OrganizationalDomain`). Also `auth=pass` (SMTP AUTH at the receiving server — the only thing it writes for a mail submitted through it, e.g. from a local Mailu mailbox, where it evaluates no SPF/DKIM/DMARC) with an `smtp.mailfrom` aligned to the From domain.
 - `sender-notices: authenticated` (default) notifies only authenticated senders, `always` everyone (original attached only if authenticated), `never` nobody. `reject.auth_failed` and `reject.spam` are **never** notified, in any mode.
 - At most one notice per address and `sender-notice-interval` (default 1 hour, max 1 day), across all lists, via `rate_limit` (`__notice__`). Suppressed notices do not use up the quota.
 - Without the original, the notice names only subject and date. `reject.size_exceeded` never attaches the original.

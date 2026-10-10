@@ -6,6 +6,7 @@ namespace Hengeb\Listig\Moderation;
 
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\NotificationMailer;
+use Hengeb\Listig\Mail\SenderAuthenticator;
 use Hengeb\Listig\Mail\SenderNoticePolicy;
 use Hengeb\Listig\Smtp\SmtpConnectionFactory;
 use Hengeb\Listig\Token\ListFingerprint;
@@ -29,6 +30,7 @@ class ModerationMailer
         private readonly TranslatorInterface $translator,
         private readonly NotificationMailer $notificationMailer,
         private readonly SenderNoticePolicy $noticePolicy,
+        private readonly SenderAuthenticator $senderAuthenticator,
     ) {
     }
 
@@ -130,6 +132,11 @@ class ModerationMailer
             '%accept%' => "{$acceptAddress}?subject=accept",
             '%reject%' => "{$rejectAddress}?subject=reject",
         ], null, $locale);
+        // An owner deciding about a mail should know when its From could not be verified (it may be
+        // forged) — whether it is held for that reason (post-access-unauthenticated) or any other.
+        if (!$this->senderAuthenticator->isAuthenticated($mail->headersRaw ?? '', $senderMail, $list->trustedAuthservIds)) {
+            $body .= "\n\n" . $this->translator->trans('moderation.mail.unverified_note', [], null, $locale);
+        }
 
         foreach ($owners as $owner) {
             $email = new Email();

@@ -57,6 +57,7 @@ class ListConfigTest extends TestCase
         $this->assertSame(ReplyToBehavior::List, $list->replyTo);
         $this->assertSame(PostAccess::Allow, $list->postAccessMembers);
         $this->assertSame(PostAccess::Deny, $list->postAccessPublic);
+        $this->assertSame(PostAccess::Allow, $list->postAccessUnauthenticated);
         $this->assertSame(AllowLeave::Direct, $list->allowLeave);
         $this->assertSame(ArchiveMode::Off, $list->archive);
         $this->assertSame('Archive', $list->archiveFolder);

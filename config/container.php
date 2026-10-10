@@ -451,6 +451,7 @@ $builder->addDefinitions([
             $c->get(SpamFilter::class),
             $c->get(ReplyTargetStore::class),
             $c->get(ReplyThreadStore::class),
+            $c->get(SenderAuthenticator::class),
         );
     },
 
@@ -583,6 +584,7 @@ $builder->addDefinitions([
             $c->get(TranslatorInterface::class),
             $c->get(NotificationMailer::class),
             $c->get(SenderNoticePolicy::class),
+            $c->get(SenderAuthenticator::class),
         );
     },
 

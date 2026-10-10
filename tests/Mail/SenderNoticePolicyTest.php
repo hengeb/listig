@@ -81,7 +81,7 @@ class SenderNoticePolicyTest extends TestCase
     public function testAuthFailAndSpamAreNeverNotifiedEvenWhenAlways(): void
     {
         $this->expectErrorLog(); // suppressions are logged on purpose
-        foreach (['reject.auth_failed', 'reject.spam'] as $reason) {
+        foreach (['reject.auth_failed', 'reject.spam', 'reject.unauthenticated'] as $reason) {
             foreach (['authenticated', 'always'] as $mode) {
                 $d = $this->policy()->decide($this->list(['sender-notices' => $mode]), $this->mail(), $reason);
                 $this->assertFalse($d->send, "$reason / $mode");

@@ -18,7 +18,7 @@ use PhpImap\IncomingMail;
 class SenderNoticePolicy
 {
     /** Reasons that are never notified, whatever `sender-notices` says: forged-looking or spam mail. */
-    private const array NEVER_NOTIFY_REASONS = ['reject.auth_failed', 'reject.spam'];
+    private const array NEVER_NOTIFY_REASONS = ['reject.auth_failed', 'reject.spam', 'reject.unauthenticated'];
 
     /** The original is large by definition here; not attached even for authenticated senders. */
     private const array NO_ATTACHMENT_REASONS = ['reject.size_exceeded'];

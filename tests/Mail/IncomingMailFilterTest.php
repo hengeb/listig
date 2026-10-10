@@ -11,7 +11,9 @@ use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\IncomingMailFilter;
 use Hengeb\Listig\Mail\ReplyTarget;
 use Hengeb\Listig\Mail\ReplyTargetStore;
+use Hengeb\Listig\Mail\OrganizationalDomain;
 use Hengeb\Listig\Mail\ReplyThreadStore;
+use Hengeb\Listig\Mail\SenderAuthenticator;
 use Hengeb\Listig\Member\InlineMemberResolver;
 use Hengeb\Listig\Member\Member;
 use Hengeb\Listig\Mail\SpamFilter;
@@ -29,6 +31,7 @@ class IncomingMailFilterTest extends TestCase
             new SpamFilter([], new Logger(LogLevel::Error)),
             $this->createStub(ReplyTargetStore::class),
             $this->createStub(ReplyThreadStore::class),
+            new SenderAuthenticator(new HeaderFilter(), new OrganizationalDomain()),
         );
     }
 
@@ -78,6 +81,7 @@ class IncomingMailFilterTest extends TestCase
             new SpamFilter([], new Logger(LogLevel::Error)),
             $store,
             $this->createStub(ReplyThreadStore::class),
+            new SenderAuthenticator(new HeaderFilter(), new OrganizationalDomain()),
         );
         $mail = new IncomingMail();
         $mail->headersRaw = "To: mylist+r-tok@example.org\r\n";
@@ -143,6 +147,7 @@ class IncomingMailFilterTest extends TestCase
             new SpamFilter([], new Logger(LogLevel::Error)),
             $this->createStub(ReplyTargetStore::class),
             $threads,
+            new SenderAuthenticator(new HeaderFilter(), new OrganizationalDomain()),
         );
         $mail = new IncomingMail();
         $mail->headersRaw = "To: mylist+re-tok@example.org\r\n";
@@ -166,6 +171,83 @@ class IncomingMailFilterTest extends TestCase
     public function testMailWithoutThreadTagIsNotAffected(): void
     {
         $this->assertTrue($this->runThreadReply(null, null)->isDistribute);
+    }
+
+    private function runUnverified(string $mode, string $sender, string $headersRaw = '', array $extra = []): \Hengeb\Listig\Mail\FilterResult
+    {
+        $mail = new IncomingMail();
+        $mail->headersRaw = $headersRaw;
+        $mail->autoSubmitted = '';
+        $mail->subject = 'Hi';
+        $mail->fromAddress = $sender;
+        $list = new ListConfig(
+            'mylist',
+            'mylist@example.org',
+            ['post-access-unauthenticated' => $mode] + $extra,
+            new InlineMemberResolver(['m@example.org'], ['o@example.org']),
+        );
+        return $this->filter()->filter($mail, $list, 'raw', []);
+    }
+
+    private const AUTHENTICATED = "Authentication-Results: mx.example.org; dmarc=pass header.from=example.org\r\n";
+
+    public function testUnauthenticatedAllowDistributesUnverifiedMail(): void
+    {
+        $this->assertTrue($this->runUnverified('allow', 'm@example.org')->isDistribute);
+    }
+
+    public function testUnauthenticatedModerateHoldsUnverifiedMail(): void
+    {
+        $this->assertTrue($this->runUnverified('moderate', 'm@example.org')->isModeration);
+    }
+
+    public function testUnauthenticatedModerateLetsVerifiedMailThrough(): void
+    {
+        $this->assertTrue($this->runUnverified('moderate', 'm@example.org', self::AUTHENTICATED)->isDistribute);
+    }
+
+    public function testUnauthenticatedDenyRejectsUnverifiedMailOnly(): void
+    {
+        $r = $this->runUnverified('deny', 'm@example.org');
+        $this->assertTrue($r->isReject);
+        $this->assertSame('reject.unauthenticated', $r->reason);
+        $this->assertTrue($this->runUnverified('deny', 'm@example.org', self::AUTHENTICATED)->isDistribute);
+    }
+
+    public function testUnauthenticatedAppliesToOwnersAndSendersToo(): void
+    {
+        $this->assertTrue($this->runUnverified('moderate', 'o@example.org')->isModeration, 'owner');
+        $this->assertTrue($this->runUnverified('deny', 'o@example.org')->isReject, 'owner');
+        $this->assertTrue($this->runUnverified('deny', 's@example.org', '', ['senders' => ['s@example.org']])->isReject, 'senders:');
+    }
+
+    public function testUnauthenticatedModerateRefusesPrivateReplyRelayInsteadOfHolding(): void
+    {
+        $store = $this->createStub(ReplyTargetStore::class);
+        $store->method('extractToken')->willReturn('tok');
+        $store->method('resolve')->willReturn(new ReplyTarget(new Member('t@example.org'), true));
+        $filter = new IncomingMailFilter(
+            $this->createStub(RateLimiter::class),
+            new HeaderFilter(),
+            new SpamFilter([], new Logger(LogLevel::Error)),
+            $store,
+            $this->createStub(ReplyThreadStore::class),
+            new SenderAuthenticator(new HeaderFilter(), new OrganizationalDomain()),
+        );
+        $mail = new IncomingMail();
+        $mail->headersRaw = "To: mylist+r-tok@example.org\r\n";
+        $mail->autoSubmitted = '';
+        $mail->subject = 'Re: Hallo';
+        $mail->fromAddress = 'm@example.org';
+        $list = new ListConfig(
+            'mylist',
+            'mylist@example.org',
+            ['reply-to' => 'masked-sender', 'post-access-unauthenticated' => 'moderate'],
+            new InlineMemberResolver(['m@example.org'], ['o@example.org']),
+        );
+        $r = $filter->filter($mail, $list, 'raw', []);
+        $this->assertTrue($r->isReject);
+        $this->assertSame('reject.unauthenticated', $r->reason);
     }
 
     /** ListConfig::canPost() drives the "write to the list" / "reply" buttons — it must agree with the real gate. */
