@@ -539,20 +539,20 @@ class ArchiveController
             // the "please log in" page + button here even though every other
             // protected page in the app skipped straight to the IdP.
             if ($this->oidcEnabled) {
-                $next = urlencode(RequestPath::relativeTarget($request));
-                return (new Response())->withHeader('Location', "/_/login/oidc?next={$next}")->withStatus(302);
+                return (new Response())->withHeader('Location', RequestPath::withNext('/_/login/oidc', $request))->withStatus(302);
             }
-            return $this->loginRequiredResponse($list);
+            return $this->loginRequiredResponse($list, RequestPath::withNext('/_/login', $request));
         }
 
         return $list->canViewArchive($email) ? null : (new Response())->withStatus(403);
     }
 
-    private function loginRequiredResponse(ListConfig $list): ResponseInterface
+    private function loginRequiredResponse(ListConfig $list, string $loginUrl): ResponseInterface
     {
         $this->translator->setLocale($list->language);
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/archive/login_required.latte', [
             'list'       => $list,
+            'loginUrl'   => $loginUrl,
             'language'   => $list->language,
             'translator' => $this->translator,
             'appName'    => $this->appName,

@@ -10,11 +10,12 @@
         <div class="flash" n:if="isset($flash) && $flash">{$flash}</div>
 
         {if $oidcEnabled}
-            <a href="/_/login/oidc" class="btn btn-primary btn-block oidc-login-btn">{$translator->trans('auth.oidc_login_button')}</a>
+            <a href="/_/login/oidc{if $next !== null}?next={$next|rawurlencode}{/if}" class="btn btn-primary btn-block oidc-login-btn">{$translator->trans('auth.oidc_login_button')}</a>
             <div class="login-divider">{$translator->trans('auth.oidc_divider')}</div>
         {/if}
 
         <form method="post" action="/_/login">
+            <input type="hidden" name="next" value="{$next}" n:if="$next !== null">
             <label class="form-label" for="email">{$translator->trans('login.email_label')}</label>
             <input
                 type="email"

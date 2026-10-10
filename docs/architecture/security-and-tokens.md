@@ -106,7 +106,7 @@ Every purpose is signed as a single-character string, not the readable full word
 
 | Full purpose | Code | Used by |
 |---|---|---|
-| login | `l` | `AuthController` |
+| login | `l` | `AuthController` — payload `listCn, userCn, next` (the validated page to return to, may be null) |
 | unsubscribe | `u` | `MailProcessor`, `DashboardController`, `ListController` (sign) / `UnsubscribeController` (verify) |
 | accept | `a` | `ModerationMailer` (sign) / `ModerationResponseHandler` (verify) |
 | reject | `r` | `ModerationMailer` (sign) / `ModerationResponseHandler` (verify) |

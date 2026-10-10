@@ -360,6 +360,10 @@ class ListConfigTest extends TestCase
         $make = fn(string $mode) => new ListConfig('l', 'l@example.org', ['archive' => $mode], $resolver);
 
         $this->assertTrue($make('public')->canViewArchive(null));
+        // authenticated: any logged-in user, member of this list or not; guests excluded
+        $this->assertFalse($make('authenticated')->canViewArchive(null));
+        $this->assertTrue($make('authenticated')->canViewArchive('x@example.com'));
+        $this->assertTrue($make('authenticated')->canViewArchive('m@example.org'));
         $this->assertFalse($make('members')->canViewArchive(null));
         $this->assertTrue($make('members')->canViewArchive('m@example.org'));
         $this->assertTrue($make('members')->canViewArchive('o@example.org'));

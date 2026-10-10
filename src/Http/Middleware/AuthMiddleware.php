@@ -37,12 +37,9 @@ class AuthMiddleware implements MiddlewareInterface
             // always landing on the dashboard. Without OIDC configured, the
             // magic-link flow has no equivalent "next" concept (see docs/architecture/web-ui.md
             // "Authentication (OIDC)"), so the plain /_/login form is still the right target.
-            if ($this->oidcEnabled) {
-                $next = urlencode(RequestPath::relativeTarget($request));
-                return $response->withHeader('Location', "/_/login/oidc?next={$next}")->withStatus(302);
-            }
-
-            return $response->withHeader('Location', '/_/login')->withStatus(302);
+            // Both login paths carry the requested page along, so the visitor lands back on it.
+            $loginPath = $this->oidcEnabled ? '/_/login/oidc' : '/_/login';
+            return $response->withHeader('Location', RequestPath::withNext($loginPath, $request))->withStatus(302);
         }
 
         $request = $request->withAttribute('user', $user);

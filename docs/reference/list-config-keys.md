@@ -29,7 +29,7 @@ Each `description` value is a `key:value` string. These have the highest priorit
 | `post-access-members` | `allow` \| `deny` \| `moderate` | Whether list members may post (default: `allow`) |
 | `post-access-public` | `allow` \| `deny` \| `moderate` | Whether non-members may post (default: `deny`) |
 | `allow-leave` | `direct` \| `moderated` | Unsubscribe behavior |
-| `archive` | `members` \| `owners` \| `public` \| `hidden` \| `off` | Archive instead of delete after processing, and who may view it in the web archive viewer — see [Archive access levels](../architecture/archive.md#archive-access-levels) (default: `off`) |
+| `archive` | `members` \| `owners` \| `authenticated` \| `public` \| `hidden` \| `off` | Archive instead of delete after processing, and who may view it in the web archive viewer — see [Archive access levels](../architecture/archive.md#archive-access-levels) (default: `off`) |
 | `archive-folder` | string | Name of the IMAP folder archived mail is moved into (default: `Archive`), created as a top-level folder (sibling of INBOX) if it doesn't exist yet — see [Archive folder path](../architecture/archive.md#archive-folder-path) for why this needs its own explanation. Only relevant when `archive` is not `off` |
 | `archive-max-age` | relative-time string, e.g. `30 days` | How long archived mail is kept before being deleted from the archive folder (default: unset — unbounded, kept forever, as before this key existed). See [Archive retention (`archive-max-age`)](../architecture/archive.md#archive-retention-archive-max-age) |
 | `max-per-sender` | integer | Rate limit: max mails per sender per 10 min (default: 5) |

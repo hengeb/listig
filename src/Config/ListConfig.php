@@ -323,6 +323,7 @@ class ListConfig
     {
         return match ($this->archive) {
             ArchiveMode::Public => true,
+            ArchiveMode::Authenticated => $identity !== null,
             ArchiveMode::Members => $identity !== null && ($this->isMember($identity) || $this->isOwnedBy($identity)),
             ArchiveMode::Owners => $identity !== null && $this->isOwnedBy($identity),
             default => false,

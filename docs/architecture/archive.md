@@ -4,10 +4,11 @@ Archive modes, IMAP archive folder, retention and the web archive viewer.
 
 ## Archive access levels
 
-`archive` (`ArchiveMode` — `src/Config/Enum/ArchiveMode.php`) replaced an earlier plain `on`/`off` boolean. Four of the five values archive the mail identically at the IMAP level — `ImapArchiver::archiveOrDelete()` moves the raw original into the list's archive folder (`$archiveFolder`, see [`archive-folder`](../reference/list-config-keys.md) above) on its own IMAP mailbox instead of deleting it — and differ only in who may view it through the web archive viewer (see [Archive viewer](#archive-viewer) below):
+`archive` (`ArchiveMode` — `src/Config/Enum/ArchiveMode.php`) replaced an earlier plain `on`/`off` boolean. Five of the six values archive the mail identically at the IMAP level — `ImapArchiver::archiveOrDelete()` moves the raw original into the list's archive folder (`$archiveFolder`, see [`archive-folder`](../reference/list-config-keys.md) above) on its own IMAP mailbox instead of deleting it — and differ only in who may view it through the web archive viewer (see [Archive viewer](#archive-viewer) below):
 
 - `members` — visible to list members (and owners)
 - `owners` — visible to owners only
+- `authenticated` — visible to every logged-in user (a member or owner of *any* list, i.e. a network member), whether or not of this list; guests get the login redirect. Sits between `members` and `public`: the login is required, the membership of this particular list is not
 - `public` — visible to anyone, no login required
 - `hidden` — archived, but exposed to no one via the UI, not even the owner — a retention-only mode (compliance/backup) distinct from `off`, which doesn't keep the mail at all
 - `off` (default) — not archived; deleted after processing, as before

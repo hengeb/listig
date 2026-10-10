@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Config\ListConfig;
+use Hengeb\Listig\Http\RequestPath;
 use Hengeb\Listig\Logging\Logger;
 use Hengeb\Listig\Member\AggregateMemberResolver;
 use Hengeb\Listig\Member\Member;
@@ -49,6 +50,8 @@ class AuthController
 
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/login.latte', [
             'flash' => $_SESSION['flash'] ?? null,
+            // Where to go after logging in — carried by the form (and the SSO button) from here on.
+            'next' => RequestPath::sanitizeNext($request->getQueryParams()['next'] ?? null),
             'language' => $this->translator->getLocale(),
             'translator' => $this->translator,
             'oidcEnabled' => $this->oidcEnabled,
@@ -68,6 +71,9 @@ class AuthController
 
         $body = $request->getParsedBody();
         $email = strtolower(trim($body['email'] ?? ''));
+        $next = RequestPath::sanitizeNext($body['next'] ?? null);
+        // Back to the form — which keeps the target for a second attempt.
+        $formUrl = '/_/login' . ($next !== null ? '?next=' . rawurlencode($next) : '');
 
         $this->logger->debug("Listig: login requested for $email");
 
@@ -75,7 +81,7 @@ class AuthController
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $_SESSION['flash'] = $message;
-            return $response->withHeader('Location', '/_/login')->withStatus(302);
+            return $response->withHeader('Location', $formUrl)->withStatus(302);
         }
 
         // Always rate limit and show same message
@@ -87,7 +93,9 @@ class AuthController
                 ['list' => $list, 'member' => $member] = $found;
                 try {
                     // 'l' — short token purpose code, see docs/architecture/security-and-tokens.md "Token Format".
-                    $token = $this->tokenService->sign('l', $list->name, $member->attributes['username'] ?? $email);
+                    // The (validated) page to return to travels in the signed token, so it survives opening the
+                    // link in another browser or on another device.
+                    $token = $this->tokenService->sign('l', $list->name, $member->attributes['username'] ?? $email, $next);
                     $link = "https://{$this->hostname}/_/login/verify?token={$token}";
                     $this->sendLoginMail($list, $member, $email, $link);
                     $this->logger->debug("Listig: login link sent to $email for list {$list->name}", $list->logLevel);
@@ -102,7 +110,7 @@ class AuthController
         }
 
         $_SESSION['flash'] = $message;
-        return $response->withHeader('Location', '/_/login')->withStatus(302);
+        return $response->withHeader('Location', $formUrl)->withStatus(302);
     }
 
     public function verifyToken(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
@@ -129,7 +137,9 @@ class AuthController
         // resolved back to the actual Member here rather than stored as-is: every
         // authorization check elsewhere ($list->isMember()/isOwnedBy(), ...) reads
         // $_SESSION['user']['email'] expecting a real, comparable email address.
+        // [$next]: the page the visitor came from (absent in tokens issued before it existed).
         [$listCn, $userCn] = $payload;
+        $next = RequestPath::sanitizeNext($payload[2] ?? null);
         $found = $this->memberResolver->findMemberInListByUserCn($listCn, $userCn);
         if ($found === null) {
             $_SESSION['flash'] = $this->translator->trans('auth.link_invalid');
@@ -145,7 +155,7 @@ class AuthController
 
         $this->logger->debug("Listig: login successful for {$member->email} (list {$list->name})", $list->logLevel);
 
-        return $response->withHeader('Location', '/')->withStatus(302);
+        return $response->withHeader('Location', $next ?? '/')->withStatus(302);
     }
 
     /**
@@ -178,7 +188,7 @@ class AuthController
             // unauthenticated deep-link visitor straight here; a plain visit to
             // /_/login/oidc with no '?next' at all leaves this unset, and the
             // callback branch below falls back to '/' exactly as before.
-            $next = self::sanitizeNext($request->getQueryParams()['next'] ?? null);
+            $next = RequestPath::sanitizeNext($request->getQueryParams()['next'] ?? null);
             if ($next !== null) {
                 // $this->openIdConnect->authenticate() above already closed the
                 // session — the underlying library's own requestAuthorization()
@@ -241,28 +251,6 @@ class AuthController
         unset($_SESSION['oidc_next']);
 
         return $response->withHeader('Location', $next)->withStatus(302);
-    }
-
-    /**
-     * Only a same-origin relative path is ever accepted as a post-login redirect
-     * target — 'next' ultimately originates from a query string an attacker
-     * fully controls (a crafted deep link pointing at this app), so anything
-     * that could make the browser leave this origin must be rejected outright
-     * rather than trusted: a full URL, or a scheme-relative "//evil.example"
-     * (browsers resolve that as https://evil.example, not a path).
-     */
-    private static function sanitizeNext(?string $next): ?string
-    {
-        if ($next === null || $next === '') {
-            return null;
-        }
-        if (!str_starts_with($next, '/') || str_starts_with($next, '//') || str_starts_with($next, '/\\')) {
-            return null;
-        }
-        if (parse_url($next, PHP_URL_SCHEME) !== null || parse_url($next, PHP_URL_HOST) !== null) {
-            return null;
-        }
-        return $next;
     }
 
     /**
