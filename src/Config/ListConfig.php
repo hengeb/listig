@@ -43,6 +43,37 @@ class ListConfig
      */
     private const string VALID_NAME_PATTERN = '/^[A-Za-z0-9_-]+$/';
 
+    /**
+     * Code defaults of every key whose default is a plain value (level 0 of the configuration chain,
+     * see docs/architecture/config.md "Configuration priority"). One table for both uses: the typed
+     * getters below read through setting(), and createContext() puts the same values under the
+     * configured ones — so `{archive}` in a footer or label is `off` on a list that never set it,
+     * not empty. A key that is *present but empty* is the operator's explicit choice and is never
+     * replaced by its default; only an absent (or null) key falls back. Keys whose default depends
+     * on others (imap-secure from the port, imap-user from mail-user, ...) or means "none" (footer,
+     * list-label, smtp-from-name) are not listed and stay in their getters.
+     */
+    public const array DEFAULTS = [
+        'reply-to' => 'list',
+        'post-access-members' => 'allow',
+        'post-access-public' => 'deny',
+        'allow-leave' => 'direct',
+        'archive' => 'off',
+        'archive-folder' => 'Archive',
+        'sender-notices' => 'authenticated',
+        'sender-notice-interval' => '1 hour',
+        'max-per-sender' => '5',
+        'sender-address-header' => 'never',
+        'bounce-action' => 'none',
+        'max-size' => '5M',
+        'imap-port' => '993',
+        'smtp-port' => '587',
+        'log-level' => 'info',
+        'join-policy' => 'invite',
+        'visibility' => 'members',
+        'language' => 'en',
+    ];
+
     public function __construct(
         public readonly string $name,
         public readonly string $mail,
@@ -410,7 +441,7 @@ class ListConfig
     }
 
     public ReplyToBehavior $replyTo {
-        get => ReplyToBehavior::from($this->resolve((string) ($this->raw['reply-to'] ?? 'list')));
+        get => ReplyToBehavior::from($this->resolve($this->setting('reply-to')));
     }
 
     /**
@@ -421,16 +452,16 @@ class ListConfig
      * configured at all previously meant "members may post, no moderation").
      */
     public PostAccess $postAccessMembers {
-        get => PostAccess::from($this->resolve((string) ($this->raw['post-access-members'] ?? 'allow')));
+        get => PostAccess::from($this->resolve($this->setting('post-access-members')));
     }
 
     /** Default 'deny' matches the old default (`post-access: members` — public/non-members excluded unless explicitly opened up). */
     public PostAccess $postAccessPublic {
-        get => PostAccess::from($this->resolve((string) ($this->raw['post-access-public'] ?? 'deny')));
+        get => PostAccess::from($this->resolve($this->setting('post-access-public')));
     }
 
     public AllowLeave $allowLeave {
-        get => AllowLeave::from($this->resolve((string) ($this->raw['allow-leave'] ?? 'direct')));
+        get => AllowLeave::from($this->resolve($this->setting('allow-leave')));
     }
 
     public ?string $footer {
@@ -449,7 +480,7 @@ class ListConfig
      * docs/architecture/archive.md "Archive access levels".
      */
     public ArchiveMode $archive {
-        get => ArchiveMode::from($this->resolve((string) ($this->raw['archive'] ?? 'off')));
+        get => ArchiveMode::from($this->resolve($this->setting('archive')));
     }
 
     /**
@@ -459,7 +490,7 @@ class ListConfig
      * provider's own webmail names its own archive folder differently (e.g. "Archives").
      */
     public string $archiveFolder {
-        get => $this->resolve((string) ($this->raw['archive-folder'] ?? 'Archive'));
+        get => $this->resolve($this->setting('archive-folder'));
     }
 
     /**
@@ -522,7 +553,7 @@ class ListConfig
     }
 
     public SenderNotices $senderNotices {
-        get => SenderNotices::from($this->resolve((string) ($this->raw['sender-notices'] ?? 'authenticated')));
+        get => SenderNotices::from($this->resolve($this->setting('sender-notices')));
     }
 
     /**
@@ -532,7 +563,7 @@ class ListConfig
      */
     public int $senderNoticeInterval {
         get {
-            $raw = trim($this->resolve((string) ($this->raw['sender-notice-interval'] ?? '1 hour')));
+            $raw = trim($this->resolve($this->setting('sender-notice-interval')));
             if (ctype_digit($raw)) {
                 $seconds = (int) $raw;
             } else {
@@ -551,7 +582,7 @@ class ListConfig
     }
 
     public int $maxPerSender {
-        get => (int) $this->resolve((string) ($this->raw['max-per-sender'] ?? 5));
+        get => (int) $this->resolve($this->setting('max-per-sender'));
     }
 
     /**
@@ -566,15 +597,15 @@ class ListConfig
      * reply addresses".
      */
     public SenderAddressHeader $senderAddressHeader {
-        get => SenderAddressHeader::from($this->resolve((string) ($this->raw['sender-address-header'] ?? 'never')));
+        get => SenderAddressHeader::from($this->resolve($this->setting('sender-address-header')));
     }
 
     public BounceAction $bounceAction {
-        get => BounceAction::from($this->resolve($this->raw['bounce-action'] ?? 'none'));
+        get => BounceAction::from($this->resolve($this->setting('bounce-action')));
     }
 
     public int $maxSize {
-        get => self::parseSize($this->resolve((string) ($this->raw['max-size'] ?? '5M')));
+        get => self::parseSize($this->resolve($this->setting('max-size')));
     }
 
     public ?string $smtpFromName {
@@ -606,7 +637,7 @@ class ListConfig
     }
 
     public int $imapPort {
-        get => (int) $this->resolve((string) ($this->raw['imap-port'] ?? 993));
+        get => (int) $this->resolve($this->setting('imap-port'));
     }
 
     public string $imapUser {
@@ -629,7 +660,7 @@ class ListConfig
     }
 
     public int $smtpPort {
-        get => (int) $this->resolve((string) ($this->raw['smtp-port'] ?? 587));
+        get => (int) $this->resolve($this->setting('smtp-port'));
     }
 
     public string $smtpUser {
@@ -652,7 +683,7 @@ class ListConfig
     }
 
     public string $logLevel {
-        get => $this->resolve($this->raw['log-level'] ?? 'info');
+        get => $this->resolve($this->setting('log-level'));
     }
 
     /**
@@ -668,12 +699,12 @@ class ListConfig
 
     /** How someone becomes a member (`join-policy`, default `invite`) — only `open` is implemented; see JoinPolicy. */
     public JoinPolicy $joinPolicy {
-        get => JoinPolicy::from($this->resolve((string) ($this->raw['join-policy'] ?? 'invite')));
+        get => JoinPolicy::from($this->resolve($this->setting('join-policy')));
     }
 
     /** Who gets to see this list in the web UI (`visibility`, default `members`) — see isVisibleTo(). */
     public Visibility $visibility {
-        get => Visibility::from($this->resolve((string) ($this->raw['visibility'] ?? 'members')));
+        get => Visibility::from($this->resolve($this->setting('visibility')));
     }
 
     /**
@@ -736,7 +767,7 @@ class ListConfig
      * special-casing needed here beyond the code-default fallback.
      */
     public string $language {
-        get => $this->resolve($this->raw['language'] ?? 'en');
+        get => $this->resolve($this->setting('language'));
     }
 
     /** Domain part of the list's mail address — e.g. "example.org" for "list@example.org". */
@@ -847,6 +878,13 @@ class ListConfig
             ],
             array_diff_key($this->raw, array_flip(['name', 'mail'])),
         );
+        // Code defaults under whatever is configured (an explicit null counts as absent, an explicit
+        // empty string does not) — so a template sees the same value the typed getters use.
+        foreach (self::DEFAULTS as $key => $default) {
+            if (($baseContext[$key] ?? null) === null) {
+                $baseContext[$key] = $default;
+            }
+        }
 
         $rawHostname = $this->raw['hostname'] ?? null;
         $hostname = $rawHostname !== null
@@ -897,6 +935,12 @@ class ListConfig
      * digits of the actual password as a port number, which can then surface
      * via a connection-failure error message).
      */
+    /** The raw value of a key listed in DEFAULTS, or its code default when the key is absent. */
+    private function setting(string $key): string
+    {
+        return (string) ($this->raw[$key] ?? self::DEFAULTS[$key]);
+    }
+
     private function resolve(string $raw, ResolutionPurpose $purpose = ResolutionPurpose::Disclosed): string
     {
         if (!str_contains($raw, '{')) {

@@ -444,4 +444,45 @@ class ListConfigTest extends TestCase
         $this->assertFalse($make(['join-policy' => 'open', 'visibility' => 'members'])->canJoin('x@example.com'), 'cannot see the list');
         $this->assertTrue($make(['join-policy' => 'open', 'visibility' => 'hidden'])->canJoin('o@example.org'), 'an owner who is not a member may join');
     }
+
+    public function testCodeDefaultsAreInTheTemplateContextAndMatchTheGetters(): void
+    {
+        $list = new ListConfig('l', 'l@example.org', []);
+        $context = $list->createContext();
+
+        // The context holds every code default, not just the configured keys ...
+        foreach (ListConfig::DEFAULTS as $key => $default) {
+            $this->assertSame($default, $context[$key], $key);
+        }
+        $this->assertSame('off', \Hengeb\Listig\Variable\VariableResolver::resolve('{archive}', [$context]));
+        $this->assertSame('5', \Hengeb\Listig\Variable\VariableResolver::resolve('{max-per-sender}', [$context]));
+
+        // ... and the typed getters read the very same values.
+        $this->assertSame(\Hengeb\Listig\Config\Enum\ArchiveMode::Off, $list->archive);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\ReplyToBehavior::List, $list->replyTo);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\PostAccess::Allow, $list->postAccessMembers);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\PostAccess::Deny, $list->postAccessPublic);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\AllowLeave::Direct, $list->allowLeave);
+        $this->assertSame('Archive', $list->archiveFolder);
+        $this->assertSame(5, $list->maxPerSender);
+        $this->assertSame(5_000_000, $list->maxSize);
+        $this->assertSame(993, $list->imapPort);
+        $this->assertSame(587, $list->smtpPort);
+        $this->assertSame('info', $list->logLevel);
+        $this->assertSame('en', $list->language);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\BounceAction::None, $list->bounceAction);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\SenderAddressHeader::Never, $list->senderAddressHeader);
+        $this->assertSame(3600, $list->senderNoticeInterval);
+    }
+
+    public function testConfiguredValuesAndExplicitEmptyStringsBeatTheDefaults(): void
+    {
+        $list = new ListConfig('l', 'l@example.org', ['archive' => 'members', 'reply-to' => '', 'language' => null]);
+        $context = $list->createContext();
+
+        $this->assertSame('members', $context['archive']);
+        $this->assertSame('', $context['reply-to'], 'present but empty is the operator\'s choice, not "absent"');
+        $this->assertSame('en', $context['language'], 'an explicit null counts as absent');
+        $this->assertSame('en', $list->language);
+    }
 }
