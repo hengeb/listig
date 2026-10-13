@@ -52,7 +52,7 @@ class ListConfig
      * not empty. A key that is *present but empty* is the operator's explicit choice and is never
      * replaced by its default; only an absent (or null) key falls back. Keys whose default depends
      * on others (imap-secure from the port, imap-user from mail-user, ...) or means "none" (footer,
-     * list-label, smtp-from-name) are not listed and stay in their getters.
+     * list-label, from-name) are not listed and stay in their getters.
      */
     public const array DEFAULTS = [
         'reply-to' => 'list',
@@ -461,7 +461,7 @@ class ListConfig
     /**
      * Resolved as a template against ResolutionPurpose::Disclosed (the default) —
      * unlike imapUser/imapPassword/etc., this is read directly in many places
-     * (UI templates, notification mail subjects, the smtp-from-name fallback),
+     * (UI templates, notification mail subjects, the from-name fallback),
      * so a list configured with e.g. `display-name: "{imap-password}"` must not
      * be able to leak that value just because someone reads this property
      * directly, the same way it already couldn't via {display-name} referenced
@@ -660,8 +660,9 @@ class ListConfig
         get => self::parseSize($this->resolve($this->setting('max-size')));
     }
 
-    public ?string $smtpFromName {
-        get => $this->raw['smtp-from-name'] ?? null;
+    /** Display name of the From header (not an SMTP concept: the envelope sender has no name). */
+    public ?string $fromName {
+        get => $this->raw['from-name'] ?? null;
     }
 
     /**
@@ -942,6 +943,9 @@ class ListConfig
         $hostname = $rawHostname !== null
             ? VariableResolver::resolve((string) $rawHostname, [$baseContext])
             : '';
+        if ($rawHostname !== null && $hostname === '') {
+            throw new \RuntimeException("List '{$this->name}': 'hostname' is set but empty — set it to the public host name or remove the key");
+        }
         if ($hostname === '') {
             $hostname = gethostname() ?: 'localhost';
         }

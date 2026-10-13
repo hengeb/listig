@@ -127,7 +127,11 @@ $builder->addDefinitions([
         if (!array_key_exists('hostname', $cfg) || $cfg['hostname'] === null) {
             return '';
         }
-        return VariableResolver::resolve((string) $cfg['hostname'], [$cfg]);
+        $hostname = VariableResolver::resolve((string) $cfg['hostname'], [$cfg]);
+        if ($hostname === '') {
+            throw new \RuntimeException("'hostname' in config.yml is set but empty — set it to the public host name or remove the key");
+        }
+        return $hostname;
     },
 
     // Hostname the app uses to build its own links (login, dashboard, manage page,

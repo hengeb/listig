@@ -20,7 +20,7 @@ Variables use `{key}` syntax and are resolved **lazily** — at point of use, wi
 
 ### Mail-context variables (available while processing an incoming mail)
 
-These are available in `smtp-from-name` and similar fields that describe the outgoing mail:
+These are available in `from-name` and similar fields that describe the outgoing mail:
 
 | Variable | Value |
 |---|---|
@@ -30,7 +30,7 @@ These are available in `smtp-from-name` and similar fields that describe the out
 | `{sender-` + any attribute`}` | Every key in the sender `Member`'s `$attributes`, prefixed `sender-` — e.g. `{sender-firstname}`, `{sender-employeeNumber}` for an LDAP sender. See [Member attributes — fully dynamic](providers-and-members.md#member-attributes--fully-dynamic); nothing beyond `sender-mail` is fixed |
 | `{subaddress}` | The `+subaddress` portion of the incoming mail's recipient address relative to `{list-mail}`'s local part and domain, e.g. `alice` for `fwd+alice@example.org`; empty string if the mail had none. Used by `type: subaddress` lists (see [type: subaddress — subaddress forwarding](providers-and-members.md#type-subaddress--subaddress-forwarding)), but computed for every list |
 
-Example use: `smtp-from-name: "{sender-name} (via {display-name})"` — produces e.g. `Alice Müller (via Projektliste)` in the From header.
+Example use: `from-name: "{sender-name} (via {display-name})"` — produces e.g. `Alice Müller (via Projektliste)` in the From header.
 
 ### Recipient-context variables (available during personalization per recipient)
 

@@ -49,6 +49,19 @@ class ListConfigTest extends TestCase
         $this->assertSame('my-list_1', $list->name);
     }
 
+    public function testExplicitlyEmptyHostnameFailsFast(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("'hostname' is set but empty");
+        (new ListConfig('mylist', 'mylist@example.org', ['hostname' => '']))->createContext();
+    }
+
+    public function testUnsetHostnameFallsBackToTheMachineName(): void
+    {
+        $context = (new ListConfig('mylist', 'mylist@example.org', []))->createContext();
+        $this->assertNotSame('', $context['hostname']);
+    }
+
     // --- Enum defaults ---
 
     public function testDefaults(): void

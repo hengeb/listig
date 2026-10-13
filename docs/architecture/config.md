@@ -198,7 +198,7 @@ list-providers:
 
 ## Configuration priority (low → high)
 
-0. Code defaults (lowest — ensures keys always have a value; can be overridden at any level). Kept in one table, `ListConfig::DEFAULTS` (every key whose default is a plain value: `archive: off`, `reply-to: list`, `max-per-sender: 5`, `join-policy: invite`, ...), used by the typed getters *and* put under the configured keys in `createContext()` — so `{archive}` in a template is `off` on a list that never set it, not empty. Defaults that depend on other keys (`imap-secure` from the port, `imap-user` from `mail-user`) or mean "none" (`footer`, `list-label`, `smtp-from-name`) are not in the table and stay in their getters
+0. Code defaults (lowest — ensures keys always have a value; can be overridden at any level). Kept in one table, `ListConfig::DEFAULTS` (every key whose default is a plain value: `archive: off`, `reply-to: list`, `max-per-sender: 5`, `join-policy: invite`, ...), used by the typed getters *and* put under the configured keys in `createContext()` — so `{archive}` in a template is `off` on a list that never set it, not empty. Defaults that depend on other keys (`imap-secure` from the port, `imap-user` from `mail-user`) or mean "none" (`footer`, `list-label`, `from-name`) are not in the table and stay in their getters
 1. `use:` blocks at the config.yml root (in order; later entries override earlier)
 2. Direct key-values at the config.yml root
 3. `use:` blocks in `list-provider` (merged; do not override direct root-level values)

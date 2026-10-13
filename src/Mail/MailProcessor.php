@@ -394,8 +394,8 @@ class MailProcessor
     {
         $headers = $email->getHeaders();
 
-        $fromName = $list->smtpFromName !== null
-            ? VariableResolver::resolve($list->smtpFromName, $contexts, ResolutionPurpose::Disclosed)
+        $fromName = $list->fromName !== null
+            ? VariableResolver::resolve($list->fromName, $contexts, ResolutionPurpose::Disclosed)
             : $list->displayName;
         // `from-address: masked`: the sender's own `+r-` address, so "reply to sender" in a mail
         // client reaches them through the relay. Not on type: subaddress lists (no relay there).
