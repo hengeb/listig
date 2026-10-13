@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Member;
 
-use Hengeb\Listig\Config\Enum\LeavePolicy;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\NotificationMailer;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -26,7 +25,7 @@ class ListLeaver
     /** @param Member|null $member the member record if known (for the owners' notice), else only the address is used */
     public function leave(ListConfig $list, ?Member $member, string $memberEmail): LeaveOutcome
     {
-        if ($list->leavePolicy === LeavePolicy::Moderated) {
+        if (!$list->leavesDirectly) {
             $this->notifyOwners($list, $member, $memberEmail);
             return LeaveOutcome::Requested;
         }

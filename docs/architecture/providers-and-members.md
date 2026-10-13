@@ -109,13 +109,7 @@ either) resolves to an empty string rather than a literal `{key}` — see
 
 ## String-backed Enums
 
-```php
-enum ReplyToBehavior: string { case List = 'list'; case Sender = 'sender'; case Both = 'both'; case Nobody = 'nobody'; case MaskedSender = 'masked-sender'; case MaskedBoth = 'masked-both'; }
-enum SenderAddressHeader: string { case Never = 'never'; case External = 'external'; case Always = 'always'; }
-enum PostAccess: string { case Allow = 'allow'; case Deny = 'deny'; case Moderate = 'moderate'; }
-enum LeavePolicy: string { case Direct = 'direct'; case Moderated = 'moderated'; }
-enum ArchiveMode: string { case Members = 'members'; case Owners = 'owners'; case Public = 'public'; case Hidden = 'hidden'; case Off = 'off'; }
-```
+Every fixed-value config key is a string-backed enum in `src/Config/Enum/` (values: [per-list keys](../reference/list-config-keys.md)).
 
 ## ListConfig with property hooks
 

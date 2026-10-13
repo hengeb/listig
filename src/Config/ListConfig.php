@@ -509,6 +509,11 @@ class ListConfig
         get => LeavePolicy::from($this->resolve($this->setting('leave-policy')));
     }
 
+    /** `leave-policy: direct` — members are taken off at once; otherwise the owners are asked (ListLeaver). */
+    public bool $leavesDirectly {
+        get => $this->leavePolicy === LeavePolicy::Direct;
+    }
+
     public ?string $footer {
         get => array_key_exists('footer', $this->raw) ? ($this->raw['footer'] ?? null) : null;
     }

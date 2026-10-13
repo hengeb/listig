@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Http\Controller;
 
 use Hengeb\Listig\Config\Enum\JoinPolicy;
-use Hengeb\Listig\Config\Enum\LeavePolicy;
 use Hengeb\Listig\Member\AggregateMemberResolver;
 use Hengeb\Listig\Member\LeaveOutcome;
 use Hengeb\Listig\Member\ListLeaver;
@@ -85,7 +84,7 @@ class MembershipController
         if ($list === null || $member === null) {
             return $this->json($response, ['error' => 'not found'], 404);
         }
-        if ($list->leavePolicy === LeavePolicy::Direct && !$list->supportsUnsubscribe) {
+        if ($list->leavesDirectly && !$list->supportsUnsubscribe) {
             return $this->json($response, ['error' => $this->translator->trans('unsubscribe.not_supported', [], null, $list->language)], 409);
         }
 
