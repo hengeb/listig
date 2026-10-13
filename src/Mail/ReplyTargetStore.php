@@ -43,7 +43,9 @@ class ReplyTargetStore
      */
     public function tokenFor(ListConfig $list, string $email): string
     {
-        $member = $list->findMemberByEmail($email) ?? $list->findOwnerInList($email);
+        // Scoped to this list: findMemberByEmail() would also match a directory entry (LDAP) that is
+        // not on the list, and resolve() — which only looks at the list's members — could never find it.
+        $member = $list->findMemberInList($email) ?? $list->findOwnerInList($email);
         if ($member !== null) {
             $kind = 'member';
             $key  = $member->attributes['username'] ?? $member->email;
@@ -123,6 +125,15 @@ class ReplyTargetStore
             }
         }
         return null;
+    }
+
+    /**
+     * Reject reason for a token that resolve() could not turn into a target: the token itself is
+     * unusable (bad signature, other list, no row) or its member is no longer on the list.
+     */
+    public function unresolvableReason(ListConfig $list, string $token): string
+    {
+        return $this->find($list, $token) === null ? 'reject.reply_target_unknown' : 'reject.reply_target_gone';
     }
 
     /** Whether the mail is addressed to a `+r-` reply address at all (never true for type: subaddress lists). */

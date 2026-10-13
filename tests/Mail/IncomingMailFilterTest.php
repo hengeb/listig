@@ -75,6 +75,7 @@ class IncomingMailFilterTest extends TestCase
         $store = $this->createStub(ReplyTargetStore::class);
         $store->method('extractToken')->willReturn('tok');
         $store->method('resolve')->willReturn($targetResolves ? new ReplyTarget(new Member('t@example.org'), true) : null);
+        $store->method('unresolvableReason')->willReturn('reject.reply_target_unknown');
         $filter = new IncomingMailFilter(
             $this->createStub(RateLimiter::class),
             new HeaderFilter(),
@@ -102,6 +103,29 @@ class IncomingMailFilterTest extends TestCase
     {
         $this->assertTrue($this->runReply(['reply-to' => 'list', 'post-access-members' => 'moderate'], 'm@example.org')->isDistribute);
         $this->assertSame('reject.reply_not_allowed', $this->runReply(['reply-to' => 'list'], 'x@example.com')->reason);
+    }
+
+    public function testReplyTokenOfAMemberWhoLeftIsReportedAsGone(): void
+    {
+        $store = $this->createStub(ReplyTargetStore::class);
+        $store->method('extractToken')->willReturn('tok');
+        $store->method('resolve')->willReturn(null);
+        $store->method('unresolvableReason')->willReturn('reject.reply_target_gone');
+        $filter = new IncomingMailFilter(
+            $this->createStub(RateLimiter::class),
+            new HeaderFilter(),
+            new SpamFilter([], new Logger(LogLevel::Error)),
+            $store,
+            $this->createStub(ReplyThreadStore::class),
+            new SenderAuthenticator(new HeaderFilter(), new OrganizationalDomain()),
+        );
+        $mail = new IncomingMail();
+        $mail->headersRaw = "To: mylist+r-tok@example.org\r\n";
+        $mail->autoSubmitted = '';
+        $mail->subject = 'Re: Hallo';
+        $mail->fromAddress = 'm@example.org';
+        $list = new ListConfig('mylist', 'mylist@example.org', ['reply-to' => 'masked-sender'], new InlineMemberResolver(['m@example.org'], ['o@example.org']));
+        $this->assertSame('reject.reply_target_gone', $filter->filter($mail, $list, 'raw', [])->reason);
     }
 
     public function testReplyTokenWithUnresolvableTargetIsRejected(): void

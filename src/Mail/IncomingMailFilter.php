@@ -254,7 +254,7 @@ class IncomingMailFilter
             return FilterResult::reject('reject.reply_not_allowed');
         }
         if ($this->replyTargetStore->resolve($list, $token) === null) {
-            return FilterResult::reject('reject.reply_target_unknown');
+            return FilterResult::reject($this->replyTargetStore->unresolvableReason($list, $token));
         }
         return $list->replyRelayReachesGroup ? $this->checkPostAccess($list, $senderEmail) : null;
     }
