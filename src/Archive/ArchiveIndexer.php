@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Archive;
 
-use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\HeaderFilter;
 use Hengeb\Listig\Mail\ReplyThreadStore;
@@ -32,7 +31,7 @@ class ArchiveIndexer
 
     public function index(ListConfig $list, IncomingMail $mail): void
     {
-        if ($list->archive === ArchiveMode::Off) {
+        if (!$list->archivesMail) {
             return;
         }
 

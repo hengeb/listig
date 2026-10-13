@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Imap;
 
-use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\ListConfig;
 use PhpImap\Imap;
 
@@ -17,7 +16,7 @@ class ImapArchiver
 
     public function archiveOrDelete(ListConfig $list, int $uid): void
     {
-        if ($list->archive === ArchiveMode::Off) {
+        if (!$list->archivesMail) {
             $this->delete($list, $uid);
             return;
         }
@@ -99,7 +98,7 @@ class ImapArchiver
      */
     public function pruneArchive(ListConfig $list): int
     {
-        if ($list->archive === ArchiveMode::Off || $list->archiveMaxAgeCutoff === null || !$list->isImapConfigured) {
+        if (!$list->archivesMail || $list->archiveMaxAgeCutoff === null || !$list->isImapConfigured) {
             return 0;
         }
 

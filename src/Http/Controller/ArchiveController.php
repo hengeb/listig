@@ -18,7 +18,6 @@ use Hengeb\Listig\Archive\CachedArchivedMail;
 use Hengeb\Listig\Archive\CachedAttachment;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\Enum\PostAccess;
-use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Http\ListActions;
 use Hengeb\Listig\Mail\ReplyTargetStore;
 use Hengeb\Listig\Mail\ReplyThreadStore;
@@ -249,7 +248,6 @@ class ArchiveController
     private function authorReplyHref(ListConfig $list, ?string $identity, array $row, ?CachedArchivedMail $mail): ?string
     {
         $author = $mail->fromAddress ?? '';
-        $relayMode = $list->replyTo->relayMode();
         if ($identity === null || $author === '' || $list->subaddressMemberTemplates !== null) {
             return null;
         }
@@ -258,7 +256,7 @@ class ArchiveController
             return null;
         }
         // masked-both also reaches the group, so the relay applies post-access to the replier.
-        if ($relayMode === ReplyToBehavior::MaskedBoth && !$list->canPost($identity)) {
+        if ($list->replyRelayReachesGroup && !$list->canPost($identity)) {
             return null;
         }
         $authorIsMember = $list->findMemberInList($author) !== null || $list->findOwnerInList($author) !== null;

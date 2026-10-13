@@ -509,6 +509,21 @@ class ListConfig
         get => LeavePolicy::from($this->resolve($this->setting('leave-policy')));
     }
 
+    /** A reply through a `+r-` address also reaches the group (`reply-to: masked-both`); otherwise it is private to the target. */
+    public bool $replyRelayReachesGroup {
+        get => $this->replyTo->relayMode() === ReplyToBehavior::MaskedBoth;
+    }
+
+    /** `post-access-members` and `post-access-public` are both `deny`: only owners post. */
+    public bool $onlyOwnersCanPost {
+        get => $this->postAccessMembers === PostAccess::Deny && $this->postAccessPublic === PostAccess::Deny;
+    }
+
+    /** `archive` is not `off`: mails of the list are kept on the IMAP side (and indexed). */
+    public bool $archivesMail {
+        get => $this->archive !== ArchiveMode::Off;
+    }
+
     /** `leave-policy: direct` — members are taken off at once; otherwise the owners are asked (ListLeaver). */
     public bool $leavesDirectly {
         get => $this->leavePolicy === LeavePolicy::Direct;

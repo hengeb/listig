@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Hengeb\Listig\Mail;
 
 use Hengeb\Listig\Config\Enum\PostAccess;
-use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\RateLimit\RateLimiter;
 use PhpImap\IncomingMail;
@@ -123,7 +122,7 @@ class IncomingMailFilter
         if ($unverifiedMode !== PostAccess::Allow
             && !$this->senderAuthenticator->isAuthenticated($mail->headersRaw ?? '', $senderEmail, $list->trustedAuthservIds)
         ) {
-            $moderable = $replyToken === null || $list->replyTo->relayMode() === ReplyToBehavior::MaskedBoth;
+            $moderable = $replyToken === null || $list->replyRelayReachesGroup;
             if ($unverifiedMode === PostAccess::Deny || !$moderable) {
                 return FilterResult::reject('reject.unauthenticated');
             }
@@ -136,7 +135,7 @@ class IncomingMailFilter
         }
 
         // masked-sender replies never reach the list, so they are never moderated either.
-        $moderable = $replyToken === null || $list->replyTo->relayMode() === ReplyToBehavior::MaskedBoth;
+        $moderable = $replyToken === null || $list->replyRelayReachesGroup;
         if ($moderable && ($heldAsUnverified || $this->requiresModeration($list, $senderEmail))) {
             // A moderation item nobody can ever accept/reject is worse than an
             // outright rejection — without this, the mail would silently vanish
@@ -257,7 +256,7 @@ class IncomingMailFilter
         if ($this->replyTargetStore->resolve($list, $token) === null) {
             return FilterResult::reject('reject.reply_target_unknown');
         }
-        return $list->replyTo->relayMode() === ReplyToBehavior::MaskedBoth ? $this->checkPostAccess($list, $senderEmail) : null;
+        return $list->replyRelayReachesGroup ? $this->checkPostAccess($list, $senderEmail) : null;
     }
 
     /**

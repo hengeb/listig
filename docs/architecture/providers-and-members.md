@@ -110,6 +110,7 @@ either) resolves to an empty string rather than a literal `{key}` — see
 ## String-backed Enums
 
 Every fixed-value config key is a string-backed enum in `src/Config/Enum/` (values: [per-list keys](../reference/list-config-keys.md)).
+Callers do not compare enum cases themselves where a rule is used in more than one place: `ListConfig` exposes it as a derived flag (`leavesDirectly`, `replyRelayReachesGroup`, `onlyOwnersCanPost`, `archivesMail`, alongside `canPost()`/`isVisibleTo()`), so renaming or extending a key touches `ListConfig` and the enum only.
 
 ## ListConfig with property hooks
 

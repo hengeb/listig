@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Mail;
 
-use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\FromAddress;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
 use Hengeb\Listig\Config\Enum\SenderAddressHeader;
@@ -484,11 +483,7 @@ class MailProcessor
         $headers->addTextHeader('List-Id', "<{$list->name}.{$list->domain}>");
 
         $headers->remove('list-post');
-        // "Owners only" no longer has a single config key of its own — it's the
-        // state where both members and public are denied (owners themselves
-        // always have posting rights, with no key to check here at all).
-        $onlyOwnersCanPost = $list->postAccessMembers === PostAccess::Deny && $list->postAccessPublic === PostAccess::Deny;
-        $headers->addTextHeader('List-Post', $onlyOwnersCanPost ? 'NO' : "<mailto:{$list->mail}>");
+        $headers->addTextHeader('List-Post', $list->onlyOwnersCanPost ? 'NO' : "<mailto:{$list->mail}>");
 
         $headers->remove('list-help');
         $owners = $list->getOwners();
@@ -556,7 +551,7 @@ class MailProcessor
         $allowed = fn(Member $m) => !$list->isReceiverRestricted($m->email)
             && !$this->bounceSuppressionList->isSuppressed($list->name, $m->email);
 
-        if ($list->replyTo->relayMode() !== ReplyToBehavior::MaskedBoth) {
+        if (!$list->replyRelayReachesGroup) {
             return array_values(array_filter([$target->recipient], $allowed));
         }
 

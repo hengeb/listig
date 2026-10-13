@@ -62,6 +62,19 @@ class ListConfigTest extends TestCase
         $this->assertNotSame('', $context['hostname']);
     }
 
+    public function testDerivedPolicyFlags(): void
+    {
+        $make = fn(array $raw) => new ListConfig('mylist', 'mylist@example.org', $raw);
+        $this->assertTrue($make([])->leavesDirectly);
+        $this->assertFalse($make(['leave-policy' => 'moderated'])->leavesDirectly);
+        $this->assertTrue($make(['reply-to' => 'masked-both'])->replyRelayReachesGroup);
+        $this->assertFalse($make(['reply-to' => 'list'])->replyRelayReachesGroup);
+        $this->assertFalse($make([])->onlyOwnersCanPost);
+        $this->assertTrue($make(['post-access-members' => 'deny', 'post-access-public' => 'deny'])->onlyOwnersCanPost);
+        $this->assertFalse($make([])->archivesMail);
+        $this->assertTrue($make(['archive' => 'members'])->archivesMail);
+    }
+
     // --- Enum defaults ---
 
     public function testDefaults(): void
