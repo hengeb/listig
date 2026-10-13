@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Tests\Config;
 
-use Hengeb\Listig\Config\Enum\AllowLeave;
+use Hengeb\Listig\Config\Enum\LeavePolicy;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\Enum\PostAccess;
 use Hengeb\Listig\Config\Enum\ReplyToBehavior;
@@ -71,7 +71,7 @@ class ListConfigTest extends TestCase
         $this->assertSame(PostAccess::Allow, $list->postAccessMembers);
         $this->assertSame(PostAccess::Deny, $list->postAccessPublic);
         $this->assertSame(PostAccess::Allow, $list->postAccessUnauthenticated);
-        $this->assertSame(AllowLeave::Direct, $list->allowLeave);
+        $this->assertSame(LeavePolicy::Direct, $list->leavePolicy);
         $this->assertSame(ArchiveMode::Off, $list->archive);
         $this->assertSame('Archive', $list->archiveFolder);
         $this->assertSame('en', $list->language);
@@ -83,13 +83,13 @@ class ListConfigTest extends TestCase
             'reply-to' => 'both',
             'post-access-members' => 'moderate',
             'post-access-public' => 'allow',
-            'allow-leave' => 'moderated',
+            'leave-policy' => 'moderated',
             'archive' => 'public',
         ]);
         $this->assertSame(ReplyToBehavior::Both, $list->replyTo);
         $this->assertSame(PostAccess::Moderate, $list->postAccessMembers);
         $this->assertSame(PostAccess::Allow, $list->postAccessPublic);
-        $this->assertSame(AllowLeave::Moderated, $list->allowLeave);
+        $this->assertSame(LeavePolicy::Moderated, $list->leavePolicy);
         $this->assertSame(ArchiveMode::Public, $list->archive);
     }
 
@@ -483,7 +483,7 @@ class ListConfigTest extends TestCase
         $this->assertSame(\Hengeb\Listig\Config\Enum\ReplyToBehavior::List, $list->replyTo);
         $this->assertSame(\Hengeb\Listig\Config\Enum\PostAccess::Allow, $list->postAccessMembers);
         $this->assertSame(\Hengeb\Listig\Config\Enum\PostAccess::Deny, $list->postAccessPublic);
-        $this->assertSame(\Hengeb\Listig\Config\Enum\AllowLeave::Direct, $list->allowLeave);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\LeavePolicy::Direct, $list->leavePolicy);
         $this->assertSame('Archive', $list->archiveFolder);
         $this->assertSame(5, $list->maxPerSender);
         $this->assertSame(5_000_000, $list->maxSize);

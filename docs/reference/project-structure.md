@@ -87,7 +87,7 @@ Annotated directory tree.
 │   │       ├── JoinPolicy.php        # 'open' | 'invite' | 'request' — join-policy, see "Visibility and join policy" (docs/architecture/web-ui.md)
 │   │       ├── Visibility.php        # 'public' | 'members' | 'hidden' — visibility, same section
 │   │       ├── PostAccess.php        # 'allow' | 'deny' | 'moderate' — used for both post-access-members and post-access-public
-│   │       ├── AllowLeave.php        # 'direct' | 'moderated'
+│   │       ├── LeavePolicy.php        # 'direct' | 'moderated'
 │   │       ├── ArchiveMode.php       # 'members' | 'owners' | 'public' | 'hidden' | 'off'
 │   │       ├── SenderNotices.php     # 'authenticated' | 'always' | 'never' — see "Sender notices" (docs/architecture/mail-processing.md)
 │   │       ├── SenderAddressHeader.php # 'never' | 'external' | 'always' — see "Masked reply addresses" (docs/architecture/masked-replies.md)
@@ -97,7 +97,7 @@ Annotated directory tree.
 │   │   ├── MemberResolver.php        # Interface: getMembers(), getOwners(), findByEmail(), removeMember()
 │   │   ├── MemberResolverFactory.php # Builds member-resolver source(s) (type: database/ldap/csv, single or composable list) and composes all three levels into one resolver — see "Global / provider / list levels" (docs/architecture/config.md)
 │   │   ├── CompositeMemberResolver.php # Combines multiple independent MemberResolver sources (any level) for one list — see "Global / provider / list levels" (docs/architecture/config.md)
-│   │   ├── ListLeaver.php            # Takes a member off a list honouring allow-leave; shared by the footer-link POST and the logged-in button — see ADR-0022
+│   │   ├── ListLeaver.php            # Takes a member off a list honouring leave-policy; shared by the footer-link POST and the logged-in button — see ADR-0022
 │   │   ├── LeaveOutcome.php          # Left | Requested | NotSupported
 │   │   ├── NullMemberResolver.php    # No-op implementation
 │   │   ├── InlineMemberResolver.php  # Resolves from inline config.yml member lists (plain "mail@x" string or firstname/lastname/mail/username map); removeMember is no-op

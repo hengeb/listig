@@ -50,7 +50,7 @@ mail-config:
 # Named block — referenced via 'use:' above
 list-defaults:
   reply-to: sender
-  allow-leave: direct
+  leave-policy: direct
   list-label: "[{display-name}]"
   footer: "<p>Diese Mail wurde über die Liste {display-name} verschickt. <a href=\"{list-url}\">Zur Liste</a></p>"
 

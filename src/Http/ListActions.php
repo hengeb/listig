@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Http;
 
-use Hengeb\Listig\Config\Enum\AllowLeave;
+use Hengeb\Listig\Config\Enum\LeavePolicy;
 use Hengeb\Listig\Config\ListConfig;
 
 /**
@@ -71,7 +71,7 @@ final class ListActions
         // Unsubscribe: on every page like the other buttons. A session POST (like Join), so there is no
         // token link to be fetched by a scanner; it asks for confirmation unless the member could join
         // again right away (open + public list), see ListConfig::canRejoinAfterLeaving().
-        if ($identity !== null && $list->isMember($identity) && $list->allowLeave === AllowLeave::Direct && $list->supportsUnsubscribe) {
+        if ($identity !== null && $list->isMember($identity) && $list->leavePolicy === LeavePolicy::Direct && $list->supportsUnsubscribe) {
             $add(
                 'unsubscribe',
                 "/_/api/leave/{$list->name}",

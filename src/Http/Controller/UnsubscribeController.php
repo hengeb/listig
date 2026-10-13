@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Http\Controller;
 
-use Hengeb\Listig\Config\Enum\AllowLeave;
+use Hengeb\Listig\Config\Enum\LeavePolicy;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Member\LeaveOutcome;
 use Hengeb\Listig\Member\ListLeaver;
@@ -49,7 +49,7 @@ class UnsubscribeController
         $this->useLocale($list->language);
         $html = $this->latte->renderToString(__DIR__ . '/../../../templates/unsubscribe-confirm.latte', [
             'list' => $list,
-            'moderated' => $list->allowLeave === AllowLeave::Moderated,
+            'moderated' => $list->leavePolicy === LeavePolicy::Moderated,
             // Same URL, with the token — the form POSTs back to it.
             'action' => $request->getUri()->getPath() . '?token=' . rawurlencode((string) ($request->getQueryParams()['token'] ?? '')),
             'language' => $list->language,

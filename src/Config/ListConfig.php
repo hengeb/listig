@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Config;
 
-use Hengeb\Listig\Config\Enum\AllowLeave;
+use Hengeb\Listig\Config\Enum\LeavePolicy;
 use Hengeb\Listig\Config\Enum\ArchiveMode;
 use Hengeb\Listig\Config\Enum\BounceAction;
 use Hengeb\Listig\Config\Enum\JoinPolicy;
@@ -59,7 +59,7 @@ class ListConfig
         'post-access-members' => 'allow',
         'post-access-public' => 'deny',
         'post-access-unauthenticated' => 'allow',
-        'allow-leave' => 'direct',
+        'leave-policy' => 'direct',
         'archive' => 'off',
         'archive-folder' => 'Archive',
         'sender-notices' => 'authenticated',
@@ -505,8 +505,8 @@ class ListConfig
         get => PostAccess::from($this->resolve($this->setting('post-access-unauthenticated')));
     }
 
-    public AllowLeave $allowLeave {
-        get => AllowLeave::from($this->resolve($this->setting('allow-leave')));
+    public LeavePolicy $leavePolicy {
+        get => LeavePolicy::from($this->resolve($this->setting('leave-policy')));
     }
 
     public ?string $footer {

@@ -62,7 +62,7 @@ class ListLeaverTest extends TestCase
         $mailer = $this->createMock(NotificationMailer::class);
         $mailer->expects($this->once())->method('sendToOwners');
 
-        $outcome = $this->leaver($mailer)->leave($this->list(['allow-leave' => 'moderated'], $resolver), new Member('m@example.org', ['firstname' => 'Mia']), 'm@example.org');
+        $outcome = $this->leaver($mailer)->leave($this->list(['leave-policy' => 'moderated'], $resolver), new Member('m@example.org', ['firstname' => 'Mia']), 'm@example.org');
         $this->assertSame(LeaveOutcome::Requested, $outcome);
     }
 }

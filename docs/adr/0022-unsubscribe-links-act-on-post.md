@@ -10,7 +10,7 @@ The unsubscribe link of every mail (`/{listname}/unsubscribe?token=…`, in the 
 
 - `GET /{listname}/unsubscribe?token=…` only shows a confirmation page ("Unsubscribe from <list>?" with a button). `POST` to the same URL does the work. The POST is what the confirmation form sends **and** what an RFC 8058 one-click client sends, so the advertised header now works. The token stays the only credential (no session, no CSRF token needed: it cannot be forged).
 - The logged-in "Unsubscribe" button of the web UI no longer uses the token link at all: it is a session POST (`POST /_/api/leave/{listname}`, CSRF-protected, like "Join"), with a `confirm()` dialog except where the member could join again with one click (open + public list).
-- Both ways go through `ListLeaver`, so `allow-leave`, the "store cannot remove" answer and the owners' notice behave identically.
+- Both ways go through `ListLeaver`, so `leave-policy`, the "store cannot remove" answer and the owners' notice behave identically.
 
 ## Alternatives considered
 

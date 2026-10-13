@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Hengeb\Listig\Member;
 
-use Hengeb\Listig\Config\Enum\AllowLeave;
+use Hengeb\Listig\Config\Enum\LeavePolicy;
 use Hengeb\Listig\Config\ListConfig;
 use Hengeb\Listig\Mail\NotificationMailer;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
- * Takes a member off a list, honouring `allow-leave`. Shared by the two ways to leave: the token link
+ * Takes a member off a list, honouring `leave-policy`. Shared by the two ways to leave: the token link
  * of a mail footer (UnsubscribeController, POST only — see ADR-0022) and the logged-in "Unsubscribe"
  * button (MembershipController::leave()), so both behave identically and never differ in what they
  * reveal about an address.
@@ -26,7 +26,7 @@ class ListLeaver
     /** @param Member|null $member the member record if known (for the owners' notice), else only the address is used */
     public function leave(ListConfig $list, ?Member $member, string $memberEmail): LeaveOutcome
     {
-        if ($list->allowLeave === AllowLeave::Moderated) {
+        if ($list->leavePolicy === LeavePolicy::Moderated) {
             $this->notifyOwners($list, $member, $memberEmail);
             return LeaveOutcome::Requested;
         }

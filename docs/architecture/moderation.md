@@ -36,7 +36,7 @@ Moderation flow, UI and previews.
 
 **Reject via the manage-page button** (`ModerationController::reject()`, `POST /_/api/moderation/{id}/reject` — see [Moderation via UI](#moderation-via-ui)) follows the exact same reject contract as step 7 above: fetch the `IncomingMail` by UID, `RejectionNotifier::notify(..., 'reject.moderation_declined')`, `markSeen()`, `archiveOrDelete()`, then delete the `moderation_queue` row. It did not originally — it only deleted the row, leaving the sender un-notified and the mail stuck in the inbox forever (never marked seen, never archived/deleted) — a UI reject and a mail-reply reject must have identical end states, not two different ones depending on which path an owner happens to use.
 
-`allow-leave: moderated`: when a member requests unsubscription, send a plain notification mail to all owners: "User {firstname} {lastname} ({mail}) has requested removal from list {display-name}." Owner must remove manually in LDAP.
+`leave-policy: moderated`: when a member requests unsubscription, send a plain notification mail to all owners: "User {firstname} {lastname} ({mail}) has requested removal from list {display-name}." Owner must remove manually in LDAP.
 
 ### Overdue reminder
 
