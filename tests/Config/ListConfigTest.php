@@ -433,9 +433,9 @@ class ListConfigTest extends TestCase
         $list = new ListConfig('l', 'l@example.org', []);
         $this->assertSame(\Hengeb\Listig\Config\Enum\JoinPolicy::Invite, $list->joinPolicy);
         $this->assertSame(\Hengeb\Listig\Config\Enum\Visibility::Members, $list->visibility);
-        $list = new ListConfig('l', 'l@example.org', ['join-policy' => 'open', 'visibility' => 'public']);
+        $list = new ListConfig('l', 'l@example.org', ['join-policy' => 'open', 'visibility' => 'authenticated']);
         $this->assertSame(\Hengeb\Listig\Config\Enum\JoinPolicy::Open, $list->joinPolicy);
-        $this->assertSame(\Hengeb\Listig\Config\Enum\Visibility::Public, $list->visibility);
+        $this->assertSame(\Hengeb\Listig\Config\Enum\Visibility::Authenticated, $list->visibility);
     }
 
     public function testInvalidVisibilityFailsFast(): void
@@ -444,16 +444,22 @@ class ListConfigTest extends TestCase
         (new ListConfig('l', 'l@example.org', ['visibility' => 'secret']))->visibility;
     }
 
+    public function testFormerVisibilityPublicIsNoLongerAValidValue(): void
+    {
+        $this->expectException(\ValueError::class);
+        (new ListConfig('l', 'l@example.org', ['visibility' => 'public']))->visibility;
+    }
+
     public function testIsVisibleToFollowsVisibility(): void
     {
         $make = fn(string $v) => new ListConfig('l', 'l@example.org', ['visibility' => $v], $this->addableResolver());
 
         // guests see nothing, whatever the setting
-        foreach (['public', 'members', 'hidden'] as $v) {
+        foreach (['authenticated', 'members', 'hidden'] as $v) {
             $this->assertFalse($make($v)->isVisibleTo(null), $v);
         }
-        $this->assertTrue($make('public')->isVisibleTo('x@example.com'));
-        $this->assertTrue($make('public')->isVisibleTo('m@example.org'));
+        $this->assertTrue($make('authenticated')->isVisibleTo('x@example.com'));
+        $this->assertTrue($make('authenticated')->isVisibleTo('m@example.org'));
 
         $this->assertFalse($make('members')->isVisibleTo('x@example.com'));
         $this->assertTrue($make('members')->isVisibleTo('m@example.org'));
@@ -467,14 +473,14 @@ class ListConfigTest extends TestCase
     public function testCanJoinNeedsOpenPolicyVisibilityNonMemberAndAWritableStore(): void
     {
         $make = fn(array $raw, bool $add = true) => new ListConfig('l', 'l@example.org', $raw, $this->addableResolver($add));
-        $open = ['join-policy' => 'open', 'visibility' => 'public'];
+        $open = ['join-policy' => 'open', 'visibility' => 'authenticated'];
 
         $this->assertTrue($make($open)->canJoin('x@example.com'));
         $this->assertFalse($make($open)->canJoin(null), 'guests cannot join');
         $this->assertFalse($make($open)->canJoin('m@example.org'), 'already a member');
         $this->assertFalse($make($open, false)->canJoin('x@example.com'), 'store cannot add');
-        $this->assertFalse($make(['visibility' => 'public'])->canJoin('x@example.com'), 'invite is the default');
-        $this->assertFalse($make(['join-policy' => 'request', 'visibility' => 'public'])->canJoin('x@example.com'));
+        $this->assertFalse($make(['visibility' => 'authenticated'])->canJoin('x@example.com'), 'invite is the default');
+        $this->assertFalse($make(['join-policy' => 'request', 'visibility' => 'authenticated'])->canJoin('x@example.com'));
         $this->assertFalse($make(['join-policy' => 'open', 'visibility' => 'members'])->canJoin('x@example.com'), 'cannot see the list');
         $this->assertTrue($make(['join-policy' => 'open', 'visibility' => 'hidden'])->canJoin('o@example.org'), 'an owner who is not a member may join');
     }
@@ -527,7 +533,7 @@ class ListConfigTest extends TestCase
         $resolver = $this->createMock(\Hengeb\Listig\Member\MemberResolver::class);
         $resolver->expects($this->exactly(2))->method('getMembers')->willReturn([$member]);
         $resolver->expects($this->exactly(2))->method('getOwners')->willReturn([$owner]);
-        $list = new ListConfig('l', 'l@example.org', ['visibility' => 'public', 'archive' => 'members'], $resolver);
+        $list = new ListConfig('l', 'l@example.org', ['visibility' => 'authenticated', 'archive' => 'members'], $resolver);
 
         // Many permission checks, one read of each role (an LDAP-backed store queries per member).
         for ($i = 0; $i < 5; $i++) {

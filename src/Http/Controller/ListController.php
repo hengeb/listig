@@ -153,6 +153,7 @@ class ListController
             // Archive / unsubscribe / write buttons: ListActions decides, as on every list page —
             // e.g. a non-member never gets an archive link a members-only archive would refuse.
             'nav' => $this->listActions->forViewer($list, $user, 'info'),
+            'archiveRetention' => $this->archiveRetention($list),
             'language' => $list->language,
             'translator' => $this->translator,
             'appName' => $this->appName,
@@ -160,6 +161,26 @@ class ListController
 
         $response->getBody()->write($html);
         return $response;
+    }
+
+    /**
+     * How long archived mail is kept, in words ("12 Monate", "unbefristet"); null when the list
+     * does not archive at all. `archive-max-age` is a PHP relative-time string — the common
+     * "<n> day/week/month/year(s)" shapes are translated, anything else is shown as written.
+     */
+    private function archiveRetention(ListConfig $list): ?string
+    {
+        if (!$list->archivesMail) {
+            return null;
+        }
+        $raw = $list->archiveMaxAge;
+        if ($raw === null) {
+            return $this->translator->trans('list.info.archive_unlimited');
+        }
+        if (preg_match('/^\s*(\d+)\s*(day|week|month|year)s?\s*$/i', $raw, $m)) {
+            return $this->translator->trans('list.info.retention_' . strtolower($m[2]), ['%count%' => (int) $m[1]]);
+        }
+        return $raw;
     }
 
     private function getModerationItems(string $listName): array

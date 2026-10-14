@@ -114,11 +114,11 @@ class ListActionsTest extends TestCase
             return array_values(array_filter($nav->items, fn($i) => $i['key'] === 'unsubscribe'))[0]['confirm'];
         };
 
-        $this->assertNull($confirm(['join-policy' => 'open', 'visibility' => 'public'], true), 'open + public: undone with one click');
-        $this->assertNotNull($confirm(['join-policy' => 'open', 'visibility' => 'public'], false), 'store cannot add members again');
+        $this->assertNull($confirm(['join-policy' => 'open', 'visibility' => 'authenticated'], true), 'open + authenticated: undone with one click');
+        $this->assertNotNull($confirm(['join-policy' => 'open', 'visibility' => 'authenticated'], false), 'store cannot add members again');
         $this->assertNotNull($confirm(['join-policy' => 'open', 'visibility' => 'members'], true), 'a non-member would no longer see the list');
-        $this->assertNotNull($confirm(['join-policy' => 'invite', 'visibility' => 'public'], true), 'only by invitation');
-        $this->assertNotNull($confirm(['join-policy' => 'request', 'visibility' => 'public'], true), 'on request');
+        $this->assertNotNull($confirm(['join-policy' => 'invite', 'visibility' => 'authenticated'], true), 'only by invitation');
+        $this->assertNotNull($confirm(['join-policy' => 'request', 'visibility' => 'authenticated'], true), 'on request');
         $this->assertNotNull($confirm([], true), 'defaults: invite + members');
     }
 
@@ -129,7 +129,7 @@ class ListActionsTest extends TestCase
         $resolver->method('getMembers')->willReturn($inline->getMembers('news'));
         $resolver->method('getOwners')->willReturn($inline->getOwners('news'));
         $resolver->method('supportsAddition')->willReturn(true);
-        $list = new ListConfig('news', 'news@example.org', ['join-policy' => 'open', 'visibility' => 'public'], $resolver);
+        $list = new ListConfig('news', 'news@example.org', ['join-policy' => 'open', 'visibility' => 'authenticated'], $resolver);
 
         foreach (['', 'info', 'archive'] as $page) {
             $nav = $this->actions()->forViewer($list, ['email' => 'x@example.com'], $page);
@@ -144,7 +144,7 @@ class ListActionsTest extends TestCase
 
     public function testEveryButtonHasATablerIcon(): void
     {
-        $list = $this->removableList(['join-policy' => 'open', 'visibility' => 'public', 'reply-to' => 'masked-both', 'post-access-public' => 'allow'], true);
+        $list = $this->removableList(['join-policy' => 'open', 'visibility' => 'authenticated', 'reply-to' => 'masked-both', 'post-access-public' => 'allow'], true);
         $nav = $this->actions()->forViewer($list, ['email' => 'o@example.org'], 'manage');
         $this->assertNotEmpty($nav->items);
         foreach ($nav->items as $item) {

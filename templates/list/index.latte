@@ -20,5 +20,10 @@
         <strong>{$translator->trans('list.info.join_policy')}:</strong>
         {$translator->trans('list.join_policy.' . $list->joinPolicy->value)}
     </p>
+    <p>
+        <strong>{$translator->trans('list.info.archive')}:</strong>
+        {$translator->trans('list.archive_mode.' . $list->archive->value)}
+        {if $archiveRetention !== null}<br><strong>{$translator->trans('list.info.archive_retention')}:</strong> {$archiveRetention}{/if}
+    </p>
 </div>
 {/block}

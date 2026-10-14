@@ -793,7 +793,7 @@ class ListConfig
         }
         ['owner' => $owner, 'member' => $member] = $this->resolveActor($identity);
         return match ($this->visibility) {
-            Visibility::Public => true,
+            Visibility::Authenticated => true,
             Visibility::Members => $owner !== null || $member !== null,
             Visibility::Hidden => $owner !== null,
         };
@@ -801,13 +801,13 @@ class ListConfig
 
     /**
      * Whether someone who leaves can put themselves straight back: an `open` list that stays
-     * visible to non-members (`visibility: public`) and whose store can add members. Leaving such a
+     * visible to non-members (`visibility: authenticated`) and whose store can add members. Leaving such a
      * list needs no confirmation — it is undone with one click; any other list asks first.
      */
     public function canRejoinAfterLeaving(): bool
     {
         return $this->joinPolicy === JoinPolicy::Open
-            && $this->visibility === Visibility::Public
+            && $this->visibility === Visibility::Authenticated
             && $this->supportsJoin;
     }
 

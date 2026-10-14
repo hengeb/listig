@@ -153,6 +153,20 @@ subscribe_page:
 list:
   info:
     join_policy: "Beitritt"
+    archive: "Archiv"
+    archive_retention: "Aufbewahrung"
+    archive_unlimited: "unbefristet"
+    retention_day: "%count% Tag|%count% Tage"
+    retention_week: "%count% Woche|%count% Wochen"
+    retention_month: "%count% Monat|%count% Monate"
+    retention_year: "%count% Jahr|%count% Jahre"
+  archive_mode:
+    "off": "Die Mails dieser Liste werden nicht archiviert."
+    members: "Die Mails werden archiviert. Das Archiv können nur Mitglieder der Liste lesen."
+    owners: "Die Mails werden archiviert. Das Archiv kann nur die Listenverwaltung lesen."
+    authenticated: "Die Mails werden archiviert. Das Archiv können alle angemeldeten Nutzer:innen lesen, auch wenn sie nicht Mitglied dieser Liste sind."
+    public: "Die Mails werden archiviert. Das Archiv ist öffentlich lesbar."
+    hidden: "Die Mails werden archiviert, sind aber im Web-Archiv nicht einsehbar."
   join_policy:
     open: "offen – du kannst selbst beitreten"
     invite: "nur auf Einladung"

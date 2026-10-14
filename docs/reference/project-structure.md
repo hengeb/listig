@@ -85,7 +85,7 @@ Annotated directory tree.
 │   │   └── Enum/
 │   │       ├── ReplyToBehavior.php   # 'list' | 'sender' | 'both' | 'nobody' | 'masked-sender' | 'masked-both' — see "Masked reply addresses" (docs/architecture/masked-replies.md)
 │   │       ├── JoinPolicy.php        # 'open' | 'invite' | 'request' — join-policy, see "Visibility and join policy" (docs/architecture/web-ui.md)
-│   │       ├── Visibility.php        # 'public' | 'members' | 'hidden' — visibility, same section
+│   │       ├── Visibility.php        # 'authenticated' | 'members' | 'hidden' — visibility, same section
 │   │       ├── PostAccess.php        # 'allow' | 'deny' | 'moderate' — used for both post-access-members and post-access-public
 │   │       ├── LeavePolicy.php        # 'direct' | 'moderated'
 │   │       ├── ArchiveMode.php       # 'members' | 'owners' | 'public' | 'hidden' | 'off'
